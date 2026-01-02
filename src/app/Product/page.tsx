@@ -6,13 +6,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
-import { createClient } from "@supabase/supabase-js";
 import { useRouter, useSearchParams } from "next/navigation";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 // Helpers to normalize and match categories robustly
 // This fixes issues where DB values may contain different spacing/casing/plurals
@@ -52,6 +46,9 @@ function ProductsPageContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSideFilter, setShowSideFilter] = useState(false);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [inStockOnly, setInStockOnly] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -141,7 +138,7 @@ function ProductsPageContent() {
     );
   };
 
-  // Filter products by category + search (robust matching)
+  // Filter products by category + search + price range + stock (robust matching)
   const filteredProducts = products.filter((p) => {
     const selectedKey = normalizeKey(selectedCategory);
     const productKeys = extractProductCategoryKeys(p);
@@ -157,14 +154,53 @@ function ProductsPageContent() {
       );
 
     const q = search.trim().toLowerCase();
-    if (!q) return matchesCategory;
     const inName = (p.name || "").toLowerCase().includes(q);
     const inDesc = (p.description || "").toLowerCase().includes(q);
     const inCategory =
       (p.category || "").toLowerCase().includes(q) ||
       (Array.isArray(p.categories) && p.categories.some((c: any) => (c ?? "").toString().toLowerCase().includes(q))) ||
       (Array.isArray(p.tags) && p.tags.some((t: any) => (t ?? "").toString().toLowerCase().includes(q)));
-    return matchesCategory && (inName || inDesc || inCategory);
+
+    const matchesSearch = !q || inName || inDesc || inCategory;
+
+    // Price range filter
+    const rawPrice = p.price;
+    const numericPrice =
+      typeof rawPrice === "number"
+        ? rawPrice
+        : rawPrice !== undefined && rawPrice !== null && rawPrice !== ""
+        ? Number(rawPrice)
+        : NaN;
+
+    const hasMin = minPrice.trim() !== "";
+    const hasMax = maxPrice.trim() !== "";
+
+    let matchesPrice = true;
+
+    if (hasMin || hasMax) {
+      if (Number.isNaN(numericPrice)) {
+        // if product has no valid price and user set a price filter, hide it
+        matchesPrice = false;
+      } else {
+        const min = Number(minPrice);
+        const max = Number(maxPrice);
+        if (hasMin && !Number.isNaN(min) && numericPrice < min) matchesPrice = false;
+        if (hasMax && !Number.isNaN(max) && numericPrice > max) matchesPrice = false;
+      }
+    }
+
+    // Available stock filter (inventory > 0)
+    const rawInventory = p.inventory;
+    const numericInventory =
+      typeof rawInventory === "number"
+        ? rawInventory
+        : rawInventory !== undefined && rawInventory !== null && rawInventory !== ""
+        ? Number(rawInventory)
+        : NaN;
+
+    const matchesStock = !inStockOnly || (!Number.isNaN(numericInventory) && numericInventory > 0);
+
+    return matchesCategory && matchesSearch && matchesPrice && matchesStock;
   });
 
   return (
@@ -183,6 +219,56 @@ function ProductsPageContent() {
             />
           </div>
         </div>
+
+        {/* Price range filter (applies to all layouts) */}
+        <section className="pb-2">
+          <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-4 text-sm text-black">
+            <span className="font-medium">Price range:</span>
+            <div className="flex items-center gap-2">
+              <span>Min</span>
+              <input
+                type="number"
+                min={0}
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                className="w-24 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-red-600"
+                placeholder="0"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Max</span>
+              <input
+                type="number"
+                min={0}
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                className="w-24 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-red-600"
+                placeholder="No limit"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMinPrice("");
+                setMaxPrice("");
+              }}
+              className="text-xs text-gray-600 hover:text-red-600"
+            >
+              Clear price
+            </button>
+
+            {/* In-stock toggle */}
+            <label className="flex items-center gap-2 cursor-pointer ml-4">
+              <input
+                type="checkbox"
+                checked={inStockOnly}
+                onChange={(e) => setInStockOnly(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <span className="text-xs sm:text-sm">Only show items with available stock</span>
+            </label>
+          </div>
+        </section>
 
         {/* Category Tabs */}
         <section className={`py-6 border-b ${showSideFilter ? "lg:hidden" : ""}`}>
@@ -226,6 +312,42 @@ function ProductsPageContent() {
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Price range controls inside sidebar */}
+              <div className="mt-4 border-t pt-3 text-xs text-gray-700 flex flex-col gap-2">
+                <div className="font-semibold uppercase tracking-wider text-gray-500">Price range</div>
+                <div className="flex items-center gap-2">
+                  <span>Min</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={minPrice}
+                    onChange={(e) => setMinPrice(e.target.value)}
+                    className="w-20 border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>Max</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={maxPrice}
+                    onChange={(e) => setMaxPrice(e.target.value)}
+                    className="w-20 border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
+                  />
+                </div>
+
+                {/* In-stock toggle in sidebar */}
+                <label className="mt-2 flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={inStockOnly}
+                    onChange={(e) => setInStockOnly(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span>Only show available stock</span>
+                </label>
               </div>
             </div>
           </aside>

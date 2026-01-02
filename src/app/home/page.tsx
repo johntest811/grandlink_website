@@ -9,9 +9,9 @@ import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
 
 type HomeContent = {
-  carousel?: Array<{ image?: string; title?: string; buttonText?: string; buttonLink?: string }>;
+  carousel?: Array<{ image?: string; youtube_url?: string; title?: string; buttonText?: string; buttonLink?: string }>;
   explore?: Array<{ image?: string; title?: string; buttonText?: string; buttonLink?: string }>;
-  featured_projects?: Array<{ image?: string; title?: string; description?: string }>;
+  featured_projects?: Array<{ image?: string; title?: string; description?: string; youtube_url?: string }>;
   services?: { images?: string[]; title?: string; description?: string; buttonText?: string; buttonLink?: string };
   about?: { logo?: string; title?: string; description?: string; buttonText?: string; buttonLink?: string };
   [k: string]: any;
@@ -22,16 +22,22 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+
 // singleton id used by the admin API/backend
 const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
 // helper to convert storage file key -> public url (or pass through full urls)
 function getImageUrl(val?: string) {
   if (!val) return "";
-  if (val.startsWith("http://") || val.startsWith("https://")) return val;
-  // build Supabase storage public url: /storage/v1/object/public/<bucket>/<file>
+  const v = String(val).trim();
+  // If it's already an absolute URL, just return it
+  if (v.startsWith("http://") || v.startsWith("https://")) return v;
+  // If it looks like a Next.js public asset (starts with /), use it directly
+  if (v.startsWith("/")) return v;
+  // Otherwise, treat it as a Supabase Storage key in the `uploads` bucket
   const base = SUPABASE_URL.replace(/\/$/, "");
-  return `${base}/storage/v1/object/public/uploads/${encodeURIComponent(val)}`;
+  const cleaned = v.replace(/^\/+/, "");
+  return `${base}/storage/v1/object/public/uploads/${encodeURIComponent(cleaned)}`;
 }
 
 export default function HomePage() {
@@ -96,9 +102,9 @@ export default function HomePage() {
 
   // fallback static slides (keeps same design if DB empty)
   const fallbackSlides = [
-    { id: 1, title: "Welcome to Grand East", image_url: "/slider1.jpg", link_url: "/about-us" },
-    { id: 2, title: "Quality Aluminum & Glass", image_url: "/slider2.jpg", link_url: "/products" },
-    { id: 3, title: "Modern Designs", image_url: "/slider3.jpg", link_url: "/services" },
+    { id: 1, title: "Welcome to Grand East", image_url: "/aboutus.avif", link_url: "/about-us" },
+    { id: 2, title: "Quality Aluminum & Glass", image_url: "/sevices.avif", link_url: "/Product" },
+    { id: 3, title: "Modern Designs", image_url: "/Delivery&Ordering.avif", link_url: "/services" },
   ];
 
   useEffect(() => {
@@ -179,6 +185,25 @@ function HeroSlider({ slides }: { slides: any[] }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  const getYoutubeEmbedUrl = (url?: string) => {
+    if (!url) return null;
+
+    try {
+      const watchMatch = url.match(/[?&]v=([^&#]+)/);
+      if (watchMatch?.[1]) return `https://www.youtube.com/embed/${watchMatch[1]}`;
+
+      const shortMatch = url.match(/youtu\.be\/([^&#?/]+)/);
+      if (shortMatch?.[1]) return `https://www.youtube.com/embed/${shortMatch[1]}`;
+
+      const embedMatch = url.match(/youtube\.com\/embed\/([^&#?/]+)/);
+      if (embedMatch?.[1]) return `https://www.youtube.com/embed/${embedMatch[1]}`;
+    } catch {
+      return null;
+    }
+
+    return null;
+  };
+
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.on("select", () => {
@@ -186,14 +211,18 @@ function HeroSlider({ slides }: { slides: any[] }) {
     });
   }, [emblaApi]);
 
-  // Manual autoplay implementation
+  // Manual autoplay implementation (pause when current slide is a YouTube video so users can watch)
   useEffect(() => {
     if (!emblaApi) return;
+    const active = slides?.[selectedIndex];
+    const activeEmbed = getYoutubeEmbedUrl(active?.youtube_url || active?.video_url || active?.link_url);
+    if (activeEmbed) return;
+
     const interval = setInterval(() => {
       emblaApi.scrollNext();
     }, 4000); // Change slide every 4 seconds
     return () => clearInterval(interval);
-  }, [emblaApi]);
+  }, [emblaApi, selectedIndex, slides]);
 
   return (
     // smaller, responsive slider:
@@ -206,10 +235,22 @@ function HeroSlider({ slides }: { slides: any[] }) {
             const link = slide.buttonLink ?? slide.link_url ?? slide.buttonLink;
             const img = slide.image ?? slide.image_url ?? slide.url ?? "";
             const src = getImageUrl(img);
+
+            const embedUrl = getYoutubeEmbedUrl(slide.youtube_url || slide.video_url);
             return (
               <div key={idx} className="flex-[0_0_100%] relative h-full">
-                {/* Image fills the slide area */}
-                {src ? (
+                {/* Video or image fills the slide area */}
+                {embedUrl ? (
+                  <div className="absolute inset-0 bg-black">
+                    <iframe
+                      src={embedUrl}
+                      className="w-full h-full"
+                      title={title || "Carousel video"}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  </div>
+                ) : src ? (
                   <div className="absolute inset-0">
                     <Image src={src} alt={title} fill className="object-cover" priority />
                   </div>
@@ -217,14 +258,23 @@ function HeroSlider({ slides }: { slides: any[] }) {
                   <div className="absolute inset-0 bg-gray-300" />
                 )}
 
-                <div className="absolute inset-0 bg-black/35 flex flex-col items-center justify-center text-white text-center px-4">
-                  <h2 className="text-lg sm:text-2xl md:text-3xl font-bold mb-2">{title}</h2>
-                  {link && (
-                    <Link href={link} className="bg-red-600 px-4 py-2 rounded text-sm sm:text-base font-semibold hover:bg-red-700 transition">
-                      {slide.buttonText ?? "Learn More"}
-                    </Link>
-                  )}
-                </div>
+                {/* Overlay: keep for image slides; for video slides, show only title (non-blocking) */}
+                {embedUrl ? (
+                  title ? (
+                    <div className="absolute top-0 left-0 right-0 bg-black/30 text-white px-4 py-2 pointer-events-none">
+                      <h2 className="text-sm sm:text-base md:text-lg font-semibold text-center">{title}</h2>
+                    </div>
+                  ) : null
+                ) : (
+                  <div className="absolute inset-0 bg-black/35 flex flex-col items-center justify-center text-white text-center px-4">
+                    <h2 className="text-lg sm:text-2xl md:text-3xl font-bold mb-2">{title}</h2>
+                    {link && (
+                      <Link href={link} className="bg-red-600 px-4 py-2 rounded text-sm sm:text-base font-semibold hover:bg-red-700 transition">
+                        {slide.buttonText ?? "Learn More"}
+                      </Link>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -335,10 +385,10 @@ function ProductCategory({
 function ExploreSection({ items }: { items?: Array<any> }) {
   // fallback categories if none provided
   const categories = items && items.length ? items : [
-    { title: "Doors", buttonText: "View More Products", image: "/doors.jpg" },
-    { title: "Enclosures", buttonText: "View More Products", image: "/enclosures.jpg" },
-    { title: "Windows", buttonText: "View More Products", image: "/windows.jpg" },
-    { title: "Railings", buttonText: "View More Products", image: "/railings.jpg" },
+    { title: "Doors", buttonText: "View More Products", image: "/aboutus.avif" },
+    { title: "Enclosures", buttonText: "View More Products", image: "/sevices.avif" },
+    { title: "Windows", buttonText: "View More Products", image: "/faqs.avif" },
+    { title: "Railings", buttonText: "View More Products", image: "/Delivery&Ordering.avif" },
   ];
 
   return (
@@ -392,18 +442,48 @@ function ExploreSection({ items }: { items?: Array<any> }) {
   );
 }
 
+
+// Featured Projects 
 function FeaturedProjects({ projects }: { projects?: Array<any> }) {
   const list = projects && projects.length ? projects : [
-    { title: "Project 1", image: "/project1.jpg", description: "Description for Project 1" },
-    { title: "Project 2", image: "/project2.jpg", description: "Description for Project 2" },
-    { title: "Project 3", image: "/project3.jpg", description: "Description for Project 3" },
+    { title: "Project 1", image: "/project1.jpg", description: "Description for Project 1", youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { title: "Project 2", image: "/project2.jpg", description: "Description for Project 2", youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { title: "Project 3", image: "/project3.jpg", description: "Description for Project 3", youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
   ];
 
   // Track which card is flipped
-  const [flipped, setFlipped] = useState<number | null>(null);
+  const [flipped, setFlipped] = useState<number | null>(null); // no longer used for UI, kept to avoid runtime issues
+
+  const getYoutubeEmbedUrl = (url?: string) => {
+    if (!url) return null;
+
+    try {
+      // Handle full YouTube URLs like https://www.youtube.com/watch?v=ID
+      const watchMatch = url.match(/[?&]v=([^&#]+)/);
+      if (watchMatch?.[1]) {
+        return `https://www.youtube.com/embed/${watchMatch[1]}`;
+      }
+
+      // Handle short URLs like https://youtu.be/ID
+      const shortMatch = url.match(/youtu\.be\/([^&#?/]+)/);
+      if (shortMatch?.[1]) {
+        return `https://www.youtube.com/embed/${shortMatch[1]}`;
+      }
+
+      // Handle already-embed URLs
+      const embedMatch = url.match(/youtube\.com\/embed\/([^&#?/]+)/);
+      if (embedMatch?.[1]) {
+        return `https://www.youtube.com/embed/${embedMatch[1]}`;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  };
 
   return (
-    <section className="w-full bg-[#232d3b] py-12">
+    <section className="w-full bg-[#141821] py-12">
       <div className="max-w-screen-xl mx-auto">
         {/* Header row */}
         <div className="flex flex-col md:flex-row items-center justify-between mb-8">
@@ -418,44 +498,43 @@ function FeaturedProjects({ projects }: { projects?: Array<any> }) {
             VIEW MORE PROJECTS
           </a>
         </div>
-        {/* Projects grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
+
+        {/* List all featured projects vertically */}
+        <div className="space-y-12">
           {list.map((p, i) => {
-            const img = getImageUrl(p.image);
-            const isFlipped = flipped === i;
+            const embedUrl = getYoutubeEmbedUrl(p.youtube_url || p.video_url || p.link_url);
+
             return (
-              <div
-                key={i}
-                className="relative group h-[420px] cursor-pointer perspective"
-                onClick={() => setFlipped(flipped === i ? null : i)}
-              >
-                <div className={`transition-transform duration-500 h-full w-full [transform-style:preserve-3d] ${isFlipped ? "[transform:rotateY(180deg)]" : ""}`}>
-                  {/* Front Side */}
-                  <div className="absolute inset-0 h-full w-full rounded overflow-hidden [backface-visibility:hidden] shadow-2xl">
-                    {img ? (
-                      <img src={img} alt={p.title || ""} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-gray-300" />
-                    )}
-                    {/* Shadow overlay in front */}
-                    <div className="absolute inset-0 bg-black/20 pointer-events-none" />
-                  </div>
-                  {/* Back Side */}
-                  <div className="absolute inset-0 h-full w-full rounded bg-white flex flex-col items-center justify-center px-6 [transform:rotateY(180deg)] [backface-visibility:hidden] shadow-2xl">
-                    <h3 className="text-2xl font-bold mb-4 text-[#8B1C1C] text-center">{p.title}</h3>
-                    <p className="text-gray-700 text-center text-base">{p.description}</p>
-                  </div>
+              <article key={i} className="flex flex-col items-center text-center">
+                {/* Video area */}
+                <div className="w-full max-w-4xl aspect-video bg-black rounded overflow-hidden mb-4">
+                  {embedUrl ? (
+                    <iframe
+                      src={embedUrl}
+                      className="w-full h-full"
+                      title={p.title || "Featured project video"}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+                      No video available for this project.
+                    </div>
+                  )}
                 </div>
-              </div>
+
+                {/* Text content */}
+                <h3 className="text-xl md:text-2xl font-semibold text-white mb-2">
+                  {p.title}
+                </h3>
+                <p className="text-sm md:text-base text-gray-300 max-w-3xl">
+                  {p.description}
+                </p>
+              </article>
             );
           })}
         </div>
       </div>
-      <style>{`
-        .perspective {
-          perspective: 1200px;
-        }
-      `}</style>
     </section>
   );
 }

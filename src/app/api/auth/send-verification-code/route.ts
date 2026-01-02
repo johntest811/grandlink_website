@@ -52,16 +52,28 @@ export async function POST(req: Request) {
     });
 
     // Send email with verification code
+    const LOGIN_GMAIL_USER = process.env.LOGIN_GMAIL_USER || process.env.GMAIL_USER;
+    const LOGIN_GMAIL_PASS = process.env.LOGIN_GMAIL_PASS || process.env.GMAIL_PASS;
+    const LOGIN_GMAIL_FROM =
+      process.env.LOGIN_GMAIL_FROM || process.env.GMAIL_FROM || LOGIN_GMAIL_USER;
+
+    if (!LOGIN_GMAIL_USER || !LOGIN_GMAIL_PASS) {
+      return NextResponse.json(
+        { error: "Email is not configured on the server" },
+        { status: 500 }
+      );
+    }
+
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS,
+        user: LOGIN_GMAIL_USER,
+        pass: LOGIN_GMAIL_PASS,
       },
     });
 
     const mailOptions = {
-      from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
+      from: LOGIN_GMAIL_FROM,
       to: email,
       subject: 'Your Verification Code - Grand East Glass and Aluminum',
       html: `

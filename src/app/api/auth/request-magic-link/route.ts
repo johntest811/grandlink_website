@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sendVerificationCode } from "../send-verification-code/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +8,6 @@ export const revalidate = 0;
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://grandlnik-website.vercel.app";
 
 export async function POST(req: Request) {
   try {
@@ -44,19 +44,13 @@ export async function POST(req: Request) {
     // 2) Immediately invalidate the server-side session (we only needed verification)
     await supabaseServer.auth.signOut();
 
-    // 3) Send a single magic link to finish sign-in on the client
-    const { error: otpErr } = await supabaseServer.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${BASE_URL}/login/confirm`,
-      },
-    });
-
-    if (otpErr) {
-      return NextResponse.json({ error: otpErr.message || "Failed to send magic link" }, { status: 500 });
+    // 3) Send a verification code (from the dedicated login Gmail account)
+    const codeResult = await sendVerificationCode(email, false);
+    if (!codeResult.ok) {
+      return NextResponse.json({ error: codeResult.error }, { status: codeResult.status });
     }
 
-    return NextResponse.json({ success: true, message: "Magic link sent" });
+    return NextResponse.json({ success: true, message: codeResult.message });
   } catch (err: any) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

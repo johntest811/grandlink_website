@@ -211,13 +211,9 @@ function HeroSlider({ slides }: { slides: any[] }) {
     });
   }, [emblaApi]);
 
-  // Manual autoplay implementation (pause when current slide is a YouTube video so users can watch)
+  // Manual autoplay implementation (always autoplay, including YouTube slides)
   useEffect(() => {
     if (!emblaApi) return;
-    const active = slides?.[selectedIndex];
-    const activeEmbed = getYoutubeEmbedUrl(active?.youtube_url || active?.video_url || active?.link_url);
-    if (activeEmbed) return;
-
     const interval = setInterval(() => {
       emblaApi.scrollNext();
     }, 4000); // Change slide every 4 seconds
@@ -226,8 +222,8 @@ function HeroSlider({ slides }: { slides: any[] }) {
 
   return (
     // smaller, responsive slider:
-    // mobile ~140px, sm ~200px, md ~280px
-    <div className="relative w-full h-[140px] sm:h-[200px] md:h-[280px] overflow-hidden">
+    // mobile ~240px, sm ~360px, md ~520px
+    <div className="relative w-full h-[240px] sm:h-[360px] md:h-[520px] overflow-hidden">
       <div className="overflow-hidden h-full" ref={emblaRef}>
         <div className="flex h-full">
           {slides.map((slide: any, idx: number) => {

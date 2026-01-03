@@ -38,7 +38,12 @@ export default function LoginPage() {
         setSending(false);
         return;
       }
-      setShowSuccess(true); // Show "Check your email" message
+      // Store credentials temporarily so /login/verify can complete sign-in after code verification
+      sessionStorage.setItem("login_email", email);
+      sessionStorage.setItem("login_password", password);
+      sessionStorage.setItem("login_flow", "password");
+
+      router.push("/login/verify");
     } catch (e: any) {
       setError("Failed to start login");
       setSending(false);
@@ -69,7 +74,8 @@ export default function LoginPage() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${baseUrl}/home`,
+        // After Google OAuth completes, we still require a verification code.
+        redirectTo: `${baseUrl}/login/confirm`,
       },
     });
   };

@@ -16,11 +16,21 @@ export default function VerifyPage() {
   useEffect(() => {
     // Get email from session storage
     const storedEmail = sessionStorage.getItem("login_email");
-    if (!storedEmail) {
-      router.push("/login");
-      return;
+    if (storedEmail) {
+      setEmail(storedEmail);
+    } else {
+      // Fallback for OAuth sessions: try to read the signed-in user's email
+      supabase.auth.getUser().then(({ data }) => {
+        const e = data.user?.email || "";
+        if (!e) {
+          router.push("/login");
+          return;
+        }
+        sessionStorage.setItem("login_email", e);
+        sessionStorage.setItem("login_flow", "oauth");
+        setEmail(e);
+      });
     }
-    setEmail(storedEmail);
     
     // Focus first input
     inputRefs.current[0]?.focus();
@@ -93,27 +103,32 @@ export default function VerifyPage() {
 
       // Code is valid, now sign in the user
       const password = sessionStorage.getItem("login_password");
-      
-      if (!password) {
-        setError("Session expired. Please login again.");
-        router.push("/login");
-        return;
-      }
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      if (password) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (signInError) {
-        setError("Failed to sign in. Please try again.");
-        setLoading(false);
-        return;
+        if (signInError) {
+          setError("Failed to sign in. Please try again.");
+          setLoading(false);
+          return;
+        }
+      } else {
+        // OAuth flow: the user should already have an active Supabase session.
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          setError("Session expired. Please login again.");
+          router.push("/login");
+          return;
+        }
       }
 
       // Clear session storage
       sessionStorage.removeItem("login_email");
       sessionStorage.removeItem("login_password");
+      sessionStorage.removeItem("login_flow");
 
       // Redirect to home
       router.push("/home");

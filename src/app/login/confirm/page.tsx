@@ -62,8 +62,40 @@ export default function ConfirmLoginPage() {
           return;
         }
 
-        // If we successfully got a session, send the user to home
-        router.replace("/home");
+        // If we successfully got a session, require a verification code before continuing.
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr) {
+          setError(userErr.message || "Failed to read user session. Try again.");
+          setWorking(false);
+          return;
+        }
+
+        const userEmail = userData.user?.email || "";
+        if (!userEmail) {
+          setError("No email found for this account. Please try again.");
+          setWorking(false);
+          return;
+        }
+
+        // Store email so verify page can show it
+        sessionStorage.setItem("login_email", userEmail);
+        sessionStorage.setItem("login_flow", "oauth");
+
+        // Send verification code
+        const sendRes = await fetch("/api/auth/send-verification-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: userEmail, resend: false }),
+        });
+
+        if (!sendRes.ok) {
+          const msg = await sendRes.json().catch(() => null);
+          setError(msg?.error || "Failed to send verification code. Please try again.");
+          setWorking(false);
+          return;
+        }
+
+        router.replace("/login/verify");
       } catch (e: any) {
         setError("Failed to complete sign-in. Try again.");
         setWorking(false);

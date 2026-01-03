@@ -15,7 +15,7 @@
     "embla-carousel": "^8.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.12",
-    "next": "^15.5.2",
+    "next": "15.5.9",
     "nodemailer": "^7.0.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -37,7 +37,7 @@
     "@types/stripe": "^8.0.416",
     "@types/three": "^0.179.0",
     "eslint": "^9",
-    "eslint-config-next": "15.4.5",
+    "eslint-config-next": "15.5.9",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

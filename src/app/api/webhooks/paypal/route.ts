@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -108,7 +109,9 @@ export async function POST(request: NextRequest) {
           continue;
         }
         
-        if (!cartUserId) cartUserId = userItem.user_id;        const itemMeta = userItem.meta || {};
+             if (!cartUserId) cartUserId = userItem.user_id;
+
+             const itemMeta = userItem.meta || {};
         const reservationFee = Number(itemMeta.reservation_fee ?? userItem.reservation_fee ?? 500);
         const subtotal = Number(itemMeta.subtotal ?? 0);
         const addonsTotal = Number(itemMeta.addons_total ?? 0);

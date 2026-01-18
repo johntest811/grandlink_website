@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GrandLink Website
 
-## Getting Started
+Next.js (App Router) customer-facing website for GrandLink.
 
-First, run the development server:
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Required environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create `website/grandlink_website/.env.local`:
 
-## Learn More
+```bash
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
-To learn more about Next.js, take a look at the following resources:
+# Server-side Supabase (used by secure API routes + webhooks)
+SUPABASE_SERVICE_ROLE_KEY=...
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Invoice emailing (Gmail SMTP)
+GMAIL_USER=your_gmail@gmail.com
+GMAIL_PASS=your_gmail_app_password
+GMAIL_FROM="GrandLink <your_gmail@gmail.com>"
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Notes:
+- For Gmail, use an **App Password** (not your normal password).
+- `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the browser.
 
-## Deploy on Vercel
+## Database: invoices table
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Invoices are stored in `public.invoices` and can be viewed by the customer.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1) Open Supabase SQL Editor
+2) Run the migration in [invoices_schema.sql](invoices_schema.sql)
+
+This migration:
+- Creates `public.invoices`
+- Adds indexes + `updated_at` trigger
+- Enables RLS and adds a policy so users can read their own invoices
+
+## Invoices (visible + emailed)
+
+- Visible: customer can open an invoice at `/profile/invoice/[userItemId]`.
+- Generated: on successful payment (via PayMongo/PayPal webhooks), the server ensures an invoice exists.
+- Emailed: after invoice creation, the server attempts to send the invoice HTML to the customer email via Gmail SMTP.
+
+If you don’t receive emails:
+- Confirm `GMAIL_USER` / `GMAIL_PASS` are set on the **server runtime** (Vercel/hosting env vars).
+- Check server logs for `Invoice email send failed`.
+
+## Fulfillment: pickup vs delivery
+
+Checkout and reservations support Pickup/Delivery. The selected method is persisted on the order/reservation in:
+- `user_items.meta.delivery_method`
+- `user_items.delivery_address_id` (delivery)
+- `user_items.meta.selected_branch` / `user_items.meta.branch` (pickup)
+
+## Webhook reminder
+
+Payment gateways require a **public webhook URL**. For local testing, use something like ngrok and point PayMongo/PayPal webhooks to your `.../api/webhooks/*` endpoints.

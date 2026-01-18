@@ -48,6 +48,7 @@ function ReservationPageContent() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [selectedBranch, setSelectedBranch] = useState<string>("");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<"delivery" | "pickup">("delivery");
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -209,8 +210,16 @@ function ReservationPageContent() {
   };
 
   const handleReservation = async () => {
-    if (!userId || !product || !selectedAddressId || !selectedBranch) {
-      alert("Please complete all required fields including branch selection");
+    if (!userId || !product) {
+      alert("Please sign in");
+      return;
+    }
+    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
+      alert("Please select a delivery address");
+      return;
+    }
+    if (fulfillmentMethod === "pickup" && !selectedBranch) {
+      alert("Please select a pickup branch");
       return;
     }
     if (product.inventory < qty) {
@@ -219,8 +228,8 @@ function ReservationPageContent() {
     }
     setSubmitting(true);
     try {
-      const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
-      if (!selectedAddress) throw new Error("Selected address not found");
+      const selectedAddress = fulfillmentMethod === "delivery" ? addresses.find((a) => a.id === selectedAddressId) : null;
+      if (fulfillmentMethod === "delivery" && !selectedAddress) throw new Error("Selected address not found");
 
       const addons = formData.colorCustomization
         ? [
@@ -239,7 +248,7 @@ function ReservationPageContent() {
         item_type: "reservation",
         status: "pending_payment",
         quantity: qty,
-        delivery_address_id: selectedAddressId,
+        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
         special_instructions: formData.specialInstructions || null,
         payment_status: "pending",
         reservation_fee: reservationFee,
@@ -255,20 +264,23 @@ function ReservationPageContent() {
           product_description: product.description,
           additional_features: product.additionalfeatures,
           payment_method: paymentMethod,
-          selected_branch: selectedBranch,
+          delivery_method: fulfillmentMethod,
+          selected_branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
           custom_dimensions: {
             width: parseFloat(formData.customWidth) || product.width,
             height: parseFloat(formData.customHeight) || product.height,
             thickness:
               parseFloat(formData.customThickness) || product.thickness,
           },
-          delivery_address: {
-            first_name: selectedAddress.first_name,
-            last_name: selectedAddress.last_name,
-            full_name: selectedAddress.full_name,
-            phone: selectedAddress.phone,
-            address: selectedAddress.address,
-          },
+          delivery_address: selectedAddress
+            ? {
+                first_name: selectedAddress.first_name,
+                last_name: selectedAddress.last_name,
+                full_name: selectedAddress.full_name,
+                phone: selectedAddress.phone,
+                address: selectedAddress.address,
+              }
+            : null,
           addons,
           subtotal: productSubtotal,
           addons_total: addonsTotal,
@@ -295,6 +307,9 @@ function ReservationPageContent() {
         user_item_ids: [userItem.id],
         payment_method: paymentMethod,
         payment_type: "reservation",
+        delivery_method: fulfillmentMethod,
+        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
+        branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
         success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
@@ -469,36 +484,64 @@ function ReservationPageContent() {
                 </div>
 
                 <div>
-                  <label className="text-sm text-gray-600">Delivery Address *</label>
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={selectedAddressId}
-                    onChange={(e) => setSelectedAddressId(e.target.value)}
-                  >
-                    <option value="">Select Address</option>
-                    {addresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.full_name} — {a.address}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="text-sm text-gray-600">Fulfillment Method *</label>
+                  <div className="flex gap-4 mt-2">
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="fulfillmentMethod"
+                        value="delivery"
+                        checked={fulfillmentMethod === "delivery"}
+                        onChange={() => setFulfillmentMethod("delivery")}
+                      />
+                      Delivery
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="fulfillmentMethod"
+                        value="pickup"
+                        checked={fulfillmentMethod === "pickup"}
+                        onChange={() => setFulfillmentMethod("pickup")}
+                      />
+                      Pickup
+                    </label>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="text-sm text-gray-600">Store Branch *</label>
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={selectedBranch}
-                    onChange={(e) => setSelectedBranch(e.target.value)}
-                  >
-                    <option value="">Select Store Branch</option>
-                    {branches.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {fulfillmentMethod === "delivery" ? (
+                  <div>
+                    <label className="text-sm text-gray-600">Delivery Address *</label>
+                    <select
+                      className="w-full border rounded px-3 py-2"
+                      value={selectedAddressId}
+                      onChange={(e) => setSelectedAddressId(e.target.value)}
+                    >
+                      <option value="">Select Address</option>
+                      {addresses.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.full_name} — {a.address}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-sm text-gray-600">Store Branch *</label>
+                    <select
+                      className="w-full border rounded px-3 py-2"
+                      value={selectedBranch}
+                      onChange={(e) => setSelectedBranch(e.target.value)}
+                    >
+                      <option value="">Select Store Branch</option>
+                      {branches.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-sm text-gray-600">

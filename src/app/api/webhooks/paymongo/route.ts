@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -184,6 +185,13 @@ export async function POST(request: NextRequest) {
           total_paid: finalTotalPerItem,
           user_id: userItem.user_id,
         });
+
+        // Generate invoice (best-effort)
+        try {
+          await ensureInvoiceForUserItem(id);
+        } catch (e) {
+          console.warn('Invoice generation failed for', id, e);
+        }
       }
 
       // Clear cart table for items that came from cart (check metadata)

@@ -50,6 +50,7 @@ function CartCheckoutContent() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [selectedBranch, setSelectedBranch] = useState<string>("");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<"delivery" | "pickup">("delivery");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -196,11 +197,11 @@ function CartCheckoutContent() {
       alert("Please sign in");
       return;
     }
-    if (!selectedAddressId) {
+    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
       alert("Please select a delivery address");
       return;
     }
-    if (!selectedBranch) {
+    if (fulfillmentMethod === "pickup" && !selectedBranch) {
       alert("Please select a pickup branch");
       return;
     }
@@ -223,8 +224,9 @@ function CartCheckoutContent() {
           user_id: userId,
           payment_method: paymentMethod,
           payment_type: "reservation",
-          delivery_address_id: selectedAddressId,
-          branch: selectedBranch,
+          delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
+          branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
+          delivery_method: fulfillmentMethod,
           // Include the receipt ref in the success URL so we can fetch only these items later
           success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}`,
           cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}`,
@@ -286,7 +288,35 @@ function CartCheckoutContent() {
                 Reservation Details
               </h2>
 
+              {/* Fulfillment Method */}
+              <div className="mb-5">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Fulfillment Method <span className="text-red-600">*</span>
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="fulfillment"
+                      checked={fulfillmentMethod === "delivery"}
+                      onChange={() => setFulfillmentMethod("delivery")}
+                    />
+                    <span className="text-gray-900 font-medium">Delivery</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="fulfillment"
+                      checked={fulfillmentMethod === "pickup"}
+                      onChange={() => setFulfillmentMethod("pickup")}
+                    />
+                    <span className="text-gray-900 font-medium">Pickup</span>
+                  </label>
+                </div>
+              </div>
+
               {/* Delivery Address */}
+              {fulfillmentMethod === "delivery" && (
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Delivery Address <span className="text-red-600">*</span>
@@ -314,8 +344,10 @@ function CartCheckoutContent() {
                   </p>
                 )}
               </div>
+              )}
 
               {/* Pickup Branch */}
+              {fulfillmentMethod === "pickup" && (
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Branch <span className="text-red-600">*</span>
@@ -334,6 +366,7 @@ function CartCheckoutContent() {
                   ))}
                 </select>
               </div>
+              )}
             </div>
 
             {/* Payment Method */}

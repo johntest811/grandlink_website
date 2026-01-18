@@ -199,6 +199,7 @@ export async function POST(request: NextRequest) {
       success_url,
       cancel_url,
       voucher,
+      delivery_method,
       delivery_address_id,
       branch,
       receipt_ref,
@@ -240,6 +241,7 @@ export async function POST(request: NextRequest) {
         quantity: cartItem.quantity,
         meta: {
           ...(cartItem.meta || {}),
+          ...(delivery_method ? { delivery_method } : {}),
           branch,
           from_cart: true,
           cart_id: cartItem.id,

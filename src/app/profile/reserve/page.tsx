@@ -5,6 +5,20 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
 
+const BRANCHES = [
+  "BALINTAWAK BRANCH",
+  "STA. ROSA BRANCH",
+  "UGONG BRANCH",
+  "ALABANG SHOWROOM",
+  "IMUS BRANCH",
+  "PAMPANGA SHOWROOM",
+  "HIHOME BRANCH",
+  "MC HOME DEPO ORTIGAS",
+  "SAN JUAN CITY",
+  "CW COMMONWEALTH",
+  "MC HOME DEPO BGC",
+];
+
 type UserItem = {
   id: string;
   user_id: string;
@@ -73,6 +87,13 @@ function ProfileReservePageContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [showFullReceipt, setShowFullReceipt] = useState<{item: UserItem, product: Product} | null>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  const [changeModal, setChangeModal] = useState<{ item: UserItem; product?: Product } | null>(null);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [changeMethod, setChangeMethod] = useState<"delivery" | "pickup">("delivery");
+  const [changeAddressId, setChangeAddressId] = useState<string>("");
+  const [changeBranch, setChangeBranch] = useState<string>("");
+  const [changing, setChanging] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -254,6 +275,97 @@ function ProfileReservePageContent() {
     window.print();
   };
 
+  const canChangeReservation = (it: UserItem) => {
+    const s = String(it.status || "");
+    return s === "pending_payment" || s === "reserved" || s === "pending_balance_payment";
+  };
+
+  const openChange = async (item: UserItem) => {
+    const product = productsById[item.product_id];
+    setChangeModal({ item, product });
+
+    const inferred: "delivery" | "pickup" =
+      item?.meta?.delivery_method === "pickup" || item?.meta?.fulfillment_method === "pickup"
+        ? "pickup"
+        : item?.delivery_address_id
+        ? "delivery"
+        : "pickup";
+
+    setChangeMethod(inferred);
+    setChangeAddressId(item?.delivery_address_id || "");
+    setChangeBranch(String(item?.meta?.selected_branch || item?.meta?.branch || ""));
+
+    const { data: userWrap } = await supabase.auth.getUser();
+    const uid = userWrap?.user?.id ?? null;
+    if (!uid) return;
+
+    const { data } = await supabase
+      .from("addresses")
+      .select("id,user_id,full_name,phone,address,label,full_address,city,province,postal_code,is_default")
+      .eq("user_id", uid)
+      .order("is_default", { ascending: false });
+
+    setAddresses((data || []) as Address[]);
+  };
+
+  const saveChange = async () => {
+    if (!changeModal) return;
+    if (changeMethod === "delivery" && !changeAddressId) {
+      alert("Please select a delivery address");
+      return;
+    }
+    if (changeMethod === "pickup" && !changeBranch) {
+      alert("Please select a pickup branch");
+      return;
+    }
+
+    setChanging(true);
+    try {
+      const { data: sessionWrap } = await supabase.auth.getSession();
+      const token = sessionWrap?.session?.access_token;
+      if (!token) {
+        alert("Please login again");
+        return;
+      }
+
+      const res = await fetch("/api/orders/change", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_item_id: changeModal.item.id,
+          delivery_method: changeMethod,
+          delivery_address_id: changeMethod === "delivery" ? changeAddressId : null,
+          branch: changeMethod === "pickup" ? changeBranch : null,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update reservation");
+
+      alert("Reservation updated successfully.");
+      setChangeModal(null);
+
+      // Refresh reservations list
+      if (userId) {
+        const { data: userItems, error: itemsError } = await supabase
+          .from("user_items")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("item_type", "reservation")
+          .in("status", ["pending_payment","reserved","pending_balance_payment","pending_cancellation"])
+          .order("created_at", { ascending: false });
+        if (!itemsError) setItems((userItems || []) as UserItem[]);
+      }
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    } finally {
+      setChanging(false);
+    }
+  };
+
   // Colors -> black
   const getStatusColor = (status: string) => 'bg-black text-white';
 
@@ -419,6 +531,16 @@ function ProfileReservePageContent() {
                       >
                         View Details
                       </button>
+
+                      {canChangeReservation(item) && (
+                        <button
+                          onClick={() => openChange(item)}
+                          disabled={actionLoading === item.id}
+                          className="px-4 py-2 text-sm border border-black text-black rounded hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Change
+                        </button>
+                      )}
                       
                       {(item.status === 'pending_payment' || item.status === 'reserved') && (
                         <button
@@ -449,6 +571,113 @@ function ProfileReservePageContent() {
       )}
 
       {/* Receipt Modal */}
+      {changeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold text-black">Change Reservation</div>
+                <div className="text-xs text-black/60">Order ID: {changeModal.item.id}</div>
+              </div>
+              <button
+                className="rounded border px-2 py-1 text-sm"
+                onClick={() => setChangeModal(null)}
+                disabled={changing}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="text-sm font-medium text-black">Fulfillment Method</div>
+                <div className="mt-2 flex gap-4">
+                  <label className="inline-flex items-center gap-2 text-sm text-black">
+                    <input
+                      type="radio"
+                      name="changeMethod"
+                      value="delivery"
+                      checked={changeMethod === "delivery"}
+                      onChange={() => setChangeMethod("delivery")}
+                      disabled={changing}
+                    />
+                    Delivery
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm text-black">
+                    <input
+                      type="radio"
+                      name="changeMethod"
+                      value="pickup"
+                      checked={changeMethod === "pickup"}
+                      onChange={() => setChangeMethod("pickup")}
+                      disabled={changing}
+                    />
+                    Pickup
+                  </label>
+                </div>
+              </div>
+
+              {changeMethod === "delivery" ? (
+                <div>
+                  <div className="text-sm font-medium text-black">Delivery Address</div>
+                  <select
+                    className="mt-1 w-full border rounded px-3 py-2 text-black"
+                    value={changeAddressId}
+                    onChange={(e) => setChangeAddressId(e.target.value)}
+                    disabled={changing}
+                  >
+                    <option value="">Select Address</option>
+                    {addresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {(a.full_name || a.full_name === "" ? a.full_name : a.label || "Address")}
+                        {a.address ? ` — ${a.address}` : a.full_address ? ` — ${a.full_address}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {addresses.length === 0 && (
+                    <div className="mt-1 text-xs text-black/60">No saved addresses found.</div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div className="text-sm font-medium text-black">Pickup Branch</div>
+                  <select
+                    className="mt-1 w-full border rounded px-3 py-2 text-black"
+                    value={changeBranch}
+                    onChange={(e) => setChangeBranch(e.target.value)}
+                    disabled={changing}
+                  >
+                    <option value="">Select Store Branch</option>
+                    {BRANCHES.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded border px-4 py-2 text-sm text-black"
+                onClick={() => setChangeModal(null)}
+                disabled={changing}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                onClick={saveChange}
+                disabled={changing}
+              >
+                {changing ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showFullReceipt && (
         <>
           <style jsx global>{`

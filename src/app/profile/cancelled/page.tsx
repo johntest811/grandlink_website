@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 type UserItem = {
   id: string;
@@ -37,6 +38,7 @@ const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 export default function ProfileCancelledPage() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<UserItem[]>([]);
   const [productsById, setProductsById] = useState<Record<string, Product>>({});
@@ -208,6 +210,27 @@ Thank you.`;
 
     const mailto = `mailto:support@grandlink.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
+  };
+
+  const reorder = async (item: UserItem) => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          productId: item.product_id,
+          quantity: item.quantity || 1,
+          meta: item.meta || {},
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to add to cart");
+      router.push("/profile/cart");
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
   };
 
   const cancelledCount = items.filter((i) => i.status === "cancelled").length;
@@ -429,6 +452,20 @@ Thank you.`;
                         className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors text-sm"
                       >
                         📞 Contact Support
+                      </button>
+
+                      <Link
+                        href={`/profile/invoice/${it.id}`}
+                        className="bg-white border border-black/20 text-black px-4 py-2 rounded hover:bg-gray-100 transition-colors text-sm"
+                      >
+                        🧾 View Invoice
+                      </Link>
+
+                      <button
+                        onClick={() => reorder(it)}
+                        className="bg-black text-white px-4 py-2 rounded hover:bg-black/90 transition-colors text-sm"
+                      >
+                        🔁 Re-order
                       </button>
 
                       <Link

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type Item = {
   id: string;
@@ -34,6 +36,7 @@ type PaymentSession = {
 };
 
 export default function ProfileCompletedPage() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
@@ -161,6 +164,27 @@ export default function ProfileCompletedPage() {
   // Add currency helper to match Order page
   const currency = (n?: number) => `₱${(n ?? 0).toLocaleString()}`;
 
+  const reorder = async (item: Item) => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          productId: item.product_id,
+          quantity: item.quantity || 1,
+          meta: item.meta || {},
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to add to cart");
+      router.push("/profile/cart");
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  };
+
   return (
     <section className="flex-1 flex flex-col px-8 py-8">
       <div className="mb-2">
@@ -204,6 +228,20 @@ export default function ProfileCompletedPage() {
                     >
                       View Receipt
                     </button>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Link
+                        href={`/profile/invoice/${it.id}`}
+                        className="inline-flex items-center gap-2 rounded-md border border-black/20 bg-white px-3 py-1 text-sm font-semibold text-black hover:bg-gray-100 transition"
+                      >
+                        View Invoice
+                      </Link>
+                      <button
+                        onClick={() => reorder(it)}
+                        className="inline-flex items-center gap-2 rounded-md bg-black px-3 py-1 text-sm font-semibold text-white hover:bg-black/90 transition"
+                      >
+                        Re-order
+                      </button>
+                    </div>
                   </div>
                   <span className="px-3 py-1 rounded-full text-xs bg-emerald-100 text-emerald-800 h-fit">COMPLETED</span>
                 </div>

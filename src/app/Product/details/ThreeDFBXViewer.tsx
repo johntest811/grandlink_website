@@ -27,7 +27,7 @@ function mmPerUnit(units: ModelUnits): number {
 
 function formatMm(valueMm: number): string {
   if (!Number.isFinite(valueMm)) return "—";
-  // Keep Ikea-ish formatting: integers for >= 10mm, one decimal for small values
+  // Keep Ikea-ish formatting integers for >= 10mm, one decimal for small values
   const abs = Math.abs(valueMm);
   const rounded = abs >= 10 ? Math.round(valueMm) : Math.round(valueMm * 10) / 10;
   return `${rounded.toLocaleString()} mm`;

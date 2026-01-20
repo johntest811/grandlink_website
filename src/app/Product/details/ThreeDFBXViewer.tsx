@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { FBXLoader, OrbitControls } from "three-stdlib";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 type Props = {
   fbxUrls: string[];
@@ -136,12 +137,17 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
     // Enhanced adaptive performance helpers
     const hwConcurrency = (navigator as any).hardwareConcurrency || 4;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    const performanceFactor = Math.min(1, hwConcurrency / 4) * (1 / dpr);
+    const deviceDpr = window.devicePixelRatio || 1;
+    // Use a conservative DPR for performance estimation
+    const dprForPerf = Math.min(deviceDpr, 1.5);
+    const performanceFactor = Math.min(1, hwConcurrency / 4) * (1 / dprForPerf);
     
     // Detect if running on lower-end hardware
     const isLowEnd = hwConcurrency < 4 || performanceFactor < 0.5;
     const detailLevel = isLowEnd ? 0.5 : (performanceFactor > 0.8 ? 1.0 : 0.75);
+
+    // Allow higher DPR for a crisper/"HD" look on capable devices
+    const dpr = Math.min(deviceDpr, isLowEnd ? 1.25 : 2);
 
     // particle budgets (scaled)
     const BASE_RAIN = Math.round(8000 * performanceFactor);
@@ -178,7 +184,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       premultipliedAlpha: false
     });
     renderer.setSize(renderWidth, renderHeight);
-    renderer.setPixelRatio(Math.min(dpr, isLowEnd ? 1 : 2));
+    renderer.setPixelRatio(dpr);
     
     // ENHANCED SHADOW CONFIGURATION
     renderer.shadowMap.enabled = true;
@@ -287,6 +293,14 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     hemi.position.set(0, 200, 0);
     scene.add(hemi);
+
+    // High-quality "studio" environment for sharp reflections (no external HDR needed)
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    const roomEnv = new RoomEnvironment();
+    const roomRT = pmremGenerator.fromScene(roomEnv, isLowEnd ? 0.08 : 0.04);
+    const studioEnvMap = roomRT.texture;
+    scene.environment = studioEnvMap;
 
     // Enhanced particle textures
     const createRainTexture = () => {
@@ -430,24 +444,10 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       return group;
     };
 
-    // ENHANCED ENVIRONMENT MAPPING FOR REFLECTIONS
-    const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(isLowEnd ? 256 : 512, { 
-      generateMipmaps: true, 
-      minFilter: THREE.LinearMipmapLinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType
-    });
-    const cubeCamera = new THREE.CubeCamera(0.1, 1000, cubeRenderTarget);
-    cubeCamera.position.set(0, 0, 0);
-    scene.add(cubeCamera);
-    
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-
     // frame counter
     let frameCounter = 0;
 
-  const applyWeather = (type: string) => {
+    const applyWeather = (type: string) => {
       // cleanup previous weather effects
       if (rainSystem) {
         try {
@@ -473,12 +473,20 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
       if (type === "sunny") {
         scene.background = new THREE.Color(0x87ceeb);
-        ambient.intensity = 0.4;
-        sunLight.intensity = 2.0;
+        ambient.intensity = 0.45;
+        hemi.intensity = 0.6;
+        fillLight.intensity = 0.6;
+        try { sunLight.color.set(0xfff1c0); } catch {}
+        sunLight.visible = true;
+        sunLight.intensity = 2.2;
         renderer.setClearColor(0x87ceeb, 1);
       } else if (type === "rainy") {
         scene.background = new THREE.Color(0xbfd1e5);
         ambient.intensity = 0.3;
+        hemi.intensity = 0.5;
+        fillLight.intensity = 0.55;
+        try { sunLight.color.set(0xfff1c0); } catch {}
+        sunLight.visible = true;
         sunLight.intensity = 0.8;
         renderer.setClearColor(0xbfd1e5, 1);
 
@@ -515,15 +523,22 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
         // Night mode: dark blue sky, cooler moonlight, reduced ambient
         scene.background = new THREE.Color(0x0b1020);
         renderer.setClearColor(0x0b1020, 1);
-        ambient.intensity = 0.2;
-        // Set main directional as moonlight with bluish tone
+        // Brighter night without extra light objects: reuse the main directional as "moonlight"
+        ambient.intensity = 0.32;
+        hemi.intensity = 0.35;
+        fillLight.intensity = 0.75;
         try { sunLight.color.set(0xbdd1ff); } catch {}
-        sunLight.intensity = 0.6;
+        sunLight.visible = true;
+        sunLight.intensity = 1.15;
         // Slight, subtle fog for depth at night
         scene.fog = new THREE.FogExp2(0x0b1020, 0.0006);
       } else if (type === "foggy") {
         scene.background = new THREE.Color(0xd6dbe0);
         ambient.intensity = 0.6;
+        hemi.intensity = 0.65;
+        fillLight.intensity = 0.6;
+        try { sunLight.color.set(0xfff1c0); } catch {}
+        sunLight.visible = true;
         sunLight.intensity = 0.8;
         scene.fog = new THREE.FogExp2(0xd6dbe0, 0.002);
         renderer.setClearColor(0xd6dbe0, 1);
@@ -551,11 +566,29 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           const roughness = orig.roughness ?? (orig.specular ? 1 - (orig.specular.r ?? 0) : 0.6);
           const metalness = orig.metalness ?? 0;
 
+          const enhanceTex = (tex: any) => {
+            if (!tex || !tex.isTexture) return;
+            try {
+              tex.minFilter = THREE.LinearMipmapLinearFilter;
+              tex.magFilter = THREE.LinearFilter;
+              tex.generateMipmaps = true;
+              tex.needsUpdate = true;
+            } catch {}
+            try {
+              const maxAniso = Math.max(1, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+              tex.anisotropy = maxAniso;
+            } catch {}
+          };
+
           if (map && map.isTexture) {
             try {
               if (sRGB !== undefined) map.encoding = sRGB;
             } catch (e) {}
+            enhanceTex(map);
           }
+          enhanceTex(normalMap);
+          enhanceTex(roughnessMap);
+          enhanceTex(metalnessMap);
 
           const name = ((orig && orig.name) || "").toString().toLowerCase();
           const isTransparentCandidate =
@@ -563,24 +596,38 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             (orig && ((orig.transparent && opacity < 0.95) || (orig.specular && orig.specular.r > 0.1)));
 
           if (isTransparentCandidate) {
-            return new THREE.MeshPhysicalMaterial({
+            const glass = new THREE.MeshPhysicalMaterial({
               map,
               normalMap,
               roughnessMap,
               metalnessMap,
               color: baseColor,
               metalness: 0.0,
-              roughness: Math.max(0.02, Math.min(0.4, roughness)),
-              transmission: 0.95,
+              // Much more reflective glass: lower roughness + stronger env reflections
+              // NOTE: Double-sided glass often looks like "two models" due to overlapping front/back faces.
+              // Use FrontSide and a thin physical thickness for more realistic reflections.
+              roughness: Math.max(0.02, Math.min(0.12, roughness)),
+              transmission: 0.92,
               transparent: true,
-              opacity: Math.max(0.05, opacity),
-              ior: 1.45,
-              thickness: 0.6,
-              clearcoat: 0.3, // Enhanced clearcoat for better reflections
+              opacity: Math.max(0.05, Math.min(0.85, opacity)),
+              ior: 1.5,
+              thickness: 0.08,
+              clearcoat: 0.6,
               clearcoatRoughness: 0.02,
-              envMapIntensity: detailLevel * 2.5, // Increased reflection intensity
-              side: THREE.DoubleSide,
+              envMapIntensity: detailLevel * 3.0,
+              side: THREE.FrontSide,
             });
+            // Improve transparency sorting (prevents "ghost" overlays)
+            try {
+              glass.depthWrite = false;
+              glass.depthTest = true;
+            } catch {}
+            // Specular controls (runtime-safe across Three versions)
+            try {
+              (glass as any).specularIntensity = 1.1;
+              (glass as any).specularColor = new THREE.Color(0xffffff);
+            } catch {}
+            return glass;
           }
 
           // Enhanced material with better reflections and shadows
@@ -656,46 +703,45 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
         });
 
         // Model positioning and scaling
-        const box = new THREE.Box3().setFromObject(object);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
+        // IMPORTANT: Measurements must use bounds AFTER we reposition & scale.
+        const rawBox = new THREE.Box3().setFromObject(object);
+        const rawSize = rawBox.getSize(new THREE.Vector3());
+        const rawCenter = rawBox.getCenter(new THREE.Vector3());
 
         // Save original (pre-viewer-scale) dimensions for mm display
-        originalSizeRef.current = size.clone();
+        originalSizeRef.current = rawSize.clone();
         const mpuNow = mmPerUnit(modelUnitsRef.current);
         const computedMm = {
-          width: size.x * mpuNow,
-          height: size.y * mpuNow,
-          thickness: size.z * mpuNow,
+          width: rawSize.x * mpuNow,
+          height: rawSize.y * mpuNow,
+          thickness: rawSize.z * mpuNow,
         };
         setDimsMm(computedMm);
-        
-        modelBounds = box.clone();
-        
+
         const modelGroup = new THREE.Group();
-        object.position.set(-center.x, -center.y, -center.z);
+
+        // Center in X/Z, but ground the model so the base sits at Y=0.
+        // This makes the height measurement run from base -> top.
+        object.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
         modelGroup.add(object);
-        
-        const maxDimension = Math.max(size.x, size.y, size.z);
-        
+
+        const maxDimension = Math.max(rawSize.x, rawSize.y, rawSize.z);
         if (maxDimension > 0) {
           const targetSize = 100;
           const scale = targetSize / maxDimension;
           modelGroup.scale.setScalar(scale);
-          
-          modelBounds.min.multiplyScalar(scale);
-          modelBounds.max.multiplyScalar(scale);
         }
 
-        // Position model above ground for proper shadows - UPDATED
-        modelGroup.position.set(0, 0, 0); // Centered at origin without ground offset
-
+        modelGroup.position.set(0, 0, 0);
         scene.add(modelGroup);
+
+        // Recompute bounds AFTER transforms so measurement anchors are correct.
+        modelBounds = new THREE.Box3().setFromObject(modelGroup);
 
         // Measurement overlay (Ikea-style dimension lines)
         disposeMeasurementGroup();
         labelElsRef.current = {};
-        if (modelBounds && showMeasurementsRef.current) {
+        if (modelBounds) {
           const bounds = modelBounds.clone();
           const bSize = bounds.getSize(new THREE.Vector3());
           const maxS = Math.max(bSize.x, bSize.y, bSize.z);
@@ -728,7 +774,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             })
           );
 
-          // Height (Y) - front/right
+          // Height (Y) - base -> top (anchored to the object's base)
           const hStart = new THREE.Vector3(max.x + offset, min.y, max.z + offset);
           const hEnd = new THREE.Vector3(max.x + offset, max.y, max.z + offset);
           const hExtAStart = new THREE.Vector3(max.x, min.y, max.z);
@@ -770,58 +816,26 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             })
           );
 
+          measurementGroup.visible = !!showMeasurementsRef.current;
           scene.add(measurementGroup);
         }
 
         // Camera positioning
         const scaledSize = maxDimension * modelGroup.scale.x;
         const distance = scaledSize * 1.5;
-        
-        camera.position.set(
-          distance * 0.5,
-          distance * 0.3,
-          distance * 0.8
-        );
 
-        camera.lookAt(0, 0, 0);
-        
-        controls.target.set(0, 0, 0);
+        camera.position.set(distance * 0.5, distance * 0.35, distance * 0.8);
+
+        // Focus on the model center (not the world origin), since we grounded it at Y=0.
+        const target = modelBounds ? modelBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, 0, 0);
+        camera.lookAt(target);
+        controls.target.copy(target);
         controls.minDistance = distance * 0.3;
         controls.maxDistance = distance * 4;
         controls.update();
 
         setLoading(false);
         applyWeather(weather);
-
-        // ENHANCED environment map generation for reflections
-        try {
-          // Update cube camera to capture the scene for reflections
-          cubeCamera.position.copy(modelGroup.position);
-          cubeCamera.update(renderer, scene);
-          const envMap = pmremGenerator.fromCubemap(cubeRenderTarget.texture).texture;
-          
-          if (envMap) {
-            try {
-              if (sRGB !== undefined) (envMap as any).encoding = sRGB;
-            } catch (e) {}
-            scene.environment = envMap;
-            
-            // Apply environment map to all materials for better reflections
-            object.traverse((child: any) => {
-              if (child.isMesh && child.material) {
-                if (Array.isArray(child.material)) {
-                  child.material.forEach((mat: any) => {
-                    if (mat.envMap !== undefined) mat.envMap = envMap;
-                  });
-                } else {
-                  if (child.material.envMap !== undefined) child.material.envMap = envMap;
-                }
-              }
-            });
-          }
-        } catch (e) {
-          console.warn("envmap generation failed", e);
-        }
       },
       (progress) => {
         console.log("Loading progress:", progress);
@@ -838,16 +852,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       frameCounter++;
       const heavyStep = frameCounter % (isLowEnd ? 4 : 3) === 0;
 
-      // Update environment map periodically for dynamic reflections
-      if (frameCounter % 60 === 0 && !isLowEnd) { // Update every 60 frames
-        try {
-          cubeCamera.update(renderer, scene);
-          const envMap = pmremGenerator.fromCubemap(cubeRenderTarget.texture).texture;
-          if (envMap && sRGB !== undefined) {
-            try { (envMap as any).encoding = sRGB; } catch (e) {}
-            scene.environment = envMap;
-          }
-        } catch (e) {}
+      // Keep measurement overlay in sync with UI toggle
+      if (measurementGroup) {
+        measurementGroup.visible = !!showMeasurementsRef.current;
       }
 
       // Weather animations (same as before)
@@ -955,7 +962,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       try { controls.dispose(); } catch(e) {}
       try { renderer.dispose(); } catch(e) {}
       try { pmremGenerator.dispose(); } catch(e) {}
-      try { cubeRenderTarget.dispose(); } catch(e) {}
+      try { roomRT.dispose(); } catch(e) {}
       try { rainTexture.dispose(); } catch(e) {}
       try { windTexture.dispose(); } catch(e) {}
       if (labelRenderer) {

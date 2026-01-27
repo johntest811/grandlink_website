@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Windows can sometimes throw EPERM on `.next/trace` when file tracing
+  // collides with locked files or multiple lockfiles.
+  outputFileTracing: false,
+  outputFileTracingRoot: __dirname,
   images: {
     domains: [
       "gijnybivawnsilzqegik.supabase.co",

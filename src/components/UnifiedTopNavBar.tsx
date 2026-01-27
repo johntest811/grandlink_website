@@ -350,6 +350,7 @@ export default function UnifiedTopNavBar() {
           </div>
 
           <Link href="/FAQs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">FAQs</Link>
+          <Link href="/blogs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Blogs</Link>
         </nav>
         
         <div className="flex items-center gap-4">

@@ -81,7 +81,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     }
   }, [modelUnits, storageKey]);
 
-  // Restore per-model unit preference (helps when different FBX files use different authoring units)
+  // Restore per-model unit preference
   useEffect(() => {
     if (!storageKey) return;
     try {
@@ -135,10 +135,10 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
     setLoading(true);
 
-    // Enhanced adaptive performance helpers
+
     const hwConcurrency = (navigator as any).hardwareConcurrency || 4;
     const deviceDpr = window.devicePixelRatio || 1;
-    // Use a conservative DPR for performance estimation
+ 
     const dprForPerf = Math.min(deviceDpr, 1.5);
     const performanceFactor = Math.min(1, hwConcurrency / 4) * (1 / dprForPerf);
     
@@ -146,7 +146,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     const isLowEnd = hwConcurrency < 4 || performanceFactor < 0.5;
     const detailLevel = isLowEnd ? 0.5 : (performanceFactor > 0.8 ? 1.0 : 0.75);
 
-    // Allow higher DPR for a crisper/"HD" look on capable devices
+    
     const dpr = Math.min(deviceDpr, isLowEnd ? 1.25 : 2);
 
     // particle budgets (scaled)
@@ -155,17 +155,17 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     const BASE_WIND = Math.round(300 * performanceFactor);
     const STRONG_WIND = Math.round(600 * performanceFactor);
 
-    // rendering size - use container size if available
+  
     const container = mountRef.current;
     const renderWidth = Math.floor(container.clientWidth || width);
     const renderHeight = Math.floor(container.clientHeight || height);
 
-    // Ensure container can host overlay renderers
+ 
     try {
       container.style.position = "relative";
     } catch {}
 
-    // clear previous children
+
     while (container.firstChild) container.removeChild(container.firstChild);
 
     // scene + camera
@@ -179,7 +179,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       antialias: !isLowEnd,
       alpha: false,
       powerPreference: isLowEnd ? "low-power" : "high-performance",
-      logarithmicDepthBuffer: !isLowEnd, // Better depth precision for shadows
+      logarithmicDepthBuffer: !isLowEnd, 
       preserveDrawingBuffer: false,
       premultipliedAlpha: false
     });
@@ -189,14 +189,14 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     // ENHANCED SHADOW CONFIGURATION
     renderer.shadowMap.enabled = true;
     if (!isLowEnd) {
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
       renderer.shadowMap.autoUpdate = true;
     } else {
-      renderer.shadowMap.type = THREE.BasicShadowMap; // Performance mode
+      renderer.shadowMap.type = THREE.BasicShadowMap; 
     }
 
-    // runtime-safe color management - use SRGBColorSpace for Three.js r152+
-    const sRGB = THREE.SRGBColorSpace ?? 3001; // SRGBColorSpace constant or fallback to sRGBEncoding value
+    // runtime-safe color management
+    const sRGB = THREE.SRGBColorSpace ?? 3001; 
     try {
       if ("outputColorSpace" in renderer) {
         (renderer as any).outputColorSpace = sRGB;
@@ -208,10 +208,10 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
     // Enhanced tone mapping for better reflections
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2; // Slightly increased exposure for better reflections
+    renderer.toneMappingExposure = 1.2; 
     container.appendChild(renderer.domElement);
 
-    // 2D label renderer for dimension callouts
+  
     let labelRenderer: CSS2DRenderer | null = null;
     try {
       labelRenderer = new CSS2DRenderer();
@@ -226,7 +226,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       console.warn("CSS2DRenderer init failed", e);
     }
 
-    // controls - set up for center focus
+    //set up for center focus
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -235,16 +235,16 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     controls.enablePan = true;
     controls.enableRotate = true;
 
-    // Enhanced lighting setup for realistic shadows and reflections
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4); // Reduced ambient for better shadow contrast
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4); 
     scene.add(ambient);
 
-    // PRIMARY SHADOW-CASTING LIGHT (Main directional light)
-    const sunLight = new THREE.DirectionalLight(0xfff1c0, 2.0); // Increased intensity
-    sunLight.position.set(100, 150, 50); // Higher position for better shadows
+   
+    const sunLight = new THREE.DirectionalLight(0xfff1c0, 2.0); 
+    sunLight.position.set(100, 150, 50); 
     sunLight.castShadow = true;
     
-    // ENHANCED SHADOW SETTINGS
+  
     const shadowMapSize = isLowEnd ? 1024 : (detailLevel > 0.75 ? 4096 : 2048);
     sunLight.shadow.mapSize.width = shadowMapSize;
     sunLight.shadow.mapSize.height = shadowMapSize;
@@ -254,15 +254,15 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     sunLight.shadow.camera.right = 200;
     sunLight.shadow.camera.top = 200;
     sunLight.shadow.camera.bottom = -200;
-    sunLight.shadow.bias = -0.0001; // Reduced shadow acne
-    sunLight.shadow.normalBias = 0.02; // Better shadow quality
-    sunLight.shadow.radius = isLowEnd ? 2 : 8; // Soft shadow radius
+    sunLight.shadow.bias = -0.0001;
+    sunLight.shadow.normalBias = 0.02; 
+    sunLight.shadow.radius = isLowEnd ? 2 : 8;
     scene.add(sunLight);
 
-    // SECONDARY SHADOW-CASTING LIGHT for fill lighting
+   
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
     fillLight.position.set(-80, 100, 80);
-    fillLight.castShadow = !isLowEnd; // Only on high-end devices
+    fillLight.castShadow = !isLowEnd; 
     if (!isLowEnd) {
       fillLight.shadow.mapSize.width = 1024;
       fillLight.shadow.mapSize.height = 1024;
@@ -278,7 +278,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     }
     scene.add(fillLight);
 
-    // RIM LIGHTING for enhanced reflections
+   
     if (!isLowEnd) {
       const rimLight1 = new THREE.DirectionalLight(0xccddff, 0.8);
       rimLight1.position.set(0, 50, -150);
@@ -289,12 +289,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       scene.add(rimLight2);
     }
 
-    // Enhanced hemisphere light for better ambient reflections
+   
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     hemi.position.set(0, 200, 0);
     scene.add(hemi);
 
-    // High-quality "studio" environment for sharp reflections (no external HDR needed)
+    // High-quality "studio" 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
     const roomEnv = new RoomEnvironment();
@@ -302,7 +302,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     const studioEnvMap = roomRT.texture;
     scene.environment = studioEnvMap;
 
-    // Enhanced particle textures
+    
     const createRainTexture = () => {
       const size = 32;
       const canvas = document.createElement("canvas");
@@ -426,7 +426,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
       mkLine(opts.start, opts.end);
 
-      // extension lines (from object edge to dimension line)
+      // extension lines 
       if (opts.extAStart && opts.extAEnd) mkLine(opts.extAStart, opts.extAEnd);
       if (opts.extBStart && opts.extBEnd) mkLine(opts.extBStart, opts.extBEnd);
 
@@ -436,7 +436,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       mkLine(opts.start.clone().add(tick), opts.start.clone().sub(tick));
       mkLine(opts.end.clone().add(tick), opts.end.clone().sub(tick));
 
-      // label at midpoint
+   
       const mid = opts.start.clone().add(opts.end).multiplyScalar(0.5);
       opts.label.position.copy(mid);
       group.add(opts.label);
@@ -444,11 +444,11 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       return group;
     };
 
-    // frame counter
+  
     let frameCounter = 0;
 
     const applyWeather = (type: string) => {
-      // cleanup previous weather effects
+   
       if (rainSystem) {
         try {
           scene.remove(rainSystem);
@@ -520,17 +520,17 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
         const fogDensity = performanceFactor > 0.5 ? 0.001 : 0.0006;
         scene.fog = new THREE.FogExp2(0xbfd1e5, fogDensity);
       } else if (type === "night") {
-        // Night mode: dark blue sky, cooler moonlight, reduced ambient
+        // Night mode
         scene.background = new THREE.Color(0x0b1020);
         renderer.setClearColor(0x0b1020, 1);
-        // Brighter night without extra light objects: reuse the main directional as "moonlight"
+        // "moonlight"
         ambient.intensity = 0.32;
         hemi.intensity = 0.35;
         fillLight.intensity = 0.75;
         try { sunLight.color.set(0xbdd1ff); } catch {}
         sunLight.visible = true;
         sunLight.intensity = 1.15;
-        // Slight, subtle fog for depth at night
+      
         scene.fog = new THREE.FogExp2(0x0b1020, 0.0006);
       } else if (type === "foggy") {
         scene.background = new THREE.Color(0xd6dbe0);
@@ -547,14 +547,13 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
     applyWeather(weather);
 
-    // FBX loader with ENHANCED materials for better reflections
+   
     const loader = new FBXLoader();
     loader.load(
       currentFbx,
       (object) => {
         console.log("FBX Loaded successfully");
 
-        // ENHANCED material upgrade function with realistic reflections
         const upgradeMaterial = (orig: any) => {
           if (!orig) return null;
           const baseColor = orig.color ? orig.color.clone() : new THREE.Color(0xffffff);
@@ -603,9 +602,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
               metalnessMap,
               color: baseColor,
               metalness: 0.0,
-              // Much more reflective glass: lower roughness + stronger env reflections
-              // NOTE: Double-sided glass often looks like "two models" due to overlapping front/back faces.
-              // Use FrontSide and a thin physical thickness for more realistic reflections.
+            
               roughness: Math.max(0.02, Math.min(0.12, roughness)),
               transmission: 0.92,
               transparent: true,
@@ -617,12 +614,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
               envMapIntensity: detailLevel * 3.0,
               side: THREE.FrontSide,
             });
-            // Improve transparency sorting (prevents "ghost" overlays)
+            
             try {
               glass.depthWrite = false;
               glass.depthTest = true;
             } catch {}
-            // Specular controls (runtime-safe across Three versions)
+    
             try {
               (glass as any).specularIntensity = 1.1;
               (glass as any).specularColor = new THREE.Color(0xffffff);
@@ -630,7 +627,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             return glass;
           }
 
-          // Enhanced material with better reflections and shadows
+         
           const material = new THREE.MeshStandardMaterial({
             map,
             normalMap,
@@ -642,7 +639,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             envMapIntensity: detailLevel * 2.0, // Enhanced reflections
           });
 
-          // Enhanced material properties for better shadows and reflections
+          
           if (!isLowEnd) {
             if (normalMap) {
               material.normalScale = new THREE.Vector2(detailLevel * 1.2, detailLevel * 1.2);
@@ -650,13 +647,13 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             
             material.flatShading = false;
             
-            // Enhanced reflection for metallic surfaces
+       
             if (name.includes("metal") || metalness > 0.5) {
               material.envMapIntensity = detailLevel * 3.0;
               material.roughness = Math.max(0.02, material.roughness * 0.8); // Smoother metals
             }
             
-            // Special handling for different material types
+           
             if (name.includes("chrome") || name.includes("mirror")) {
               material.metalness = 1.0;
               material.roughness = 0.02;
@@ -667,11 +664,11 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           return material;
         };
 
-        // Apply enhanced materials and shadow settings
+        //materials and shadow settings
         object.traverse((child: any) => {
           if (!child.isMesh) return;
           
-          // ENHANCED shadow casting and receiving
+      
           child.castShadow = true;
           child.receiveShadow = true;
           
@@ -687,7 +684,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             console.warn("material upgrade error", e);
           }
 
-          // Enhanced geometry for better shadows
+          
           if (!isLowEnd && detailLevel > 0.75 && child.geometry) {
             try {
               child.geometry.computeVertexNormals();
@@ -702,13 +699,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           }
         });
 
-        // Model positioning and scaling
-        // IMPORTANT: Measurements must use bounds AFTER we reposition & scale.
+    
         const rawBox = new THREE.Box3().setFromObject(object);
         const rawSize = rawBox.getSize(new THREE.Vector3());
         const rawCenter = rawBox.getCenter(new THREE.Vector3());
 
-        // Save original (pre-viewer-scale) dimensions for mm display
+       
         originalSizeRef.current = rawSize.clone();
         const mpuNow = mmPerUnit(modelUnitsRef.current);
         const computedMm = {
@@ -720,8 +716,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
         const modelGroup = new THREE.Group();
 
-        // Center in X/Z, but ground the model so the base sits at Y=0.
-        // This makes the height measurement run from base -> top.
+        
         object.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
         modelGroup.add(object);
 
@@ -735,10 +730,10 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
         modelGroup.position.set(0, 0, 0);
         scene.add(modelGroup);
 
-        // Recompute bounds AFTER transforms so measurement anchors are correct.
+       
         modelBounds = new THREE.Box3().setFromObject(modelGroup);
 
-        // Measurement overlay (Ikea-style dimension lines)
+       
         disposeMeasurementGroup();
         labelElsRef.current = {};
         if (modelBounds) {
@@ -774,7 +769,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             })
           );
 
-          // Height (Y) - base -> top (anchored to the object's base)
+          // Height (Y) 
           const hStart = new THREE.Vector3(max.x + offset, min.y, max.z + offset);
           const hEnd = new THREE.Vector3(max.x + offset, max.y, max.z + offset);
           const hExtAStart = new THREE.Vector3(max.x, min.y, max.z);
@@ -795,7 +790,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             })
           );
 
-          // Thickness (Z) - bottom/left
+          // Thickness (Z)
           const tStart = new THREE.Vector3(min.x - offset, min.y, min.z);
           const tEnd = new THREE.Vector3(min.x - offset, min.y, max.z);
           const tExtAStart = new THREE.Vector3(min.x, min.y, min.z);
@@ -826,7 +821,6 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
         camera.position.set(distance * 0.5, distance * 0.35, distance * 0.8);
 
-        // Focus on the model center (not the world origin), since we grounded it at Y=0.
         const target = modelBounds ? modelBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, 0, 0);
         camera.lookAt(target);
         controls.target.copy(target);
@@ -852,7 +846,6 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       frameCounter++;
       const heavyStep = frameCounter % (isLowEnd ? 4 : 3) === 0;
 
-      // Keep measurement overlay in sync with UI toggle
       if (measurementGroup) {
         measurementGroup.visible = !!showMeasurementsRef.current;
       }

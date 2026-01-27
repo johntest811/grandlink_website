@@ -42,6 +42,7 @@ export default function BlogsPage() {
   const [loading, setLoading] = useState(true);
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [likedByMe, setLikedByMe] = useState<Record<string, boolean>>({});
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
   const [imgPopup, setImgPopup] = useState<{ open: boolean; url: string; alt?: string }>({ open: false, url: "" });
   const [toast, setToast] = useState<string | null>(null);
 
@@ -93,11 +94,27 @@ export default function BlogsPage() {
         mine[String(r.blog_id)] = true;
       });
       setLikedByMe(mine);
+
+      // Views (includes guests)
+      try {
+        const res = await fetch(`/api/blogs/views?ids=${encodeURIComponent(ids.join(","))}`, {
+          cache: "no-store",
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok && j?.counts && typeof j.counts === "object") {
+          setViewCounts(j.counts as Record<string, number>);
+        } else {
+          setViewCounts({});
+        }
+      } catch {
+        setViewCounts({});
+      }
     } catch (e) {
       console.error("blogs load error", e);
       setBlogs([]);
       setLikeCounts({});
       setLikedByMe({});
+      setViewCounts({});
     } finally {
       setLoading(false);
     }
@@ -211,6 +228,7 @@ export default function BlogsPage() {
               {newest.map((b) => {
                 const hearts = likeCounts[b.id] || 0;
                 const isLiked = !!likedByMe[b.id];
+                const views = viewCounts[b.id] || 0;
 
                 return (
                   <div key={b.id} className="bg-white rounded-xl shadow border overflow-hidden">
@@ -273,6 +291,10 @@ export default function BlogsPage() {
                             {isLiked ? <FaHeart className="text-[#8B1C1C]" /> : <FaRegHeart className="text-gray-600" />}
                             <span className="text-sm font-semibold">{hearts}</span>
                           </button>
+
+                          <div className="text-xs text-gray-500" title="Unique viewers">
+                            {views.toLocaleString()} views
+                          </div>
                         </div>
                       </div>
 

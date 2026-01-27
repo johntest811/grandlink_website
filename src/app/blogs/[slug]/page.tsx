@@ -63,6 +63,7 @@ export default function BlogDetailPage() {
   const [loading, setLoading] = useState(true);
   const [likeCount, setLikeCount] = useState(0);
   const [liked, setLiked] = useState(false);
+  const [viewCount, setViewCount] = useState(0);
   const [recentPosts, setRecentPosts] = useState<RecentBlogRow[]>([]);
   const [recentLikeCounts, setRecentLikeCounts] = useState<Record<string, number>>({});
   const [imgPopup, setImgPopup] = useState<{ open: boolean; url: string; alt?: string }>({ open: false, url: "" });
@@ -97,6 +98,7 @@ export default function BlogDetailPage() {
         setBlog(null);
         setLikeCount(0);
         setLiked(false);
+        setViewCount(0);
         return;
       }
 
@@ -156,6 +158,7 @@ export default function BlogDetailPage() {
       setBlog(null);
       setLikeCount(0);
       setLiked(false);
+      setViewCount(0);
     } finally {
       setLoading(false);
     }
@@ -165,6 +168,64 @@ export default function BlogDetailPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, user?.id]);
+
+  useEffect(() => {
+    if (!blog?.id) return;
+
+    const getOrCreateVisitorId = () => {
+      try {
+        const existing = localStorage.getItem("gl_visitor_id");
+        if (existing) return existing;
+        const uuidFromRandomValues = () => {
+          const buf = new Uint8Array(16);
+          if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+            crypto.getRandomValues(buf);
+          } else {
+            for (let i = 0; i < buf.length; i++) buf[i] = Math.floor(Math.random() * 256);
+          }
+          // RFC 4122 v4
+          buf[6] = (buf[6] & 0x0f) | 0x40;
+          buf[8] = (buf[8] & 0x3f) | 0x80;
+          const hex = Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        };
+
+        const created =
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : uuidFromRandomValues();
+        localStorage.setItem("gl_visitor_id", created);
+        return created;
+      } catch {
+        return null;
+      }
+    };
+
+    const run = async () => {
+      try {
+        const visitorId = user?.id ? null : getOrCreateVisitorId();
+        const res = await fetch("/api/blogs/view", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            blogId: blog.id,
+            userId: user?.id || null,
+            visitorId,
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          }),
+          cache: "no-store",
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setViewCount(Number(j?.viewCount || 0));
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    run();
+  }, [blog?.id, user?.id]);
 
   useEffect(() => {
     if (!slug) return;
@@ -259,6 +320,7 @@ export default function BlogDetailPage() {
               <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-gray-600">
                 <span>{formatDate(blog.published_at || blog.created_at)}</span>
                 {blog.author_name ? <span>• By {blog.author_name}</span> : null}
+                <span title="Unique viewers">• {viewCount.toLocaleString()} views</span>
                 {excerptText ? <span className="hidden md:inline">• {excerptText}</span> : null}
               </div>
 

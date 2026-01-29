@@ -1033,9 +1033,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
               className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white outline-none"
               aria-label="Model units"
             >
-              <option value="mm">mm</option>
-              <option value="cm">cm</option>
-              <option value="m">m</option>
+              <option value="mm" className="text-white bg-black">mm</option>
+              <option value="cm" className="text-white bg-black">cm</option>
+              <option value="m" className="text-white bg-black">m</option>
             </select>
           </div>
 

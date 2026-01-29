@@ -209,27 +209,29 @@ function ProductDetailsPageContent() {
                 <path d="M16 14L22 20L16 26" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
-            {/* Thumbnails - fixed square */}
-            <div className="flex gap-3 mt-4 justify-center">
-              {images.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCarouselIdx(idx)}
-                  className={`relative w-24 h-24 aspect-square rounded-lg overflow-hidden border transition-shadow ${
-                    carouselIdx === idx ? "border-red-600 shadow-md" : "border-gray-300 hover:shadow"
-                  }`}
-                  aria-label={`Show image ${idx + 1}`}
-                >
-                  <Image
-                    src={img || "https://placehold.co/200x200/png?text=No+Image"}
-                    alt={`Thumbnail ${idx + 1}`}
-                    fill
-                    quality={90}
-                    sizes="96px"
-                    className="object-cover"
-                  />
-                </button>
-              ))}
+            {/* Thumbnails - horizontal scroll with snap and no shrink so they stay inside viewport */}
+            <div className="w-full mt-4 overflow-x-auto py-2">
+              <div className="flex gap-3 px-2 snap-x snap-mandatory">
+                {images.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCarouselIdx(idx)}
+                    className={`relative w-24 h-24 flex-shrink-0 snap-center rounded-lg overflow-hidden border transition-shadow ${
+                      carouselIdx === idx ? "border-red-600 shadow-md" : "border-gray-300 hover:shadow"
+                    }`}
+                    aria-label={`Show image ${idx + 1}`}
+                  >
+                    <Image
+                      src={img || "https://placehold.co/200x200/png?text=No+Image"}
+                      alt={`Thumbnail ${idx + 1}`}
+                      fill
+                      quality={90}
+                      sizes="96px"
+                      className="object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

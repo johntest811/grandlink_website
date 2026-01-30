@@ -1030,12 +1030,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             <select
               value={modelUnits}
               onChange={(e) => setModelUnits(e.target.value as ModelUnits)}
-              className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white outline-none"
+              className="gl-units-select bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white outline-none"
               aria-label="Model units"
             >
-              <option value="mm" className="text-white bg-black">mm</option>
-              <option value="cm" className="text-white bg-black">cm</option>
-              <option value="m" className="text-white bg-black">m</option>
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="m">m</option>
             </select>
           </div>
 
@@ -1044,6 +1044,14 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           </div>
         </div>
       </div>
+
+      {/* Force native option popup colors (many browsers ignore Tailwind on <option>) */}
+      <style jsx>{`
+        .gl-units-select option {
+          color: #0f172a; /* slate-900 */
+          background: #ffffff;
+        }
+      `}</style>
 
       {/* Controls Overlay */}
       <div className="pointer-events-none">

@@ -8,6 +8,12 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 type Props = {
   fbxUrls: string[];
   weather: "sunny" | "rainy" | "night" | "foggy";
+  productDimensions?: {
+    width?: number | string | null;
+    height?: number | string | null;
+    thickness?: number | string | null;
+    units?: ModelUnits | null;
+  };
   width?: number;
   height?: number;
 };
@@ -33,22 +39,70 @@ function formatMm(valueMm: number): string {
   return `${rounded.toLocaleString()} mm`;
 }
 
-export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height = 700 }: Props) {
+function formatLength(valueMm: number, displayUnits: ModelUnits): string {
+  if (!Number.isFinite(valueMm)) return "—";
+  const divisor = mmPerUnit(displayUnits);
+  const value = valueMm / divisor;
+
+  // formatting: mm integers-ish, cm 1dp, m 2dp (trim trailing .0)
+  let rounded: number;
+  if (displayUnits === "mm") {
+    const abs = Math.abs(value);
+    rounded = abs >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  } else if (displayUnits === "cm") {
+    rounded = Math.round(value * 10) / 10;
+  } else {
+    rounded = Math.round(value * 100) / 100;
+  }
+
+  return `${rounded.toLocaleString()} ${displayUnits}`;
+}
+
+function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value * mmPerUnit(defaultUnits) : null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const m = raw.match(/^(-?\d+(?:\.\d+)?)(?:\s*(mm|cm|m))?$/i);
+  if (!m) return null;
+
+  const num = Number.parseFloat(m[1]);
+  if (!Number.isFinite(num)) return null;
+
+  const units = (m[2]?.toLowerCase() as ModelUnits | undefined) ?? defaultUnits;
+  return num * mmPerUnit(units);
+}
+
+export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(true);
-  const [modelUnits, setModelUnits] = useState<ModelUnits>("m");
+  const [modelUnits, setModelUnits] = useState<ModelUnits>("mm");
   const [dimsMm, setDimsMm] = useState<{ width: number; height: number; thickness: number } | null>(null);
 
   const labelElsRef = useRef<{ w?: HTMLDivElement; h?: HTMLDivElement; t?: HTMLDivElement }>({});
   const originalSizeRef = useRef<THREE.Vector3 | null>(null);
   const showMeasurementsRef = useRef<boolean>(true);
-  const modelUnitsRef = useRef<ModelUnits>("m");
+  const modelUnitsRef = useRef<ModelUnits>("mm");
+  const assumedModelUnitsRef = useRef<ModelUnits>("m");
 
   // Ensure we have valid FBX URLs and current index
   const validFbxUrls = Array.isArray(fbxUrls) ? fbxUrls.filter(url => url && url.trim() !== '') : [];
   const currentFbx = validFbxUrls[currentFbxIndex] || validFbxUrls[0];
+
+  const productDimsMm = useMemo(() => {
+    const defaultUnits = (productDimensions?.units ?? "mm") as ModelUnits;
+    const w = parseDimensionToMm(productDimensions?.width, defaultUnits);
+    const h = parseDimensionToMm(productDimensions?.height, defaultUnits);
+    const t = parseDimensionToMm(productDimensions?.thickness, defaultUnits);
+    if (w === null || h === null || t === null) return null;
+    return { width: w, height: h, thickness: t };
+  }, [productDimensions?.width, productDimensions?.height, productDimensions?.thickness, productDimensions?.units]);
+
+  const usesProductDimensions = !!productDimsMm;
 
   const storageKey = useMemo(() => (currentFbx ? `gl:fbxUnits:${currentFbx}` : ""), [currentFbx]);
 
@@ -59,34 +113,39 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
   useEffect(() => {
     modelUnitsRef.current = modelUnits;
 
+    // When product dimensions are provided (from Supabase), keep base mm stable
+    // and only change how we *display* it.
+    if (usesProductDimensions && productDimsMm) {
+      setDimsMm(productDimsMm);
+      if (labelElsRef.current.w) labelElsRef.current.w.textContent = formatLength(productDimsMm.width, modelUnits);
+      if (labelElsRef.current.h) labelElsRef.current.h.textContent = formatLength(productDimsMm.height, modelUnits);
+      if (labelElsRef.current.t) labelElsRef.current.t.textContent = formatLength(productDimsMm.thickness, modelUnits);
+      return;
+    }
+
     // Update label DOM text without forcing a 3D reload
     const s = originalSizeRef.current;
     if (s && labelElsRef.current) {
-      const mpu = mmPerUnit(modelUnits);
+      const mpu = mmPerUnit(assumedModelUnitsRef.current);
       const next = {
         width: s.x * mpu,
         height: s.y * mpu,
         thickness: s.z * mpu,
       };
       setDimsMm(next);
-      if (labelElsRef.current.w) labelElsRef.current.w.textContent = formatMm(next.width);
-      if (labelElsRef.current.h) labelElsRef.current.h.textContent = formatMm(next.height);
-      if (labelElsRef.current.t) labelElsRef.current.t.textContent = formatMm(next.thickness);
+      if (labelElsRef.current.w) labelElsRef.current.w.textContent = formatLength(next.width, modelUnits);
+      if (labelElsRef.current.h) labelElsRef.current.h.textContent = formatLength(next.height, modelUnits);
+      if (labelElsRef.current.t) labelElsRef.current.t.textContent = formatLength(next.thickness, modelUnits);
     }
 
-    if (storageKey) {
-      try {
-        localStorage.setItem(storageKey, modelUnits);
-      } catch {}
-    }
-  }, [modelUnits, storageKey]);
+  }, [modelUnits, usesProductDimensions, productDimsMm]);
 
-  // Restore per-model unit preference
+  // Restore per-model *assumed model units* (used only for converting FBX raw size into mm)
   useEffect(() => {
     if (!storageKey) return;
     try {
       const saved = localStorage.getItem(storageKey) as ModelUnits | null;
-      if (saved === "mm" || saved === "cm" || saved === "m") setModelUnits(saved);
+      if (saved === "mm" || saved === "cm" || saved === "m") assumedModelUnitsRef.current = saved;
     } catch {}
   }, [storageKey]);
 
@@ -315,7 +374,8 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       grd.addColorStop(0.6, "rgba(200,200,255,0.5)");
       grd.addColorStop(1, "rgba(200,200,255,0.05)");
       ctx.fillStyle = grd;
-      ctx.fillRect(size / 2 - 1, 0, 2, size);
+      // Thinner rain streak (1px)
+      ctx.fillRect(size / 2, 0, 1, size);
       const tex = new THREE.CanvasTexture(canvas);
       tex.needsUpdate = true;
       return tex;
@@ -505,12 +565,13 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
         geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
         const mat = new THREE.PointsMaterial({
           map: rainTexture,
-          size: Math.max(8, 12 * performanceFactor),
+          // smaller size makes rain look like thin streaks
+          size: Math.max(3, 5 * performanceFactor),
           sizeAttenuation: true,
           transparent: true,
-          opacity: rainBaseOpacity,
+          opacity: Math.min(0.45, rainBaseOpacity),
           depthWrite: false,
-          blending: THREE.AdditiveBlending,
+          blending: THREE.NormalBlending,
         });
         rainSystem = new THREE.Points(geo, mat);
         rainSystem.frustumCulled = false;
@@ -639,6 +700,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
             envMapIntensity: detailLevel * 2.0, // Enhanced reflections
           });
 
+          // Make non-glass materials solid/opaque (FBX exports sometimes mark frames as transparent)
+          material.transparent = false;
+          material.opacity = 1;
+          material.depthWrite = true;
+          material.side = THREE.DoubleSide;
+
           
           if (!isLowEnd) {
             if (normalMap) {
@@ -706,13 +773,14 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
 
        
         originalSizeRef.current = rawSize.clone();
-        const mpuNow = mmPerUnit(modelUnitsRef.current);
+        const mpuNow = mmPerUnit(assumedModelUnitsRef.current);
         const computedMm = {
           width: rawSize.x * mpuNow,
           height: rawSize.y * mpuNow,
           thickness: rawSize.z * mpuNow,
         };
-        setDimsMm(computedMm);
+        const displayMm = productDimsMm ?? computedMm;
+        setDimsMm(displayMm);
 
         const modelGroup = new THREE.Group();
 
@@ -755,7 +823,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           const wExtAEnd = wStart.clone();
           const wExtBStart = new THREE.Vector3(max.x, min.y, max.z);
           const wExtBEnd = wEnd.clone();
-          const wLabel = makeLabel(formatMm(computedMm.width), "w");
+          const wLabel = makeLabel(formatLength(displayMm.width, modelUnitsRef.current), "w");
           measurementGroup.add(
             addDimension({
               start: wStart,
@@ -776,7 +844,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           const hExtAEnd = hStart.clone();
           const hExtBStart = new THREE.Vector3(max.x, max.y, max.z);
           const hExtBEnd = hEnd.clone();
-          const hLabel = makeLabel(formatMm(computedMm.height), "h");
+          const hLabel = makeLabel(formatLength(displayMm.height, modelUnitsRef.current), "h");
           measurementGroup.add(
             addDimension({
               start: hStart,
@@ -797,7 +865,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           const tExtAEnd = tStart.clone();
           const tExtBStart = new THREE.Vector3(min.x, min.y, max.z);
           const tExtBEnd = tEnd.clone();
-          const tLabel = makeLabel(formatMm(computedMm.thickness), "t");
+          const tLabel = makeLabel(formatLength(displayMm.thickness, modelUnitsRef.current), "t");
           measurementGroup.add(
             addDimension({
               start: tStart,
@@ -948,8 +1016,20 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
     };
     animate();
 
+    // Prevent page scrolling while using mouse-wheel zoom
+    const wheelHandler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    try {
+      renderer.domElement.addEventListener("wheel", wheelHandler, { passive: false });
+    } catch {}
+
     // Cleanup
     return () => {
+      try {
+        renderer.domElement.removeEventListener("wheel", wheelHandler as any);
+      } catch {}
       cancelAnimationFrame(rafId);
       disposeMeasurementGroup();
       try { controls.dispose(); } catch(e) {}
@@ -965,12 +1045,12 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
       }
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
-  }, [currentFbx, weather]);
+  }, [currentFbx, weather, productDimsMm, usesProductDimensions]);
 
   // Show loading or no files message
   if (!validFbxUrls.length) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-100" style={{ width, height }}>
+      <div className="flex items-center justify-center w-full h-full bg-gray-100">
         <div className="text-center">
           <div className="text-gray-500 text-lg">No 3D models available</div>
         </div>
@@ -979,7 +1059,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
   }
 
   return (
-    <div className="relative" style={{ width, height }}>
+    <div className="relative w-full h-full">
       {/* Loading indicator */}
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-10">
@@ -1013,20 +1093,20 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-white/90">
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/70">Width</span>
-              <span className="font-semibold">{dimsMm ? formatMm(dimsMm.width) : "—"}</span>
+              <span className="font-semibold">{dimsMm ? formatLength(dimsMm.width, modelUnits) : "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/70">Height</span>
-              <span className="font-semibold">{dimsMm ? formatMm(dimsMm.height) : "—"}</span>
+              <span className="font-semibold">{dimsMm ? formatLength(dimsMm.height, modelUnits) : "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/70">Thickness</span>
-              <span className="font-semibold">{dimsMm ? formatMm(dimsMm.thickness) : "—"}</span>
+              <span className="font-semibold">{dimsMm ? formatLength(dimsMm.thickness, modelUnits) : "—"}</span>
             </div>
           </div>
 
           <div className="mt-3 flex items-center justify-between gap-3">
-            <label className="text-xs text-white/70">Model units</label>
+            <label className="text-xs text-white/70">Units</label>
             <select
               value={modelUnits}
               onChange={(e) => setModelUnits(e.target.value as ModelUnits)}
@@ -1040,7 +1120,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, width = 1200, height
           </div>
 
           <div className="mt-2 text-[11px] text-white/60 leading-snug">
-            If numbers look off, switch “Model units” (saved per model).
+            {usesProductDimensions
+              ? "Using product dimensions from Supabase. Use “Units” to convert display."
+              : "Use “Units” to change measurement display."}
           </div>
         </div>
       </div>

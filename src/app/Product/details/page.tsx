@@ -28,6 +28,23 @@ function ProductDetailsPageContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
 
+  // Prevent background page scroll while the 3D modal is open
+  useEffect(() => {
+    if (!show3D) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    try {
+      // Avoid layout shift when scrollbar disappears
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = "hidden";
+      if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    } catch {}
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [show3D]);
+
   useEffect(() => {
     const fetchProduct = async () => {
       if (!productId) return;
@@ -460,8 +477,18 @@ function ProductDetailsPageContent() {
               ))}
             </div>
 
-            <div className="flex-1 w-full flex items-center justify-center overflow-hidden">
-              <ThreeDFBXViewer fbxUrls={fbxUrls} weather={weather} />
+            <div className="flex-1 w-full min-h-0 relative overflow-hidden">
+              <ThreeDFBXViewer
+                fbxUrls={fbxUrls}
+                weather={weather}
+                productDimensions={{
+                  width: product.width,
+                  height: product.height,
+                  thickness: product.thickness,
+                  // If your DB values are in cm or m, change this default.
+                  units: "mm",
+                }}
+              />
             </div>
           </div>
         </div>

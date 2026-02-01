@@ -136,7 +136,6 @@ export async function POST(request: NextRequest) {
         const updateData: any = {
           status: 'pending_payment',
           order_status: 'pending_payment',
-          order_progress: 'payment_completed',
           payment_status: 'completed',
           payment_id: orderId,
           price: Number((userItem as any).price || 0),

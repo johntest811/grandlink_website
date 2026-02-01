@@ -237,7 +237,6 @@ export async function POST(request: NextRequest) {
         item_type: 'reservation',
         status: 'pending_payment',
         order_status: 'pending_payment',
-        order_progress: 'awaiting_payment',
         quantity: cartItem.quantity,
         meta: {
           ...(cartItem.meta || {}),

@@ -74,7 +74,7 @@ function ProductDetailsPageContent() {
     ? product.images
     : [product.image1, product.image2, product.image3, product.image4, product.image5].filter(Boolean);
 
-  // Get FBX URLs - prioritize fbx_urls array, fallback to single fbx_url
+  // Get 3D model URLs (stored in fbx_url(s) for backward compatibility)
   const fbxUrls: string[] = product.fbx_urls && Array.isArray(product.fbx_urls) && product.fbx_urls.length > 0
     ? product.fbx_urls.filter((url: string) => url && url.trim() !== '')
     : product.fbx_url ? [product.fbx_url] : [];
@@ -481,6 +481,7 @@ function ProductDetailsPageContent() {
               <ThreeDFBXViewer
                 fbxUrls={fbxUrls}
                 weather={weather}
+                skyboxes={product?.skyboxes || null}
                 productDimensions={{
                   width: product.width,
                   height: product.height,

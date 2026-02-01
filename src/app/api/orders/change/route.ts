@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     const { data: item, error: itemErr } = await supabaseAdmin
       .from("user_items")
-      .select("id,user_id,status,order_status,order_progress,meta,delivery_address_id")
+      .select("id,user_id,status,order_status,meta,delivery_address_id")
       .eq("id", userItemId)
       .maybeSingle();
 

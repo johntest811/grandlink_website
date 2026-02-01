@@ -12,7 +12,7 @@ type UserItem = {
   item_type: string;
   status: string;
   order_status: string;
-  order_progress: string;
+  order_progress?: string;
   quantity: number;
   meta: any;
   created_at: string;
@@ -95,7 +95,15 @@ export default function ProfileOrderPage() {
     try {
       setLoading(true);
 
-      const stages = ["approved", "accepted", "in_production", "packaging", "ready_for_delivery", "out_for_delivery"];
+      const stages = [
+        "approved",
+        "accepted",
+        "in_production",
+        "quality_check",
+        "packaging",
+        "ready_for_delivery",
+        "out_for_delivery",
+      ];
       const { data: uiData, error: uiErr } = await supabase
         .from("user_items")
         .select("*")
@@ -189,6 +197,7 @@ export default function ProfileOrderPage() {
     ({
       approved: "Approved",
       in_production: "In Production",
+      quality_check: "Quality Check",
       packaging: "Packaging",
       start_packaging: "Packaging",
       ready_for_delivery: "Ready for Delivery",
@@ -196,7 +205,7 @@ export default function ProfileOrderPage() {
       completed: "Delivered",
     }[k] || k.replace(/_/g, " "));
 
-  const steps = ["approved","in_production","packaging","ready_for_delivery","out_for_delivery","completed"];
+  const steps = ["approved", "in_production", "quality_check", "packaging", "ready_for_delivery", "out_for_delivery", "completed"];
 
   const reachedIndex = (it: UserItem) => {
     const cur = it.order_status || it.order_progress || it.status || "approved";
@@ -236,7 +245,6 @@ export default function ProfileOrderPage() {
         .update({
           order_status: "pending_cancellation",
           status: "pending_cancellation",
-          order_progress: "pending_cancellation",
           meta: {
             ...(item.meta || {}),
             cancel_requested: true,
@@ -418,7 +426,8 @@ export default function ProfileOrderPage() {
                       >
                         View Progress
                       </button>
-                      {item.order_progress !== "delivered" && (
+                      {String(item.order_status || item.status || item.order_progress || "") !== "completed" &&
+                        String(item.order_status || item.status || item.order_progress || "") !== "cancelled" && (
                         <button
                           onClick={() => requestCancellation(item)}
                           className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
@@ -556,6 +565,98 @@ export default function ProfileOrderPage() {
               </h2>
               <button onClick={() => setProgressModal(null)} className="text-black text-xl" aria-label="Close">×</button>
             </div>
+
+            {(() => {
+              const raw = Number(progressModal.item?.meta?.production_percent ?? 0);
+              const pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+              const updates = Array.isArray(progressModal.item?.meta?.production_updates)
+                ? (progressModal.item.meta.production_updates as any[])
+                : [];
+              const finalQc = progressModal.item?.meta?.final_qc;
+              const isInQualityCheck =
+                String(progressModal.item?.order_status || progressModal.item?.order_progress || progressModal.item?.status || "") ===
+                "quality_check";
+
+              return (
+                <>
+                  {/* Production progress bar */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-black">Production Progress</div>
+                      <div className="text-sm font-semibold text-black">{pct}%</div>
+                    </div>
+                    <div className="mt-2 h-3 w-full rounded bg-gray-200 overflow-hidden">
+                      <div className="h-3 bg-[#8B1C1C]" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="mt-1 text-xs text-black/70">Only team-leader approved updates appear here.</div>
+                  </div>
+
+                  {/* Approved updates */}
+                  <div className="mb-8">
+                    <div className="text-sm font-semibold text-black mb-2">Production Updates</div>
+                    {updates.length === 0 ? (
+                      <div className="text-sm text-black/70">No approved updates yet.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {updates
+                          .slice()
+                          .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")))
+                          .map((u, idx) => {
+                            const imgs = Array.isArray(u.image_urls) ? u.image_urls : [];
+                            return (
+                              <div
+                                key={String(u.task_update_id || u.id || u.approved_at || idx)}
+                                className="border rounded-lg p-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-xs text-black/70">
+                                    {u.is_final_qc ? "FINAL QC" : "UPDATE"}
+                                    {u.submitted_by_name ? ` • by ${u.submitted_by_name}` : ""}
+                                  </div>
+                                  <div className="text-xs text-black/60">
+                                    {u.approved_at ? new Date(u.approved_at).toLocaleString() : ""}
+                                  </div>
+                                </div>
+                                {u.description && (
+                                  <div className="mt-2 text-sm text-black whitespace-pre-wrap">{u.description}</div>
+                                )}
+                                {imgs.length > 0 && (
+                                  <div className="mt-2 grid grid-cols-3 gap-2">
+                                    {imgs.map((url: string, idx: number) => (
+                                      <img key={idx} src={url} alt="" className="h-24 w-full object-cover rounded border" />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Final QC snapshot (optional) */}
+                  {finalQc && (finalQc.description || (Array.isArray(finalQc.image_urls) && finalQc.image_urls.length)) ? (
+                    <div className="mb-8">
+                      <div className="text-sm font-semibold text-black mb-2">Quality Check</div>
+                      {finalQc.description && (
+                        <div className="text-sm text-black whitespace-pre-wrap">{finalQc.description}</div>
+                      )}
+                      {Array.isArray(finalQc.image_urls) && finalQc.image_urls.length > 0 && (
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          {finalQc.image_urls.map((url: string, idx: number) => (
+                            <img key={idx} src={url} alt="" className="h-24 w-full object-cover rounded border" />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : isInQualityCheck ? (
+                    <div className="mb-8 rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                      Quality Check has started, but the final QC photo/description has not been published yet.
+                    </div>
+                  ) : null}
+                </>
+              );
+            })()}
 
             {(() => {
               const doneIdx = reachedIndex(progressModal.item);

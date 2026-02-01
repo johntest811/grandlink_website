@@ -1,13 +1,21 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { FBXLoader, OrbitControls } from "three-stdlib";
+import { FBXLoader, GLTFLoader, OrbitControls } from "three-stdlib";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+
+function getUrlExtension(url: string): string {
+  const clean = (url || "").split("?")[0].split("#")[0];
+  const lastDot = clean.lastIndexOf(".");
+  if (lastDot === -1) return "";
+  return clean.slice(lastDot + 1).toLowerCase();
+}
 
 type Props = {
   fbxUrls: string[];
   weather: "sunny" | "rainy" | "night" | "foggy";
+  skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
   productDimensions?: {
     width?: number | string | null;
     height?: number | string | null;
@@ -75,7 +83,7 @@ function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | 
   return num * mmPerUnit(units);
 }
 
-export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, width = 1200, height = 700 }: Props) {
+export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -361,6 +369,19 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
     const studioEnvMap = roomRT.texture;
     scene.environment = studioEnvMap;
 
+    let skyboxTex: THREE.Texture | null = null;
+    let activeSkyboxUrl: string | null = null;
+
+    const setTexColorSpace = (tex: any) => {
+      const anyTHREE: any = THREE;
+      if (!tex) return;
+      if ("colorSpace" in tex && anyTHREE.SRGBColorSpace !== undefined) {
+        tex.colorSpace = anyTHREE.SRGBColorSpace;
+      } else if ("encoding" in tex && anyTHREE.sRGBEncoding !== undefined) {
+        tex.encoding = anyTHREE.sRGBEncoding;
+      }
+    };
+
     
     const createRainTexture = () => {
       const size = 32;
@@ -413,9 +434,20 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
     const windTexture = createWindTexture();
 
     // particle holders
-    let rainSystem: THREE.Points | null = null;
+    // NOTE: Rain is implemented as LineSegments (streaks) instead of Points.
+    // Points-based rain can appear invisible depending on camera/model scale.
+    let rainSystem: THREE.LineSegments | null = null;
     let rainVelY: Float32Array | null = null;
     let rainVelX: Float32Array | null = null;
+    let rainLen: Float32Array | null = null;
+    let rainArea: {
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+      minZ: number;
+      maxZ: number;
+    } | null = null;
     let rainBaseOpacity = 0.6;
     let windSystem: THREE.Points | null = null;
     let windVel: Float32Array | null = null;
@@ -506,6 +538,39 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
 
   
     let frameCounter = 0;
+    let lastFrameMs = performance.now();
+
+    const computeRainArea = () => {
+      if (modelBounds) {
+        const center = modelBounds.getCenter(new THREE.Vector3());
+        const size = modelBounds.getSize(new THREE.Vector3());
+        // Slightly tighter volume so it reads like an "animation" rain layer
+        // rather than filling the whole scene.
+        const spanX = Math.max(size.x * 2.4, 120);
+        const spanZ = Math.max(size.z * 2.4, 120);
+        const height = Math.max(size.y * 2.6, 200);
+        const padY = Math.max(size.y * 0.6, 40);
+
+        return {
+          minX: center.x - spanX * 0.5,
+          maxX: center.x + spanX * 0.5,
+          minY: center.y - padY,
+          maxY: center.y + height * 0.5,
+          minZ: center.z - spanZ * 0.5,
+          maxZ: center.z + spanZ * 0.5,
+        };
+      }
+
+      // Fallback: sensible default around origin
+      return {
+        minX: -110,
+        maxX: 110,
+        minY: -40,
+        maxY: 170,
+        minZ: -110,
+        maxZ: 110,
+      };
+    };
 
     const applyWeather = (type: string) => {
    
@@ -513,11 +578,13 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
         try {
           scene.remove(rainSystem);
           rainSystem.geometry.dispose();
-          (rainSystem.material as THREE.PointsMaterial).dispose();
+          (rainSystem.material as THREE.LineBasicMaterial).dispose();
         } catch (e) {}
         rainSystem = null;
         rainVelY = null;
         rainVelX = null;
+        rainLen = null;
+        rainArea = null;
       }
       if (windSystem) {
         try {
@@ -530,6 +597,45 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
         windLifetime = null;
       }
       scene.fog = null;
+
+      // Reset skybox (if any) when weather changes
+      activeSkyboxUrl = null;
+      if (skyboxTex) {
+        try { skyboxTex.dispose(); } catch {}
+        skyboxTex = null;
+      }
+
+      // Keep a stable studio environment for lighting.
+      // Skyboxes are applied as background only to avoid changing model textures/material look.
+      scene.environment = studioEnvMap;
+
+      // If a skybox is configured for this weather, load it asynchronously.
+      const skyUrlRaw = (skyboxes && typeof skyboxes === "object") ? (skyboxes as any)[type] : null;
+      const skyUrl = typeof skyUrlRaw === "string" ? skyUrlRaw.trim() : "";
+      if (skyUrl) {
+        activeSkyboxUrl = skyUrl;
+        const loader = new THREE.TextureLoader();
+        loader.setCrossOrigin("anonymous");
+        loader.load(
+          skyUrl,
+          (tex) => {
+            // ignore late loads after weather switch
+            if (activeSkyboxUrl !== skyUrl) {
+              try { tex.dispose(); } catch {}
+              return;
+            }
+            skyboxTex = tex;
+            setTexColorSpace(skyboxTex);
+            skyboxTex.mapping = THREE.EquirectangularReflectionMapping;
+            scene.background = skyboxTex;
+          },
+          undefined,
+          () => {
+            // keep default background
+            if (activeSkyboxUrl === skyUrl) activeSkyboxUrl = null;
+          }
+        );
+      }
 
       if (type === "sunny") {
         scene.background = new THREE.Color(0x87ceeb);
@@ -550,30 +656,62 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
         sunLight.intensity = 0.8;
         renderer.setClearColor(0xbfd1e5, 1);
 
-        const rainCount = performanceFactor > 0.6 ? STORM_RAIN : BASE_RAIN;
-        const positions = new Float32Array(rainCount * 3);
+        // Streak rain (LineSegments) anchored to model bounds so it always appears.
+        // Lower density to match typical "animation rain" (readable, not a wall).
+        const rainDensity = isLowEnd ? 0.10 : 0.16;
+        const rainCount = Math.max(
+          250,
+          Math.round((performanceFactor > 0.6 ? STORM_RAIN : BASE_RAIN) * rainDensity)
+        );
+        rainArea = computeRainArea();
+
+        const positions = new Float32Array(rainCount * 2 * 3);
         rainVelY = new Float32Array(rainCount);
         rainVelX = new Float32Array(rainCount);
-        for (let i = 0; i < rainCount; i++) {
-          positions[i * 3 + 0] = Math.random() * 1000 - 500;
-          positions[i * 3 + 1] = Math.random() * 800 + 100;
-          positions[i * 3 + 2] = Math.random() * 1000 - 500;
-          rainVelY[i] = (12 + Math.random() * 18) * (1 + (1 - performanceFactor));
-          rainVelX[i] = (Math.random() - 0.5) * (2 + Math.random() * 6);
-        }
+        rainLen = new Float32Array(rainCount);
+
+        const spawnOne = (i: number) => {
+          if (!rainArea) return;
+          const headX = rainArea.minX + Math.random() * (rainArea.maxX - rainArea.minX);
+          const headY = rainArea.maxY + Math.random() * (rainArea.maxY - rainArea.minY) * 0.3;
+          const headZ = rainArea.minZ + Math.random() * (rainArea.maxZ - rainArea.minZ);
+
+          // Shorter streaks (user requested) while keeping thin lines.
+          const baseLen = 7 + Math.random() * 12;
+          const len = baseLen * (0.85 + Math.min(1, performanceFactor) * 0.25);
+          rainLen![i] = len;
+
+          // Natural-ish pace (units are in scene space per second).
+          // Too fast makes it look like "teleporting"; too slow looks like drifting snow.
+          // Much faster fall speed (user requested)
+          rainVelY![i] = (44 + Math.random() * 34) * (1 + (0.75 - performanceFactor) * 0.2);
+          // Wind slant (x direction)
+          rainVelX![i] = (Math.random() - 0.5) * (6 + Math.random() * 10);
+
+          const idx = i * 6;
+          positions[idx + 0] = headX;
+          positions[idx + 1] = headY;
+          positions[idx + 2] = headZ;
+          // Tail computed from head + velocity for slant.
+          positions[idx + 3] = headX - rainVelX![i] * 0.015 * len;
+          positions[idx + 4] = headY - len;
+          positions[idx + 5] = headZ - 0.01 * len;
+        };
+
+        for (let i = 0; i < rainCount; i++) spawnOne(i);
+
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        const mat = new THREE.PointsMaterial({
-          map: rainTexture,
-          // smaller size makes rain look like thin streaks
-          size: Math.max(3, 5 * performanceFactor),
-          sizeAttenuation: true,
+
+        const mat = new THREE.LineBasicMaterial({
+          // Blue, but less intense so it reads like rain not neon.
+          color: 0x6bb6ff,
           transparent: true,
-          opacity: Math.min(0.45, rainBaseOpacity),
+          opacity: Math.min(0.42, Math.max(0.22, rainBaseOpacity * 0.75)),
           depthWrite: false,
           blending: THREE.NormalBlending,
         });
-        rainSystem = new THREE.Points(geo, mat);
+        rainSystem = new THREE.LineSegments(geo, mat);
         rainSystem.frustumCulled = false;
         rainSystem.renderOrder = 1;
         scene.add(rainSystem);
@@ -608,12 +746,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
 
     applyWeather(weather);
 
-   
-    const loader = new FBXLoader();
-    loader.load(
-      currentFbx,
-      (object) => {
-        console.log("FBX Loaded successfully");
+    const modelExt = getUrlExtension(currentFbx);
+    const handleLoaded = (object: THREE.Object3D) => {
+        console.log("3D model loaded successfully");
 
         const upgradeMaterial = (orig: any) => {
           if (!orig) return null;
@@ -731,7 +866,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
           return material;
         };
 
-        //materials and shadow settings
+        const shouldUpgradeMaterials = modelExt === "fbx";
+
+        // materials and shadow settings
         object.traverse((child: any) => {
           if (!child.isMesh) return;
           
@@ -740,15 +877,51 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
           child.receiveShadow = true;
           
           const orig = child.material;
-          try {
-            if (Array.isArray(orig)) {
-              child.material = orig.map((m: any) => upgradeMaterial(m) || m);
-            } else {
-              const nm = upgradeMaterial(orig);
-              if (nm) child.material = nm;
+          if (shouldUpgradeMaterials) {
+            // FBX exports are often inconsistent (wrong transparency, weak reflections, etc).
+            // Upgrade them to stable PBR-ish materials.
+            try {
+              if (Array.isArray(orig)) {
+                child.material = orig.map((m: any) => upgradeMaterial(m) || m);
+              } else {
+                const nm = upgradeMaterial(orig);
+                if (nm) child.material = nm;
+              }
+            } catch (e) {
+              console.warn("material upgrade error", e);
             }
-          } catch (e) {
-            console.warn("material upgrade error", e);
+          } else {
+            // GLB/GLTF already provides correct PBR materials; keep them.
+            // Only apply safe texture-quality tweaks.
+            const enhanceTex = (tex: any) => {
+              if (!tex || !tex.isTexture) return;
+              try {
+                tex.minFilter = THREE.LinearMipmapLinearFilter;
+                tex.magFilter = THREE.LinearFilter;
+                tex.generateMipmaps = true;
+                tex.needsUpdate = true;
+              } catch {}
+              try {
+                const maxAniso = Math.max(1, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+                tex.anisotropy = maxAniso;
+              } catch {}
+            };
+
+            const tweakMat = (mat: any) => {
+              if (!mat) return;
+              enhanceTex(mat.map);
+              enhanceTex(mat.normalMap);
+              enhanceTex(mat.roughnessMap);
+              enhanceTex(mat.metalnessMap);
+              enhanceTex(mat.aoMap);
+              enhanceTex(mat.emissiveMap);
+              mat.needsUpdate = true;
+            };
+
+            try {
+              if (Array.isArray(orig)) orig.forEach(tweakMat);
+              else tweakMat(orig);
+            } catch {}
           }
 
           
@@ -898,15 +1071,35 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
 
         setLoading(false);
         applyWeather(weather);
-      },
-      (progress) => {
-        console.log("Loading progress:", progress);
-      },
-      (err) => {
-        console.error("FBX load error:", err);
-        setLoading(false);
-      }
-    );
+    };
+
+    const handleProgress = (progress: any) => {
+      console.log("Loading progress:", progress);
+    };
+
+    const handleError = (err: any) => {
+      console.error("3D model load error:", err);
+      setLoading(false);
+    };
+
+    if (modelExt === "fbx") {
+      const loader = new FBXLoader();
+      loader.load(currentFbx, (object) => handleLoaded(object), handleProgress, handleError);
+    } else if (modelExt === "glb" || modelExt === "gltf") {
+      const loader = new GLTFLoader();
+      loader.load(
+        currentFbx,
+        (gltf: any) => {
+          const object = gltf?.scene as THREE.Object3D | undefined;
+          if (!object) return handleError(new Error("Missing gltf.scene"));
+          handleLoaded(object);
+        },
+        handleProgress,
+        handleError
+      );
+    } else {
+      handleError(new Error(`Unsupported 3D model type: .${modelExt || "?"}`));
+    }
 
     // Enhanced animation loop
     let rafId = 0;
@@ -914,31 +1107,60 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
       frameCounter++;
       const heavyStep = frameCounter % (isLowEnd ? 4 : 3) === 0;
 
+      const nowMs = performance.now();
+      const dt = Math.min(0.05, (nowMs - lastFrameMs) / 1000);
+      lastFrameMs = nowMs;
+
       if (measurementGroup) {
         measurementGroup.visible = !!showMeasurementsRef.current;
       }
 
-      // Weather animations (same as before)
-      if (heavyStep && rainSystem && rainVelY && rainVelX) {
+      // Weather animations
+      const shouldUpdateRain = !isLowEnd || heavyStep;
+      if (shouldUpdateRain && rainSystem && rainVelY && rainVelX && rainLen) {
+        // Re-anchor rain bounds if model bounds changed (e.g., switching models)
+        if (!rainArea || modelBounds) {
+          rainArea = computeRainArea();
+        }
+
         const posAttr = rainSystem.geometry.attributes.position as THREE.BufferAttribute;
         const arr = posAttr.array as Float32Array;
         const count = rainVelY.length;
-        const timeFactor = (Date.now() % 10000) / 10000;
+
+        const t = nowMs * 0.001;
         for (let i = 0; i < count; i++) {
-          const idx = i * 3;
-          const gust = Math.sin(i * 0.01 + timeFactor * Math.PI * 2) * 0.5;
-          let x = arr[idx + 0] + (rainVelX[i] * 0.5) + gust;
-          let y = arr[idx + 1] - rainVelY[i] * (0.85 + Math.random() * 0.2);
-          if (y < -100) {
-            y = 600 + Math.random() * 200;
-            x = Math.random() * 1000 - 500;
-            arr[idx + 2] = Math.random() * 1000 - 500;
+          const idx = i * 6;
+
+          const gust = Math.sin(i * 0.013 + t * 1.7) * 0.4;
+
+          let headX = arr[idx + 0] + (rainVelX[i] + gust) * dt;
+          let headY = arr[idx + 1] - rainVelY[i] * dt;
+          let headZ = arr[idx + 2];
+
+          const bounds = rainArea;
+          if (bounds) {
+            if (headY < bounds.minY) {
+              headX = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+              headY = bounds.maxY + Math.random() * (bounds.maxY - bounds.minY) * 0.25;
+              headZ = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
+            }
+
+            if (headX < bounds.minX) headX = bounds.maxX;
+            if (headX > bounds.maxX) headX = bounds.minX;
+            if (headZ < bounds.minZ) headZ = bounds.maxZ;
+            if (headZ > bounds.maxZ) headZ = bounds.minZ;
           }
-          if (x > 500) x = -500;
-          if (x < -500) x = 500;
-          arr[idx + 0] = x;
-          arr[idx + 1] = y;
+
+          const len = rainLen[i];
+          arr[idx + 0] = headX;
+          arr[idx + 1] = headY;
+          arr[idx + 2] = headZ;
+          // Tail to create long thin streaks
+          arr[idx + 3] = headX - (rainVelX[i] + gust) * 0.012 * len;
+          arr[idx + 4] = headY - len;
+          arr[idx + 5] = headZ - 0.01 * len;
         }
+
         posAttr.needsUpdate = true;
       }
 
@@ -1035,6 +1257,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
       try { controls.dispose(); } catch(e) {}
       try { renderer.dispose(); } catch(e) {}
       try { pmremGenerator.dispose(); } catch(e) {}
+      try { skyboxTex?.dispose(); } catch(e) {}
       try { roomRT.dispose(); } catch(e) {}
       try { rainTexture.dispose(); } catch(e) {}
       try { windTexture.dispose(); } catch(e) {}
@@ -1045,7 +1268,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, productDimensions, w
       }
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
-  }, [currentFbx, weather, productDimsMm, usesProductDimensions]);
+  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions]);
 
   // Show loading or no files message
   if (!validFbxUrls.length) {

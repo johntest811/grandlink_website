@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Progress label map (for order_progress display)
+    // Progress label map (legacy)
     const progressMap: Record<string, string> = {
       pending_payment: "awaiting_payment",
       reserved: "payment_confirmed",
@@ -92,7 +92,6 @@ export async function POST(request: NextRequest) {
     };
 
     const dbStatus = mapStatusForDB(newStatus);
-    const progress = progressMap[newStatus] || newStatus;
     const now = new Date().toISOString();
 
     // Only update DB if skipUpdate !== true (admin app already wrote the change)
@@ -105,7 +104,6 @@ export async function POST(request: NextRequest) {
       const updatePayload: any = {
         status: dbStatus,
         order_status: newStatus,
-        order_progress: progress,
         progress_history: nextHistory,
         updated_at: now,
       };

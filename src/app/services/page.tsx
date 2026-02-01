@@ -4,7 +4,9 @@ import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import type { IconType } from "react-icons";
 import * as FaIcons from "react-icons/fa";
 
 const supabase = createClient(
@@ -17,16 +19,53 @@ type Service = {
   name: string;
   short_description: string;
   long_description: string;
-  icon?: string; // icon name from react-icons
+  icon?: string | null; // icon name from react-icons
+  icon_url?: string | null; // custom uploaded icon/logo
+};
+
+type ServicesPageContent = {
+  heroImageUrl?: string;
+  heroTitle?: string;
+  introText?: string;
+  sectionText?: string;
+};
+
+const DEFAULT_PAGE_CONTENT: ServicesPageContent = {
+  heroImageUrl: "/sevices.avif",
+  heroTitle: "Our Services",
+  introText:
+    "Explore our full range of services, expertly designed to meet both residential and commercial needs. From precision-crafted aluminum windows and doors to custom glass installations, our expertise spans design, fabrication, and installation. Discover how we can transform your space with top-tier craftsmanship and innovative solutions built for style, durability, and performance.",
+  sectionText:
+    "Explore our full range of services, expertly designed to meet both residential and commercial needs.",
+};
+
+const getIconComponent = (iconName?: string | null): IconType => {
+  const icons = FaIcons as unknown as Record<string, IconType>;
+  if (!iconName) return FaIcons.FaCogs;
+  return icons[iconName] || FaIcons.FaCogs;
 };
 
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [flippedIndex, setFlippedIndex] = useState<number | null>(null);
+  const [pageContent, setPageContent] = useState<ServicesPageContent>(DEFAULT_PAGE_CONTENT);
 
   useEffect(() => {
+    fetchPageContent();
     fetchServices();
   }, []);
+
+  const fetchPageContent = async () => {
+    try {
+      const res = await fetch("/api/services-page", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const content = (data?.content ?? data) as ServicesPageContent;
+      setPageContent({ ...DEFAULT_PAGE_CONTENT, ...(content || {}) });
+    } catch {
+      // fall back to defaults
+    }
+  };
 
   const fetchServices = async () => {
     const { data, error } = await supabase.from("services").select("*");
@@ -42,7 +81,7 @@ export default function ServicesPage() {
         <div className="relative w-full">
           <div className="h-64 md:h-80 lg:h-96 relative">
             <img
-              src="/sevices.avif"
+              src={pageContent.heroImageUrl || "/sevices.avif"}
               alt="services"
               className="w-full h-full object-cover"
             />
@@ -75,7 +114,7 @@ export default function ServicesPage() {
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center px-6">
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white drop-shadow-lg">
-                Our Services
+                {pageContent.heroTitle || "Our Services"}
               </h1>
               <div className="h-1.5 w-28 bg-[#8B1C1C] mx-auto mt-6 rounded"></div>
             </div>
@@ -85,38 +124,42 @@ export default function ServicesPage() {
         {/* Intro (centered compressed paragraph under heading) */}
         <section className="max-w-4xl mx-auto px-6 py-12 -mt-6 bg-white">
           <p className="text-center text-gray-600 mb-10 text-lg leading-relaxed">
-            Explore our full range of services, expertly designed to meet both
-            residential and commercial needs. From precision-crafted aluminum
-            windows and doors to custom glass installations, our expertise spans
-            design, fabrication, and installation. Discover how we can transform
-            your space with top-tier craftsmanship and innovative solutions built
-            for style, durability, and performance.
+            {pageContent.introText || DEFAULT_PAGE_CONTENT.introText}
           </p>
         </section>
 
         {/* Section */}
         <section className="max-w-6xl mx-auto px-6 py-12">
           <p className="text-center text-gray-700 mb-10 text-lg max-w-2xl mx-auto">
-            Explore our full range of services, expertly designed to meet both
-            residential and commercial needs.
+            {pageContent.sectionText || DEFAULT_PAGE_CONTENT.sectionText}
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {services.map((s, idx) => {
-              const IconComponent = s.icon
-                ? (FaIcons as any)[s.icon] || FaIcons.FaCogs
-                : FaIcons.FaCogs;
+              const IconComponent = getIconComponent(s.icon);
 
               return (
                 <ServiceCard
                   key={s.id}
-                  icon={<IconComponent size={40} />}
+                  icon={
+                    s.icon_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={s.icon_url}
+                        alt={s.name}
+                        className="w-10 h-10 object-contain"
+                      />
+                    ) : (
+                      <IconComponent size={40} />
+                    )
+                  }
                   label={s.name}
                   info={s.short_description}
                   flipped={flippedIndex === idx}
                   onClick={() =>
                     setFlippedIndex(flippedIndex === idx ? null : idx)
                   }
+                  href={`/services/${s.id}`}
                 />
               );
             })}
@@ -134,12 +177,14 @@ function ServiceCard({
   info,
   flipped,
   onClick,
+  href,
 }: {
   icon: React.ReactNode;
   label: string;
   info: string;
   flipped: boolean;
   onClick: () => void;
+  href: string;
 }) {
   return (
     <div className="perspective" onClick={onClick}>
@@ -164,9 +209,13 @@ function ServiceCard({
           <p className="text-sm text-gray-600 text-center flex-1">
             {info}
           </p>
-          <button className="mt-4 bg-[#8B1C1C] text-white px-4 py-1 rounded-full font-medium hover:bg-[#a83232] transition text-sm">
+          <Link
+            href={href}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-4 bg-[#8B1C1C] text-white px-4 py-1 rounded-full font-medium hover:bg-[#a83232] transition text-sm"
+          >
             Learn More
-          </button>
+          </Link>
         </div>
       </motion.div>
 

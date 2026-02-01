@@ -95,7 +95,6 @@ export async function POST(req: NextRequest) {
       item_type: "order",            // or "reservation" if you prefer
       status: "pending_payment",
       order_status: "pending_payment",
-      order_progress: "awaiting_payment",
       quantity: it.qty,
       price: it.basePrice,
       total_amount: it.lineTotal,

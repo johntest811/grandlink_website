@@ -84,7 +84,6 @@ export async function POST(request: NextRequest) {
       .update({
         status: 'cancelled',
         order_status: 'cancelled',
-        order_progress: 'cancelled',
         payment_status: meta.payment_status === 'completed' ? 'refund_pending' : meta.payment_status ?? 'pending',
         meta,
         updated_at: now,

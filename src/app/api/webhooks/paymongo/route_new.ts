@@ -91,7 +91,6 @@ export async function POST(request: NextRequest) {
               item_type: 'reservation',
               status: 'pending_payment',
               order_status: 'pending_payment',
-              order_progress: 'payment_completed',
               quantity: cartItem.quantity,
               price: productPrice,
               total_paid: finalTotalPerItem,
@@ -220,7 +219,6 @@ export async function POST(request: NextRequest) {
           const updateData: any = {
             status: 'pending_payment',
             order_status: 'pending_payment',
-            order_progress: 'payment_completed',
             price: Number(userItem.price || 0),
             payment_status: 'completed',
             payment_id: sessionId,

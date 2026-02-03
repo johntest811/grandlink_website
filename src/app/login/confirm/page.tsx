@@ -7,6 +7,8 @@ import { supabase } from "../../Clients/Supabase/SupabaseClients";
 // Ensure this page is rendered dynamically (no prerender), fixing Vercel build errors
 export const dynamic = "force-dynamic";
 
+const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
+
 export default function ConfirmLoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string>("");
@@ -18,7 +20,6 @@ export default function ConfirmLoginPage() {
         // Supabase sends a "code" param for magic links and password recovery
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
-        const type = url.searchParams.get("type");
         const errParam = url.searchParams.get("error");
         const hash = window.location.hash || "";
 
@@ -81,6 +82,20 @@ export default function ConfirmLoginPage() {
         sessionStorage.setItem("login_email", userEmail);
         sessionStorage.setItem("login_flow", "oauth");
 
+        // IMPORTANT: Google OAuth creates a Supabase session immediately.
+        // We don't want the user to appear logged-in (TopNavBar) until they enter the code.
+        // So we stash the session tokens temporarily and sign out, then restore session after code verification.
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session) {
+          sessionStorage.setItem(
+            PENDING_OAUTH_SESSION_KEY,
+            JSON.stringify({
+              access_token: sessionData.session.access_token,
+              refresh_token: sessionData.session.refresh_token,
+            })
+          );
+        }
+
         // Send verification code
         const sendRes = await fetch("/api/auth/send-verification-code", {
           method: "POST",
@@ -95,8 +110,11 @@ export default function ConfirmLoginPage() {
           return;
         }
 
+        // Sign out BEFORE going to /login/verify so the UI doesn't show the user as logged in.
+        await supabase.auth.signOut();
+
         router.replace("/login/verify");
-      } catch (e: any) {
+      } catch {
         setError("Failed to complete sign-in. Try again.");
         setWorking(false);
       }

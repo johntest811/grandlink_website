@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../Clients/Supabase/SupabaseClients";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 
+const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
+
 export default function VerifyPage() {
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
@@ -14,13 +16,35 @@ export default function VerifyPage() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
-    // Get email from session storage
-    const storedEmail = sessionStorage.getItem("login_email");
-    if (storedEmail) {
-      setEmail(storedEmail);
-    } else {
-      // Fallback for OAuth sessions: try to read the signed-in user's email
-      supabase.auth.getUser().then(({ data }) => {
+    const init = async () => {
+      // For OAuth flow, we must ensure the user is NOT considered logged-in yet.
+      // If a session exists, stash it (if not already stashed) and sign out.
+      const loginFlow = sessionStorage.getItem("login_flow");
+      if (loginFlow === "oauth") {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session) {
+          const existing = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
+          if (!existing) {
+            sessionStorage.setItem(
+              PENDING_OAUTH_SESSION_KEY,
+              JSON.stringify({
+                access_token: sessionData.session.access_token,
+                refresh_token: sessionData.session.refresh_token,
+              })
+            );
+          }
+          await supabase.auth.signOut();
+        }
+      }
+
+      // Get email from session storage
+      const storedEmail = sessionStorage.getItem("login_email");
+      if (storedEmail) {
+        setEmail(storedEmail);
+      } else {
+        // Fallback for OAuth sessions: try to read the signed-in user's email
+        // (Older behavior may still have an active session if confirm wasn't used)
+        const { data } = await supabase.auth.getUser();
         const e = data.user?.email || "";
         if (!e) {
           router.push("/login");
@@ -29,11 +53,13 @@ export default function VerifyPage() {
         sessionStorage.setItem("login_email", e);
         sessionStorage.setItem("login_flow", "oauth");
         setEmail(e);
-      });
-    }
-    
-    // Focus first input
-    inputRefs.current[0]?.focus();
+      }
+
+      // Focus first input
+      inputRefs.current[0]?.focus();
+    };
+
+    init();
   }, [router]);
 
   const handleChange = (index: number, value: string) => {
@@ -103,6 +129,7 @@ export default function VerifyPage() {
 
       // Code is valid, now sign in the user
       const password = sessionStorage.getItem("login_password");
+      const loginFlow = sessionStorage.getItem("login_flow");
 
       if (password) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -115,11 +142,35 @@ export default function VerifyPage() {
           setLoading(false);
           return;
         }
-      } else {
-        // OAuth flow: the user should already have an active Supabase session.
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData.session) {
+      } else if (loginFlow === "oauth") {
+        // OAuth flow: restore the stashed session only AFTER code verification.
+        const pendingRaw = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
+        if (!pendingRaw) {
           setError("Session expired. Please login again.");
+          router.push("/login");
+          return;
+        }
+
+        let pending: { access_token: string; refresh_token: string } | null = null;
+        try {
+          pending = JSON.parse(pendingRaw);
+        } catch {
+          pending = null;
+        }
+
+        if (!pending?.access_token || !pending?.refresh_token) {
+          setError("Session expired. Please login again.");
+          router.push("/login");
+          return;
+        }
+
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: pending.access_token,
+          refresh_token: pending.refresh_token,
+        });
+
+        if (setSessionError) {
+          setError("Failed to complete sign in. Please login again.");
           router.push("/login");
           return;
         }
@@ -129,10 +180,11 @@ export default function VerifyPage() {
       sessionStorage.removeItem("login_email");
       sessionStorage.removeItem("login_password");
       sessionStorage.removeItem("login_flow");
+      sessionStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
 
       // Redirect to home
       router.push("/home");
-    } catch (err: any) {
+    } catch (err) {
       console.error("Verification error:", err);
       setError("An error occurred. Please try again.");
       setLoading(false);
@@ -161,7 +213,7 @@ export default function VerifyPage() {
         setError("");
         alert(data?.message || "Verification code sent to your email!");
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Resend error:", err);
       setError("Failed to resend code");
     } finally {
@@ -245,7 +297,7 @@ export default function VerifyPage() {
               </button>
 
               <div className="text-center space-y-2">
-                <p className="text-sm text-black">Didn't receive the code?</p>
+                <p className="text-sm text-black">Didn&apos;t receive the code?</p>
                 <button
                   type="button"
                   onClick={handleResend}
@@ -262,6 +314,8 @@ export default function VerifyPage() {
                   onClick={() => {
                     sessionStorage.removeItem("login_email");
                     sessionStorage.removeItem("login_password");
+                    sessionStorage.removeItem("login_flow");
+                    sessionStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
                     router.push("/login");
                   }}
                   className="text-sm text-black hover:text-black"

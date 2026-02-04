@@ -1,8 +1,9 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../Clients/Supabase/SupabaseClients";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
+import { supabase } from "../../Clients/Supabase/SupabaseClients";
 
 const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
 
@@ -12,44 +13,51 @@ export default function VerifyPage() {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [email, setEmail] = useState("");
+
   const router = useRouter();
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     const init = async () => {
+      // Ensure we are NOT logged in on this page.
+      // If a session exists (older flow), stash it and sign out locally.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session?.access_token && sessionData.session?.refresh_token) {
+        const existingPending = localStorage.getItem(PENDING_OAUTH_SESSION_KEY);
+        if (!existingPending) {
+          localStorage.setItem(
+            PENDING_OAUTH_SESSION_KEY,
+            JSON.stringify({
+              access_token: sessionData.session.access_token,
+              refresh_token: sessionData.session.refresh_token,
+              created_at: Date.now(),
+            })
+          );
+        }
+        await supabase.auth.signOut({ scope: "local" });
+      }
+
       const storedEmail = sessionStorage.getItem("login_email");
-      if (storedEmail) {
-        setEmail(storedEmail);
-        inputRefs.current[0]?.focus();
+      if (!storedEmail) {
+        router.replace("/login");
         return;
       }
 
-      // Legacy fallback: if a session exists (older flow), read it.
-      const { data } = await supabase.auth.getUser();
-      const e = data.user?.email || "";
-      if (!e) {
-        router.push("/login");
-        return;
-      }
-
-      sessionStorage.setItem("login_email", e);
-      sessionStorage.setItem("login_flow", "oauth");
-      setEmail(e);
+      setEmail(storedEmail);
       inputRefs.current[0]?.focus();
     };
 
-    init();
+    void init();
   }, [router]);
 
   const handleChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return; // Only allow digits
+    if (!/^\d*$/.test(value)) return;
 
-    const newCode = [...code];
-    newCode[index] = value.slice(-1); // Only take last character
-    setCode(newCode);
+    const next = [...code];
+    next[index] = value.slice(-1);
+    setCode(next);
     setError("");
 
-    // Auto-focus next input
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
@@ -63,25 +71,17 @@ export default function VerifyPage() {
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    const newCode = [...code];
-    
-    for (let i = 0; i < pastedData.length; i++) {
-      newCode[i] = pastedData[i];
-    }
-    
-    setCode(newCode);
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    const next = [...code];
+    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
+    setCode(next);
     setError("");
-    
-    // Focus last filled input or next empty
-    const nextIndex = Math.min(pastedData.length, 5);
-    inputRefs.current[nextIndex]?.focus();
+    inputRefs.current[Math.min(pasted.length, 5)]?.focus();
   };
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     const verificationCode = code.join("");
-    
     if (verificationCode.length !== 6) {
       setError("Please enter all 6 digits");
       return;
@@ -91,24 +91,21 @@ export default function VerifyPage() {
     setError("");
 
     try {
-      // Verify the code
       const verifyResponse = await fetch("/api/auth/send-verification-code", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code: verificationCode }),
       });
 
-      const verifyData = await verifyResponse.json();
-
+      const verifyData = await verifyResponse.json().catch(() => ({}));
       if (!verifyResponse.ok) {
-        setError(verifyData.error || "Invalid verification code");
+        setError((verifyData as { error?: string })?.error || "Invalid verification code");
         setLoading(false);
         return;
       }
 
-      // Code is valid, now sign in the user
       const password = sessionStorage.getItem("login_password");
-      const pendingRaw = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
+      const loginFlow = sessionStorage.getItem("login_flow");
 
       if (password) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -121,8 +118,14 @@ export default function VerifyPage() {
           setLoading(false);
           return;
         }
-      } else if (pendingRaw) {
-        // OAuth flow: restore the stashed session only AFTER code verification.
+      } else if (loginFlow === "oauth") {
+        const pendingRaw = localStorage.getItem(PENDING_OAUTH_SESSION_KEY);
+        if (!pendingRaw) {
+          setError("Session expired. Please login again.");
+          setLoading(false);
+          return;
+        }
+
         let pending: { access_token?: string; refresh_token?: string } | null = null;
         try {
           pending = JSON.parse(pendingRaw);
@@ -132,7 +135,7 @@ export default function VerifyPage() {
 
         if (!pending?.access_token || !pending?.refresh_token) {
           setError("Session expired. Please login again.");
-          router.push("/login");
+          setLoading(false);
           return;
         }
 
@@ -143,23 +146,27 @@ export default function VerifyPage() {
 
         if (setSessionError) {
           setError("Failed to complete sign in. Please login again.");
-          router.push("/login");
+          setLoading(false);
+          return;
+        }
+
+        const { data: userData } = await supabase.auth.getUser();
+        if (!userData.user) {
+          setError("Failed to complete sign in. Please login again.");
+          setLoading(false);
           return;
         }
       } else {
-        // No password and no pending OAuth session => cannot complete sign-in
-        setError("Session expired. Please login again.");
-        router.push("/login");
+        setError("Please login again.");
+        setLoading(false);
         return;
       }
 
-      // Clear session storage
       sessionStorage.removeItem("login_email");
       sessionStorage.removeItem("login_password");
       sessionStorage.removeItem("login_flow");
-      sessionStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
+      localStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
 
-      // Redirect to home
       router.push("/home");
     } catch (err) {
       console.error("Verification error:", err);
@@ -179,16 +186,13 @@ export default function VerifyPage() {
         body: JSON.stringify({ email, resend: true }),
       });
 
-  const data = await response.json();
-
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setError(data.error || "Failed to resend code");
+        setError((data as { error?: string })?.error || "Failed to resend code");
       } else {
         setCode(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
-        // Show success message from server (may indicate rate limit wait)
-        setError("");
-        alert(data?.message || "Verification code sent to your email!");
+        alert((data as { message?: string })?.message || "Verification code sent to your email!");
       }
     } catch (err) {
       console.error("Resend error:", err);
@@ -204,12 +208,8 @@ export default function VerifyPage() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
           <div className="text-center">
-            <h2 className="text-3xl font-extrabold text-black">
-              Enter Verification Code
-            </h2>
-            <p className="mt-2 text-sm text-black">
-              We sent a 6-digit code to
-            </p>
+            <h2 className="text-3xl font-extrabold text-black">Enter Verification Code</h2>
+            <p className="mt-2 text-sm text-black">We sent a 6-digit code to</p>
             <p className="text-sm font-medium text-[#8B1C1C]">{email}</p>
           </div>
 
@@ -234,9 +234,7 @@ export default function VerifyPage() {
                     />
                   ))}
                 </div>
-                {error && (
-                  <p className="mt-3 text-sm text-red-600 text-center">{error}</p>
-                )}
+                {error && <p className="mt-3 text-sm text-red-600 text-center">{error}</p>}
               </div>
 
               <button
@@ -252,14 +250,7 @@ export default function VerifyPage() {
                       fill="none"
                       viewBox="0 0 24 24"
                     >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path
                         className="opacity-75"
                         fill="currentColor"
@@ -292,7 +283,7 @@ export default function VerifyPage() {
                     sessionStorage.removeItem("login_email");
                     sessionStorage.removeItem("login_password");
                     sessionStorage.removeItem("login_flow");
-                    sessionStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
+                    localStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
                     router.push("/login");
                   }}
                   className="text-sm text-black hover:text-black"

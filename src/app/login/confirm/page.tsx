@@ -9,10 +9,6 @@ export const dynamic = "force-dynamic";
 
 const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export default function ConfirmLoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string>("");
@@ -29,20 +25,6 @@ export default function ConfirmLoginPage() {
 
         if (errParam) {
           setError(errParam);
-          setWorking(false);
-          return;
-        }
-
-        // Session can take a moment to be persisted client-side after exchange.
-        // Retry a few times so we can reliably stash tokens.
-        let session = (await supabase.auth.getSession()).data.session;
-        for (let i = 0; !session && i < 5; i++) {
-          await sleep(120);
-          session = (await supabase.auth.getSession()).data.session;
-        }
-
-        if (!session) {
-          setError("Failed to complete sign-in session. Please try again.");
           setWorking(false);
           return;
         }
@@ -100,15 +82,18 @@ export default function ConfirmLoginPage() {
         sessionStorage.setItem("login_email", userEmail);
         sessionStorage.setItem("login_flow", "oauth");
 
-        // IMPORTANT: OAuth creates a Supabase session immediately.
-        // We don't want the UI to show the user as logged in until they enter the verification code.
-        sessionStorage.setItem(
-          PENDING_OAUTH_SESSION_KEY,
-          JSON.stringify({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-          })
-        );
+        // Stash the OAuth session so we can restore it ONLY after code verification.
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session?.access_token && sessionData.session?.refresh_token) {
+          localStorage.setItem(
+            PENDING_OAUTH_SESSION_KEY,
+            JSON.stringify({
+              access_token: sessionData.session.access_token,
+              refresh_token: sessionData.session.refresh_token,
+              created_at: Date.now(),
+            })
+          );
+        }
 
         // Send verification code
         const sendRes = await fetch("/api/auth/send-verification-code", {
@@ -119,15 +104,14 @@ export default function ConfirmLoginPage() {
 
         if (!sendRes.ok) {
           const msg = await sendRes.json().catch(() => null);
-          sessionStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
-          await supabase.auth.signOut();
           setError(msg?.error || "Failed to send verification code. Please try again.");
           setWorking(false);
           return;
         }
 
-        // Sign out BEFORE going to /login/verify so TopNav doesn't show the account prematurely.
-        await supabase.auth.signOut();
+        // Remove local session so UI doesn't show as logged-in before verification.
+        // Use local scope so we don't revoke the refresh token we just stashed.
+        await supabase.auth.signOut({ scope: "local" });
 
         router.replace("/login/verify");
       } catch {

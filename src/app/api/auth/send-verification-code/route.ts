@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendVerificationCode, verifyVerificationCodeAsync } from "./service";
+import { sendVerificationCode, verifyVerificationCode } from "./service";
 
 export const runtime = 'nodejs';
 
@@ -29,7 +29,7 @@ export async function PUT(req: Request) {
   try {
     const { email, code } = await req.json();
 
-    const result = await verifyVerificationCodeAsync(email, code);
+    const result = await verifyVerificationCode(email, code);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }

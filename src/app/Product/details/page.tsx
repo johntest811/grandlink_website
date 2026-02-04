@@ -74,10 +74,33 @@ function ProductDetailsPageContent() {
     ? product.images
     : [product.image1, product.image2, product.image3, product.image4, product.image5].filter(Boolean);
 
-  // Get 3D model URLs (stored in fbx_url(s) for backward compatibility)
-  const fbxUrls: string[] = product.fbx_urls && Array.isArray(product.fbx_urls) && product.fbx_urls.length > 0
-    ? product.fbx_urls.filter((url: string) => url && url.trim() !== '')
-    : product.fbx_url ? [product.fbx_url] : [];
+  // Get 3D model URLs (FBX + GLB/GLTF, with backward-compatible field names)
+  const modelUrls: string[] = (() => {
+    const urls: string[] = [];
+
+    const push = (v: any) => {
+      if (Array.isArray(v)) {
+        v.forEach((x) => {
+          if (typeof x === "string" && x.trim()) urls.push(x.trim());
+        });
+      } else if (typeof v === "string" && v.trim()) {
+        urls.push(v.trim());
+      }
+    };
+
+    // Legacy + current fields
+    push(product.fbx_urls);
+    push(product.fbx_url);
+    push((product as any).model_urls);
+    push((product as any).model_url);
+    push((product as any).glb_urls);
+    push((product as any).glb_url);
+    push((product as any).gltf_urls);
+    push((product as any).gltf_url);
+
+    // Dedupe while preserving order
+    return Array.from(new Set(urls));
+  })();
 
   const handlePrev = () => setCarouselIdx((idx) => (idx === 0 ? images.length - 1 : idx - 1));
   const handleNext = () => setCarouselIdx((idx) => (idx === images.length - 1 ? 0 : idx + 1));
@@ -163,7 +186,7 @@ function ProductDetailsPageContent() {
   };
 
   const isOutOfStock = product.inventory <= 0;
-  const has3DModels = fbxUrls.length > 0;
+  const has3DModels = modelUrls.length > 0;
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -287,7 +310,7 @@ function ProductDetailsPageContent() {
             {has3DModels && (
               <div className="mt-3">
                 <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {fbxUrls.length} 3D Model{fbxUrls.length > 1 ? 's' : ''} Available
+                  {modelUrls.length} 3D Model{modelUrls.length > 1 ? 's' : ''} Available
                 </span>
               </div>
             )}
@@ -304,13 +327,13 @@ function ProductDetailsPageContent() {
                   ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 hover:shadow-xl hover:scale-105 active:scale-95"
                   : "bg-gray-300 text-gray-500 cursor-not-allowed shadow-md"
               }`}
-              title={has3DModels ? `View ${fbxUrls.length} 3D Model${fbxUrls.length > 1 ? 's' : ''}` : "No 3D models available"}
+              title={has3DModels ? `View ${modelUrls.length} 3D Model${modelUrls.length > 1 ? 's' : ''}` : "No 3D models available"}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
               </svg>
               <span>
-                3D View {has3DModels && fbxUrls.length > 1 ? `(${fbxUrls.length})` : ''}
+                3D View {has3DModels && modelUrls.length > 1 ? `(${modelUrls.length})` : ''}
               </span>
             </button>
             
@@ -479,7 +502,7 @@ function ProductDetailsPageContent() {
 
             <div className="flex-1 w-full min-h-0 relative overflow-hidden">
               <ThreeDFBXViewer
-                fbxUrls={fbxUrls}
+                modelUrls={modelUrls}
                 weather={weather}
                 skyboxes={product?.skyboxes || null}
                 productDimensions={{

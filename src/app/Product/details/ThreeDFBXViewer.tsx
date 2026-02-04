@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { FBXLoader, GLTFLoader, OrbitControls } from "three-stdlib";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 function getUrlExtension(url: string): string {
   const clean = (url || "").split("?")[0].split("#")[0];
@@ -13,7 +12,7 @@ function getUrlExtension(url: string): string {
 }
 
 type Props = {
-  fbxUrls: string[];
+  modelUrls: string[];
   weather: "sunny" | "rainy" | "night" | "foggy";
   skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
   productDimensions?: {
@@ -83,7 +82,7 @@ function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | 
   return num * mmPerUnit(units);
 }
 
-export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
+export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -97,8 +96,8 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
   const modelUnitsRef = useRef<ModelUnits>("mm");
   const assumedModelUnitsRef = useRef<ModelUnits>("m");
 
-  // Ensure we have valid FBX URLs and current index
-  const validFbxUrls = Array.isArray(fbxUrls) ? fbxUrls.filter(url => url && url.trim() !== '') : [];
+  // Ensure we have valid model URLs and current index
+  const validFbxUrls = Array.isArray(modelUrls) ? modelUrls.filter(url => url && url.trim() !== '') : [];
   const currentFbx = validFbxUrls[currentFbxIndex] || validFbxUrls[0];
 
   const productDimsMm = useMemo(() => {
@@ -202,6 +201,14 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
 
     setLoading(true);
 
+    // Make colors consistent across three.js versions (r152+).
+    try {
+      const anyTHREE: any = THREE;
+      if (anyTHREE.ColorManagement && typeof anyTHREE.ColorManagement.enabled === "boolean") {
+        anyTHREE.ColorManagement.enabled = true;
+      }
+    } catch {}
+
 
     const hwConcurrency = (navigator as any).hardwareConcurrency || 4;
     const deviceDpr = window.devicePixelRatio || 1;
@@ -262,20 +269,20 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
       renderer.shadowMap.type = THREE.BasicShadowMap; 
     }
 
-    // runtime-safe color management
-    const sRGB = THREE.SRGBColorSpace ?? 3001; 
+    // runtime-safe color management (matches UpdateProducts viewer)
     try {
-      if ("outputColorSpace" in renderer) {
-        (renderer as any).outputColorSpace = sRGB;
-      } else if ("outputEncoding" in renderer) {
-        (renderer as any).outputEncoding = sRGB;
+      const anyTHREE: any = THREE;
+      if ("outputColorSpace" in (renderer as any) && anyTHREE.SRGBColorSpace !== undefined) {
+        (renderer as any).outputColorSpace = anyTHREE.SRGBColorSpace;
+      } else if ("outputEncoding" in (renderer as any) && anyTHREE.sRGBEncoding !== undefined) {
+        (renderer as any).outputEncoding = anyTHREE.sRGBEncoding;
       }
-    } catch (e) {}
+    } catch {}
     if ("physicallyCorrectLights" in renderer) try { (renderer as any).physicallyCorrectLights = true; } catch(e){}
 
     // Enhanced tone mapping for better reflections
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2; 
+    renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
 
   
@@ -361,13 +368,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
     hemi.position.set(0, 200, 0);
     scene.add(hemi);
 
-    // High-quality "studio" 
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-    const roomEnv = new RoomEnvironment();
-    const roomRT = pmremGenerator.fromScene(roomEnv, isLowEnd ? 0.08 : 0.04);
-    const studioEnvMap = roomRT.texture;
-    scene.environment = studioEnvMap;
+    // Match UpdateProducts viewer behavior: stable lighting via lights only.
+    // Skyboxes are applied as BACKGROUND ONLY so they won't change the model's texture/material look.
+    scene.environment = null;
 
     let skyboxTex: THREE.Texture | null = null;
     let activeSkyboxUrl: string | null = null;
@@ -507,13 +510,34 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
       color?: number;
     }) => {
       const color = opts.color ?? 0x1e88e5;
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 });
+      // Use mesh-based lines (cylinders) so thickness is reliable across browsers/GPUs.
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false,
+      });
       const group = new THREE.Group();
 
       const mkLine = (a: THREE.Vector3, b: THREE.Vector3) => {
-        const geom = new THREE.BufferGeometry().setFromPoints([a, b]);
-        const line = new THREE.Line(geom, mat);
-        group.add(line);
+        const dir = b.clone().sub(a);
+        const len = dir.length();
+        if (!Number.isFinite(len) || len <= 1e-6) return;
+
+        const radius = THREE.MathUtils.clamp(len * 0.01, 0.06, 0.28);
+        const geom = new THREE.CylinderGeometry(radius, radius, len, 10, 1, true);
+        const mesh = new THREE.Mesh(geom, mat);
+
+        // Cylinder is Y-aligned; rotate to match segment direction.
+        const mid = a.clone().add(b).multiplyScalar(0.5);
+        mesh.position.copy(mid);
+        const axis = new THREE.Vector3(0, 1, 0);
+        const quat = new THREE.Quaternion().setFromUnitVectors(axis, dir.clone().normalize());
+        mesh.quaternion.copy(quat);
+
+        mesh.renderOrder = 3;
+        group.add(mesh);
       };
 
       mkLine(opts.start, opts.end);
@@ -605,9 +629,8 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
         skyboxTex = null;
       }
 
-      // Keep a stable studio environment for lighting.
-      // Skyboxes are applied as background only to avoid changing model textures/material look.
-      scene.environment = studioEnvMap;
+      // Keep lighting stable. Skyboxes are background-only so they won't change textures/materials.
+      scene.environment = null;
 
       // If a skybox is configured for this weather, load it asynchronously.
       const skyUrlRaw = (skyboxes && typeof skyboxes === "object") ? (skyboxes as any)[type] : null;
@@ -628,6 +651,17 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
             setTexColorSpace(skyboxTex);
             skyboxTex.mapping = THREE.EquirectangularReflectionMapping;
             scene.background = skyboxTex;
+
+            // Optional smoothing if supported by current three version
+            try {
+              const extras = scene as unknown as Record<string, unknown>;
+              if ("backgroundBlurriness" in extras) {
+                (scene as unknown as { backgroundBlurriness: number }).backgroundBlurriness = 0.08;
+              }
+              if ("backgroundIntensity" in extras) {
+                (scene as unknown as { backgroundIntensity: number }).backgroundIntensity = 1.0;
+              }
+            } catch {}
           },
           undefined,
           () => {
@@ -777,7 +811,7 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
 
           if (map && map.isTexture) {
             try {
-              if (sRGB !== undefined) map.encoding = sRGB;
+              setTexColorSpace(map);
             } catch (e) {}
             enhanceTex(map);
           }
@@ -866,7 +900,9 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
           return material;
         };
 
-        const shouldUpgradeMaterials = modelExt === "fbx";
+        // Match UpdateProducts viewer: keep original materials for FBX/GLTF.
+        // Aggressive FBX "upgrades" can shift the look (e.g., dark frame lines).
+        const shouldUpgradeMaterials = false;
 
         // materials and shadow settings
         object.traverse((child: any) => {
@@ -909,12 +945,17 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
 
             const tweakMat = (mat: any) => {
               if (!mat) return;
+              // Ensure base-color textures are treated as sRGB.
+              // (normal/roughness/metalness/AO remain linear)
+              try { if (mat.map) setTexColorSpace(mat.map); } catch {}
+              try { if (mat.emissiveMap) setTexColorSpace(mat.emissiveMap); } catch {}
               enhanceTex(mat.map);
               enhanceTex(mat.normalMap);
               enhanceTex(mat.roughnessMap);
               enhanceTex(mat.metalnessMap);
               enhanceTex(mat.aoMap);
               enhanceTex(mat.emissiveMap);
+              try { mat.side = THREE.DoubleSide; } catch {}
               mat.needsUpdate = true;
             };
 
@@ -971,7 +1012,6 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
         modelGroup.position.set(0, 0, 0);
         scene.add(modelGroup);
 
-       
         modelBounds = new THREE.Box3().setFromObject(modelGroup);
 
        
@@ -1082,24 +1122,98 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
       setLoading(false);
     };
 
-    if (modelExt === "fbx") {
-      const loader = new FBXLoader();
-      loader.load(currentFbx, (object) => handleLoaded(object), handleProgress, handleError);
-    } else if (modelExt === "glb" || modelExt === "gltf") {
-      const loader = new GLTFLoader();
-      loader.load(
-        currentFbx,
-        (gltf: any) => {
-          const object = gltf?.scene as THREE.Object3D | undefined;
-          if (!object) return handleError(new Error("Missing gltf.scene"));
-          handleLoaded(object);
-        },
-        handleProgress,
-        handleError
-      );
-    } else {
-      handleError(new Error(`Unsupported 3D model type: .${modelExt || "?"}`));
-    }
+    let objectURLToRevoke: string | null = null;
+
+    const manager = new THREE.LoadingManager();
+    manager.onError = (url) => console.warn("Failed to load asset:", url);
+
+    const fbxLoader = new FBXLoader(manager);
+    fbxLoader.setCrossOrigin("anonymous");
+    const gltfLoader = new GLTFLoader(manager);
+    (gltfLoader as any).setCrossOrigin?.("anonymous");
+
+    const tryFetchAsObjectUrl = async (url: string): Promise<string | null> => {
+      const tryUrls: string[] = [url];
+      if (url.includes(" ")) tryUrls.push(encodeURI(url));
+      for (const u of tryUrls) {
+        try {
+          const res = await fetch(u, { mode: "cors" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          objectURLToRevoke = URL.createObjectURL(blob);
+          return objectURLToRevoke;
+        } catch {
+          // try next
+        }
+      }
+      return null;
+    };
+
+    const loadModel = async () => {
+      const ext = modelExt;
+
+      // For .gltf, load directly so relative .bin/textures resolve.
+      if (ext === "gltf") {
+        try {
+          const base = new URL(currentFbx, window.location.href);
+          base.search = "";
+          base.hash = "";
+          base.pathname = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1);
+          manager.setURLModifier((requested) => {
+            if (!requested) return requested;
+            const lower = requested.toLowerCase();
+            if (lower.startsWith("data:") || lower.startsWith("blob:") || lower.startsWith("http://") || lower.startsWith("https://")) return requested;
+            try {
+              return new URL(requested, base).toString();
+            } catch {
+              return requested;
+            }
+          });
+        } catch {}
+
+        gltfLoader.load(
+          currentFbx,
+          (gltf: any) => {
+            const object = gltf?.scene as THREE.Object3D | undefined;
+            if (!object) return handleError(new Error("Missing gltf.scene"));
+            handleLoaded(object);
+          },
+          handleProgress,
+          handleError
+        );
+        return;
+      }
+
+      // For .fbx and .glb, prefer blob-load (matches UpdateProducts viewer; avoids content-type/CORS quirks).
+      let loadUrl = currentFbx;
+      if (ext === "fbx" || ext === "glb") {
+        const objUrl = await tryFetchAsObjectUrl(currentFbx);
+        if (objUrl) loadUrl = objUrl;
+      }
+
+      if (ext === "fbx") {
+        fbxLoader.load(loadUrl, (object) => handleLoaded(object), handleProgress, handleError);
+        return;
+      }
+
+      if (ext === "glb") {
+        gltfLoader.load(
+          loadUrl,
+          (gltf: any) => {
+            const object = gltf?.scene as THREE.Object3D | undefined;
+            if (!object) return handleError(new Error("Missing gltf.scene"));
+            handleLoaded(object);
+          },
+          handleProgress,
+          handleError
+        );
+        return;
+      }
+
+      handleError(new Error(`Unsupported 3D model type: .${ext || "?"}`));
+    };
+
+    void loadModel();
 
     // Enhanced animation loop
     let rafId = 0;
@@ -1256,9 +1370,10 @@ export default function ThreeDFBXViewer({ fbxUrls, weather, skyboxes, productDim
       disposeMeasurementGroup();
       try { controls.dispose(); } catch(e) {}
       try { renderer.dispose(); } catch(e) {}
-      try { pmremGenerator.dispose(); } catch(e) {}
+      if (objectURLToRevoke) {
+        try { URL.revokeObjectURL(objectURLToRevoke); } catch {}
+      }
       try { skyboxTex?.dispose(); } catch(e) {}
-      try { roomRT.dispose(); } catch(e) {}
       try { rainTexture.dispose(); } catch(e) {}
       try { windTexture.dispose(); } catch(e) {}
       if (labelRenderer) {

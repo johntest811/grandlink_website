@@ -17,45 +17,24 @@ export default function VerifyPage() {
 
   useEffect(() => {
     const init = async () => {
-      // For OAuth flow, we must ensure the user is NOT considered logged-in yet.
-      // If a session exists, stash it (if not already stashed) and sign out.
-      const loginFlow = sessionStorage.getItem("login_flow");
-      if (loginFlow === "oauth") {
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (sessionData.session) {
-          const existing = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
-          if (!existing) {
-            sessionStorage.setItem(
-              PENDING_OAUTH_SESSION_KEY,
-              JSON.stringify({
-                access_token: sessionData.session.access_token,
-                refresh_token: sessionData.session.refresh_token,
-              })
-            );
-          }
-          await supabase.auth.signOut();
-        }
-      }
-
-      // Get email from session storage
       const storedEmail = sessionStorage.getItem("login_email");
       if (storedEmail) {
         setEmail(storedEmail);
-      } else {
-        // Fallback for OAuth sessions: try to read the signed-in user's email
-        // (Older behavior may still have an active session if confirm wasn't used)
-        const { data } = await supabase.auth.getUser();
-        const e = data.user?.email || "";
-        if (!e) {
-          router.push("/login");
-          return;
-        }
-        sessionStorage.setItem("login_email", e);
-        sessionStorage.setItem("login_flow", "oauth");
-        setEmail(e);
+        inputRefs.current[0]?.focus();
+        return;
       }
 
-      // Focus first input
+      // Legacy fallback: if a session exists (older flow), read it.
+      const { data } = await supabase.auth.getUser();
+      const e = data.user?.email || "";
+      if (!e) {
+        router.push("/login");
+        return;
+      }
+
+      sessionStorage.setItem("login_email", e);
+      sessionStorage.setItem("login_flow", "oauth");
+      setEmail(e);
       inputRefs.current[0]?.focus();
     };
 
@@ -129,7 +108,7 @@ export default function VerifyPage() {
 
       // Code is valid, now sign in the user
       const password = sessionStorage.getItem("login_password");
-      const loginFlow = sessionStorage.getItem("login_flow");
+      const pendingRaw = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
 
       if (password) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -142,16 +121,9 @@ export default function VerifyPage() {
           setLoading(false);
           return;
         }
-      } else if (loginFlow === "oauth") {
+      } else if (pendingRaw) {
         // OAuth flow: restore the stashed session only AFTER code verification.
-        const pendingRaw = sessionStorage.getItem(PENDING_OAUTH_SESSION_KEY);
-        if (!pendingRaw) {
-          setError("Session expired. Please login again.");
-          router.push("/login");
-          return;
-        }
-
-        let pending: { access_token: string; refresh_token: string } | null = null;
+        let pending: { access_token?: string; refresh_token?: string } | null = null;
         try {
           pending = JSON.parse(pendingRaw);
         } catch {
@@ -174,6 +146,11 @@ export default function VerifyPage() {
           router.push("/login");
           return;
         }
+      } else {
+        // No password and no pending OAuth session => cannot complete sign-in
+        setError("Session expired. Please login again.");
+        router.push("/login");
+        return;
       }
 
       // Clear session storage

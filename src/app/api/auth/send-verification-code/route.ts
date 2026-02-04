@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendVerificationCode, verifyVerificationCode } from "./service";
+import { sendVerificationCode, verifyVerificationCodeAsync } from "./service";
 
 export const runtime = 'nodejs';
 
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, message: result.message });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error sending verification code:', error);
     return NextResponse.json({ error: "Failed to send verification code" }, { status: 500 });
   }
@@ -29,14 +29,14 @@ export async function PUT(req: Request) {
   try {
     const { email, code } = await req.json();
 
-    const result = verifyVerificationCode(email, code);
+    const result = await verifyVerificationCodeAsync(email, code);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
     return NextResponse.json({ success: true, message: result.message });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error verifying code:', error);
     return NextResponse.json({ error: "Failed to verify code" }, { status: 500 });
   }

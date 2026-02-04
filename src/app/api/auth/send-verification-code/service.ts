@@ -1,14 +1,22 @@
 import nodemailer from "nodemailer";
+import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
-type VerificationEntry = {
-  code: string;
-  expiresAt: number;
-  lastSentAt: number;
-};
+const CODES_TABLE = "login_verification_codes";
+const PEPPER = process.env.LOGIN_VERIFICATION_PEPPER || "";
 
-// Store verification codes temporarily (in production, use Redis or database)
-// Also track lastSentAt to avoid duplicate emails being sent rapidly.
-const verificationCodes = new Map<string, VerificationEntry>();
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -18,39 +26,141 @@ function generateVerificationCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function hashVerificationCode(email: string, code: string) {
+  // Include email + pepper so hashes are not reusable across accounts.
+  return crypto
+    .createHash("sha256")
+    .update(`${PEPPER}|${normalizeEmail(email)}|${String(code).trim()}`)
+    .digest("hex");
+}
+
+type StoredCodeRow = {
+  email: string;
+  code_hash: string;
+  expires_at: string;
+  last_sent_at: string;
+};
+
+async function getStoredCode(email: string) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { ok: false as const, status: 500, error: "Server auth is not configured" };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from(CODES_TABLE)
+    .select("email, code_hash, expires_at, last_sent_at")
+    .eq("email", email)
+    .maybeSingle<StoredCodeRow>();
+
+  if (error) {
+    // If the table isn't created yet, fail with a helpful message.
+    const msg = error.message || "Failed to read verification code";
+    return {
+      ok: false as const,
+      status: 500,
+      error:
+        msg.includes("relation") && msg.includes("does not exist")
+          ? `Missing database table '${CODES_TABLE}'. Create it in Supabase first.`
+          : msg,
+    };
+  }
+
+  return { ok: true as const, status: 200, row: data ?? null };
+}
+
+async function upsertStoredCode(email: string, codeHash: string, expiresAt: Date, lastSentAt: Date) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { ok: false as const, status: 500, error: "Server auth is not configured" };
+  }
+
+  const { error } = await supabaseAdmin
+    .from(CODES_TABLE)
+    .upsert(
+      {
+        email,
+        code_hash: codeHash,
+        expires_at: expiresAt.toISOString(),
+        last_sent_at: lastSentAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      } as {
+        email: string;
+        code_hash: string;
+        expires_at: string;
+        last_sent_at: string;
+        updated_at: string;
+      },
+      { onConflict: "email" }
+    );
+
+  if (error) {
+    const msg = error.message || "Failed to store verification code";
+    return {
+      ok: false as const,
+      status: 500,
+      error:
+        msg.includes("column") && msg.includes("updated_at")
+          ? `Database table '${CODES_TABLE}' is missing 'updated_at' column. Apply the provided SQL.`
+          : msg,
+    };
+  }
+
+  return { ok: true as const, status: 200 };
+}
+
+async function deleteStoredCode(email: string) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { ok: false as const, status: 500, error: "Server auth is not configured" };
+  }
+
+  const { error } = await supabaseAdmin.from(CODES_TABLE).delete().eq("email", email);
+  if (error) {
+    return { ok: false as const, status: 500, error: "Failed to clear verification code" };
+  }
+
+  return { ok: true as const, status: 200 };
+}
+
 export async function sendVerificationCode(emailRaw: string, resend: boolean) {
   const email = normalizeEmail(emailRaw);
   if (!email) {
     return { ok: false as const, status: 400, error: "Invalid email" };
   }
 
-  const existing = verificationCodes.get(email);
+  const existingRes = await getStoredCode(email);
+  if (!existingRes.ok) return existingRes;
+  const existing = existingRes.row;
+
+  const now = Date.now();
+  const existingExpiresAtMs = existing?.expires_at ? Date.parse(existing.expires_at) : 0;
+  const existingLastSentAtMs = existing?.last_sent_at ? Date.parse(existing.last_sent_at) : 0;
+  const existingValid = Boolean(existing && existingExpiresAtMs > now);
 
   // If a valid code already exists and this isn't an explicit resend request,
-  // don't send another email. This prevents duplicate emails in the inbox.
-  if (existing && existing.expiresAt > Date.now() && !resend) {
+  // don't send another email.
+  if (existingValid && !resend) {
     return { ok: true as const, status: 200, message: "Verification code already sent" };
   }
 
   // If resend is requested, rate-limit resends to once every 60 seconds.
-  if (existing && existing.expiresAt > Date.now() && resend) {
-    const now = Date.now();
-    const elapsed = now - (existing.lastSentAt || 0);
+  if (existingValid && resend) {
+    const elapsed = now - (existingLastSentAtMs || 0);
     if (elapsed < 60_000) {
       const remain = Math.ceil((60_000 - elapsed) / 1000);
       return { ok: true as const, status: 200, message: `Please wait ${remain}s before resending` };
     }
   }
 
-  // Generate a new code when missing/expired; otherwise reuse the existing code
-  const code = existing && existing.expiresAt > Date.now() ? existing.code : generateVerificationCode();
+  // Always generate a new code when expired/missing; for valid+resend we also generate a new code.
+  const code = generateVerificationCode();
+  const codeHash = hashVerificationCode(email, code);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const lastSentAt = new Date();
 
-  // Persist metadata (reuse code if still valid, extend/refresh TTL and lastSentAt)
-  verificationCodes.set(email, {
-    code,
-    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
-    lastSentAt: Date.now(),
-  });
+  const persistRes = await upsertStoredCode(email, codeHash, expiresAt, lastSentAt);
+  if (!persistRes.ok) return persistRes;
 
   // Send email with verification code
   const LOGIN_GMAIL_USER = process.env.LOGIN_GMAIL_USER || process.env.GMAIL_USER;
@@ -122,15 +232,14 @@ export async function sendVerificationCode(emailRaw: string, resend: boolean) {
 
   try {
     await transporter.sendMail(mailOptions);
-  } catch (e) {
-    // If sending fails, keep the code stored so a resend can reuse it.
+  } catch {
     return { ok: false as const, status: 500, error: "Failed to send verification code" };
   }
 
   return { ok: true as const, status: 200, message: "Verification code sent to your email" };
 }
 
-export function verifyVerificationCode(emailRaw: string, codeRaw: string) {
+export async function verifyVerificationCode(emailRaw: string, codeRaw: string) {
   const email = normalizeEmail(emailRaw);
   const code = String(codeRaw || "").trim();
 
@@ -138,20 +247,28 @@ export function verifyVerificationCode(emailRaw: string, codeRaw: string) {
     return { ok: false as const, status: 400, error: "Email and code required" };
   }
 
-  const stored = verificationCodes.get(email);
+  const existingRes = await getStoredCode(email);
+  if (!existingRes.ok) return existingRes;
+  const stored = existingRes.row;
   if (!stored) {
     return { ok: false as const, status: 404, error: "No verification code found" };
   }
 
-  if (Date.now() > stored.expiresAt) {
-    verificationCodes.delete(email);
+  const expiresAtMs = Date.parse(stored.expires_at);
+  if (!Number.isFinite(expiresAtMs) || Date.now() > expiresAtMs) {
+    await deleteStoredCode(email);
     return { ok: false as const, status: 400, error: "Verification code expired" };
   }
 
-  if (stored.code !== code) {
+  const expectedHash = stored.code_hash;
+  const actualHash = hashVerificationCode(email, code);
+  if (expectedHash !== actualHash) {
     return { ok: false as const, status: 400, error: "Invalid verification code" };
   }
 
-  verificationCodes.delete(email);
+  await deleteStoredCode(email);
   return { ok: true as const, status: 200, message: "Code verified successfully" };
 }
+
+// Backward-compatible alias
+export const verifyVerificationCodeAsync = verifyVerificationCode;

@@ -34,11 +34,25 @@ export default function UnifiedTopNavBar() {
   const router = useRouter();
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchUser = async () => {
       const { data } = await supabase.auth.getUser();
+      if (!isMounted) return;
       setUser(data?.user || null);
     };
+
     fetchUser();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      setUser(session?.user || null);
+    });
+
+    return () => {
+      isMounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

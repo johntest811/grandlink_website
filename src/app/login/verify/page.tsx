@@ -243,11 +243,21 @@ export default function VerifyPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    sessionStorage.removeItem("login_email");
-                    sessionStorage.removeItem("login_password");
-                    sessionStorage.removeItem("login_flow");
-                    localStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
-                    router.push("/login");
+                    void (async () => {
+                      sessionStorage.removeItem("login_email");
+                      sessionStorage.removeItem("login_password");
+                      sessionStorage.removeItem("login_flow");
+                      localStorage.removeItem(PENDING_VERIFICATION_KEY);
+                      window.dispatchEvent(new Event("gl:pendingVerificationChanged"));
+
+                      try {
+                        await supabase.auth.signOut();
+                      } catch {
+                        // Best-effort: still allow navigation
+                      }
+
+                      router.push("/login");
+                    })();
                   }}
                   className="text-sm text-black hover:text-black"
                 >

@@ -20,7 +20,16 @@ type UserNotif = {
 
 export default function UnifiedTopNavBar() {
   const [user, setUser] = useState<any>(null);
-  const [pendingVerification, setPendingVerification] = useState<boolean>(false);
+  const getPendingVerification = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("gl_pending_email_verification") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const [pendingVerification, setPendingVerification] = useState<boolean>(() => getPendingVerification());
   const [notifications, setNotifications] = useState<UserNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -34,16 +43,14 @@ export default function UnifiedTopNavBar() {
   const notifRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const isPending = () => {
-    try {
-      return localStorage.getItem("gl_pending_email_verification") === "1";
-    } catch {
-      return false;
-    }
-  };
-
   useEffect(() => {
-    const sync = () => setPendingVerification(isPending());
+    const sync = () => {
+      const nextPending = getPendingVerification();
+      setPendingVerification(nextPending);
+      if (nextPending) setUser(null);
+    };
+
+    // Keep state in sync for same-tab writes + cross-tab storage events
     sync();
     const onStorage = (e: StorageEvent) => {
       if (e.key === "gl_pending_email_verification") sync();

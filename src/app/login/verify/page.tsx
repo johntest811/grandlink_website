@@ -23,17 +23,14 @@ export default function VerifyPage() {
       // If a session exists (older flow), stash it and sign out locally.
       const { data: sessionData } = await supabase.auth.getSession();
       if (sessionData.session?.access_token && sessionData.session?.refresh_token) {
-        const existingPending = localStorage.getItem(PENDING_OAUTH_SESSION_KEY);
-        if (!existingPending) {
-          localStorage.setItem(
-            PENDING_OAUTH_SESSION_KEY,
-            JSON.stringify({
-              access_token: sessionData.session.access_token,
-              refresh_token: sessionData.session.refresh_token,
-              created_at: Date.now(),
-            })
-          );
-        }
+        localStorage.setItem(
+          PENDING_OAUTH_SESSION_KEY,
+          JSON.stringify({
+            access_token: sessionData.session.access_token,
+            refresh_token: sessionData.session.refresh_token,
+            created_at: Date.now(),
+          })
+        );
         await supabase.auth.signOut({ scope: "local" });
       }
 
@@ -139,19 +136,29 @@ export default function VerifyPage() {
           return;
         }
 
-        const { error: setSessionError } = await supabase.auth.setSession({
+        const { data: setSessionData, error: setSessionError } = await supabase.auth.setSession({
           access_token: pending.access_token,
           refresh_token: pending.refresh_token,
         });
 
         if (setSessionError) {
-          setError("Failed to complete sign in. Please login again.");
+          setError(setSessionError.message || "Failed to complete sign in. Please login again.");
           setLoading(false);
           return;
         }
 
-        const { data: userData } = await supabase.auth.getUser();
-        if (!userData.user) {
+        // Confirm we have a session/user (retry briefly; storage/state can lag)
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        let user = setSessionData.session?.user ?? null;
+        for (let i = 0; !user && i < 6; i++) {
+          const { data: userData } = await supabase.auth.getUser();
+          user = userData.user ?? null;
+          if (user) break;
+          await sleep(125);
+        }
+
+        if (!user) {
           setError("Failed to complete sign in. Please login again.");
           setLoading(false);
           return;

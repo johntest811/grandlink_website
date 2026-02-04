@@ -16,6 +16,15 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   const pathname = usePathname() || "";
   const router = useRouter();
   useEffect(() => {
+    try {
+      if (localStorage.getItem("gl_pending_email_verification") === "1") {
+        router.replace("/login/verify");
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
     const fetchUser = async () => {
       const { data } = await import("@/app/Clients/Supabase/SupabaseClients").then(mod => mod.supabase.auth.getUser());
       setUser(data?.user || null);

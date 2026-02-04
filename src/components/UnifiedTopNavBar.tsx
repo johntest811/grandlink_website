@@ -20,6 +20,7 @@ type UserNotif = {
 
 export default function UnifiedTopNavBar() {
   const [user, setUser] = useState<any>(null);
+  const [pendingVerification, setPendingVerification] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<UserNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -33,13 +34,41 @@ export default function UnifiedTopNavBar() {
   const notifRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  const isPending = () => {
+    try {
+      return localStorage.getItem("gl_pending_email_verification") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const sync = () => setPendingVerification(isPending());
+    sync();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "gl_pending_email_verification") sync();
+    };
+    const onCustom = () => sync();
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("gl:pendingVerificationChanged", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("gl:pendingVerificationChanged", onCustom as EventListener);
+    };
+  }, []);
+
   useEffect(() => {
     const fetchUser = async () => {
+      if (pendingVerification) {
+        setUser(null);
+        return;
+      }
       const { data } = await supabase.auth.getUser();
       setUser(data?.user || null);
     };
     fetchUser();
-  }, []);
+  }, [pendingVerification]);
 
   useEffect(() => {
     if (user?.id) fetchNotifications();

@@ -7,7 +7,7 @@ import { supabase } from "../../Clients/Supabase/SupabaseClients";
 // Ensure this page is rendered dynamically (no prerender), fixing Vercel build errors
 export const dynamic = "force-dynamic";
 
-const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
+const PENDING_VERIFICATION_KEY = "gl_pending_email_verification";
 
 export default function ConfirmLoginPage() {
   const router = useRouter();
@@ -29,23 +29,15 @@ export default function ConfirmLoginPage() {
           return;
         }
 
-        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
         // Two possible flows depending on Supabase link version:
         // 1) New PKCE flow with ?code=... -> use exchangeCodeForSession
         // 2) Older hash-based flow with #access_token=... -> use setSession
-        let session: { access_token: string; refresh_token: string } | null = null;
-
         if (code) {
           const { data, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
             setError(error.message || "Failed to complete sign-in. Try again.");
             setWorking(false);
             return;
-          }
-
-          if (data.session?.access_token && data.session?.refresh_token) {
-            session = { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
           }
         } else if (hash.includes("access_token") || hash.includes("refresh_token")) {
           const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
@@ -64,31 +56,9 @@ export default function ConfirmLoginPage() {
             setWorking(false);
             return;
           }
-
-          if (data.session?.access_token && data.session?.refresh_token) {
-            session = { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
-          }
         } else {
           // No recognizable auth info in URL
           setError("Invalid or expired sign-in link. Please request a new one.");
-          setWorking(false);
-          return;
-        }
-
-        // Sometimes session persistence can lag behind the exchange. Retry briefly.
-        if (!session) {
-          for (let i = 0; i < 8; i++) {
-            const { data } = await supabase.auth.getSession();
-            if (data.session?.access_token && data.session?.refresh_token) {
-              session = { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
-              break;
-            }
-            await sleep(125);
-          }
-        }
-
-        if (!session) {
-          setError("Failed to complete sign-in session. Please try again.");
           setWorking(false);
           return;
         }
@@ -112,15 +82,10 @@ export default function ConfirmLoginPage() {
         sessionStorage.setItem("login_email", userEmail);
         sessionStorage.setItem("login_flow", "oauth");
 
-        // Stash the OAuth session so we can restore it ONLY after code verification.
-        localStorage.setItem(
-          PENDING_OAUTH_SESSION_KEY,
-          JSON.stringify({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-            created_at: Date.now(),
-          })
-        );
+        // Mark that this session is pending email-code verification.
+        // We keep the Supabase session (no signOut) to avoid "Auth session missing" issues.
+        localStorage.setItem(PENDING_VERIFICATION_KEY, "1");
+        window.dispatchEvent(new Event("gl:pendingVerificationChanged"));
 
         // Send verification code
         const sendRes = await fetch("/api/auth/send-verification-code", {
@@ -135,10 +100,6 @@ export default function ConfirmLoginPage() {
           setWorking(false);
           return;
         }
-
-        // Remove local session so UI doesn't show as logged-in before verification.
-        // Use local scope so we don't revoke the refresh token we just stashed.
-        await supabase.auth.signOut({ scope: "local" });
 
         router.replace("/login/verify");
       } catch {

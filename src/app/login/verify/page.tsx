@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import { supabase } from "../../Clients/Supabase/SupabaseClients";
 
-const PENDING_OAUTH_SESSION_KEY = "gl_oauth_pending_session";
+const PENDING_VERIFICATION_KEY = "gl_pending_email_verification";
 
 export default function VerifyPage() {
   const [code, setCode] = useState(["", "", "", "", "", ""]);
@@ -19,28 +19,23 @@ export default function VerifyPage() {
 
   useEffect(() => {
     const init = async () => {
-      // Ensure we are NOT logged in on this page.
-      // If a session exists (older flow), stash it and sign out locally.
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData.session?.access_token && sessionData.session?.refresh_token) {
-        localStorage.setItem(
-          PENDING_OAUTH_SESSION_KEY,
-          JSON.stringify({
-            access_token: sessionData.session.access_token,
-            refresh_token: sessionData.session.refresh_token,
-            created_at: Date.now(),
-          })
-        );
-        await supabase.auth.signOut({ scope: "local" });
-      }
-
       const storedEmail = sessionStorage.getItem("login_email");
-      if (!storedEmail) {
-        router.replace("/login");
-        return;
+      if (storedEmail) {
+        setEmail(storedEmail);
+      } else {
+        // OAuth flow fallback: if session exists, recover email from user.
+        const { data } = await supabase.auth.getUser();
+        const userEmail = data.user?.email || "";
+        if (userEmail) {
+          sessionStorage.setItem("login_email", userEmail);
+          sessionStorage.setItem("login_flow", "oauth");
+          setEmail(userEmail);
+        } else {
+          router.replace("/login");
+          return;
+        }
       }
 
-      setEmail(storedEmail);
       inputRefs.current[0]?.focus();
     };
 
@@ -116,50 +111,10 @@ export default function VerifyPage() {
           return;
         }
       } else if (loginFlow === "oauth") {
-        const pendingRaw = localStorage.getItem(PENDING_OAUTH_SESSION_KEY);
-        if (!pendingRaw) {
+        // OAuth flow: session should already exist from /login/confirm.
+        const { data: userData } = await supabase.auth.getUser();
+        if (!userData.user) {
           setError("Session expired. Please login again.");
-          setLoading(false);
-          return;
-        }
-
-        let pending: { access_token?: string; refresh_token?: string } | null = null;
-        try {
-          pending = JSON.parse(pendingRaw);
-        } catch {
-          pending = null;
-        }
-
-        if (!pending?.access_token || !pending?.refresh_token) {
-          setError("Session expired. Please login again.");
-          setLoading(false);
-          return;
-        }
-
-        const { data: setSessionData, error: setSessionError } = await supabase.auth.setSession({
-          access_token: pending.access_token,
-          refresh_token: pending.refresh_token,
-        });
-
-        if (setSessionError) {
-          setError(setSessionError.message || "Failed to complete sign in. Please login again.");
-          setLoading(false);
-          return;
-        }
-
-        // Confirm we have a session/user (retry briefly; storage/state can lag)
-        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-        let user = setSessionData.session?.user ?? null;
-        for (let i = 0; !user && i < 6; i++) {
-          const { data: userData } = await supabase.auth.getUser();
-          user = userData.user ?? null;
-          if (user) break;
-          await sleep(125);
-        }
-
-        if (!user) {
-          setError("Failed to complete sign in. Please login again.");
           setLoading(false);
           return;
         }
@@ -172,7 +127,8 @@ export default function VerifyPage() {
       sessionStorage.removeItem("login_email");
       sessionStorage.removeItem("login_password");
       sessionStorage.removeItem("login_flow");
-      localStorage.removeItem(PENDING_OAUTH_SESSION_KEY);
+      localStorage.removeItem(PENDING_VERIFICATION_KEY);
+      window.dispatchEvent(new Event("gl:pendingVerificationChanged"));
 
       router.push("/home");
     } catch (err) {

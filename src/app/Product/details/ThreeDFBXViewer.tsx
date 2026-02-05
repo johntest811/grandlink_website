@@ -96,6 +96,11 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
   const modelUnitsRef = useRef<ModelUnits>("mm");
   const assumedModelUnitsRef = useRef<ModelUnits>("m");
 
+  // Keep weather/skyboxes changes instant (don’t rebuild the entire viewer on toggle)
+  const weatherRef = useRef<Props["weather"]>(weather);
+  const skyboxesRef = useRef<Props["skyboxes"]>(skyboxes ?? null);
+  const applyWeatherRef = useRef<((type: Props["weather"]) => void) | null>(null);
+
   // Ensure we have valid model URLs and current index
   const validFbxUrls = Array.isArray(modelUrls) ? modelUrls.filter(url => url && url.trim() !== '') : [];
   const currentFbx = validFbxUrls[currentFbxIndex] || validFbxUrls[0];
@@ -116,6 +121,17 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
   useEffect(() => {
     showMeasurementsRef.current = showMeasurements;
   }, [showMeasurements]);
+
+  useEffect(() => {
+    weatherRef.current = weather;
+    applyWeatherRef.current?.(weather);
+  }, [weather]);
+
+  useEffect(() => {
+    skyboxesRef.current = skyboxes ?? null;
+    // If skyboxes mapping changed, re-apply current weather so background updates.
+    applyWeatherRef.current?.(weatherRef.current);
+  }, [skyboxes]);
 
   useEffect(() => {
     modelUnitsRef.current = modelUnits;
@@ -633,7 +649,8 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
       scene.environment = null;
 
       // If a skybox is configured for this weather, load it asynchronously.
-      const skyUrlRaw = (skyboxes && typeof skyboxes === "object") ? (skyboxes as any)[type] : null;
+      const sb = skyboxesRef.current;
+      const skyUrlRaw = (sb && typeof sb === "object") ? (sb as any)[type] : null;
       const skyUrl = typeof skyUrlRaw === "string" ? skyUrlRaw.trim() : "";
       if (skyUrl) {
         activeSkyboxUrl = skyUrl;
@@ -649,14 +666,26 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
             }
             skyboxTex = tex;
             setTexColorSpace(skyboxTex);
+
+            // Higher-quality background rendering
+            try {
+              skyboxTex.minFilter = THREE.LinearMipmapLinearFilter;
+              skyboxTex.magFilter = THREE.LinearFilter;
+              skyboxTex.generateMipmaps = true;
+              const maxAniso = Math.max(1, Math.min(16, renderer.capabilities.getMaxAnisotropy()));
+              (skyboxTex as any).anisotropy = maxAniso;
+              skyboxTex.needsUpdate = true;
+            } catch {}
+
             skyboxTex.mapping = THREE.EquirectangularReflectionMapping;
             scene.background = skyboxTex;
 
             // Optional smoothing if supported by current three version
             try {
               const extras = scene as unknown as Record<string, unknown>;
+              // Keep crisp, high-quality skybox background.
               if ("backgroundBlurriness" in extras) {
-                (scene as unknown as { backgroundBlurriness: number }).backgroundBlurriness = 0.08;
+                (scene as unknown as { backgroundBlurriness: number }).backgroundBlurriness = 0.0;
               }
               if ("backgroundIntensity" in extras) {
                 (scene as unknown as { backgroundIntensity: number }).backgroundIntensity = 1.0;
@@ -707,7 +736,8 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
         const spawnOne = (i: number) => {
           if (!rainArea) return;
           const headX = rainArea.minX + Math.random() * (rainArea.maxX - rainArea.minX);
-          const headY = rainArea.maxY + Math.random() * (rainArea.maxY - rainArea.minY) * 0.3;
+          // Spawn within bounds so rain is visible immediately after switching to rainy.
+          const headY = rainArea.minY + Math.random() * (rainArea.maxY - rainArea.minY);
           const headZ = rainArea.minZ + Math.random() * (rainArea.maxZ - rainArea.minZ);
 
           // Shorter streaks (user requested) while keeping thin lines.
@@ -778,7 +808,8 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
       }
     };
 
-    applyWeather(weather);
+    applyWeatherRef.current = (t) => applyWeather(t);
+    applyWeather(weatherRef.current);
 
     const modelExt = getUrlExtension(currentFbx);
     const handleLoaded = (object: THREE.Object3D) => {
@@ -1110,7 +1141,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
         controls.update();
 
         setLoading(false);
-        applyWeather(weather);
+        applyWeather(weatherRef.current);
     };
 
     const handleProgress = (progress: any) => {
@@ -1363,6 +1394,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
 
     // Cleanup
     return () => {
+      applyWeatherRef.current = null;
       try {
         renderer.domElement.removeEventListener("wheel", wheelHandler as any);
       } catch {}
@@ -1383,7 +1415,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
       }
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
-  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions]);
+  }, [currentFbx, productDimsMm, usesProductDimensions]);
 
   // Show loading or no files message
   if (!validFbxUrls.length) {

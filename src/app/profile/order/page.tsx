@@ -83,12 +83,44 @@ export default function ProfileOrderPage() {
   const [receiptSessions, setReceiptSessions] = useState<PaymentSession[]>([]);
   const [progressModal, setProgressModal] = useState<{ item: UserItem; product?: Product } | null>(null);
 
+  const [imagePreview, setImagePreview] = useState<{ urls: string[]; index: number; title?: string } | null>(null);
+  const [imagePreviewZoom, setImagePreviewZoom] = useState(1);
+
   const [changeModal, setChangeModal] = useState<{ item: UserItem; product?: Product } | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [changeMethod, setChangeMethod] = useState<"delivery" | "pickup">("delivery");
   const [changeAddressId, setChangeAddressId] = useState<string>("");
   const [changeBranch, setChangeBranch] = useState<string>("");
   const [changing, setChanging] = useState(false);
+
+  useEffect(() => {
+    if (!imagePreview) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setImagePreview(null);
+      if (e.key === "ArrowLeft") setImagePreview((p) => (p ? { ...p, index: Math.max(0, p.index - 1) } : p));
+      if (e.key === "ArrowRight")
+        setImagePreview((p) => (p ? { ...p, index: Math.min(p.urls.length - 1, p.index + 1) } : p));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [imagePreview]);
+
+  // Deep-link: /profile/order?openProgress=<user_item_id>
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const target = new URLSearchParams(window.location.search).get("openProgress") || "";
+    if (!target) return;
+    if (loading) return;
+    if (progressModal) return;
+
+    const item = items.find((it) => it.id === target);
+    if (!item) return;
+
+    const product = productsById[item.product_id];
+    setProgressModal({ item, product });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, items, productsById, progressModal]);
 
   // Load orders + related products
   const load = async (uid: string) => {
@@ -573,12 +605,55 @@ export default function ProfileOrderPage() {
                 ? (progressModal.item.meta.production_updates as any[])
                 : [];
               const finalQc = progressModal.item?.meta?.final_qc;
-              const isInQualityCheck =
-                String(progressModal.item?.order_status || progressModal.item?.order_progress || progressModal.item?.status || "") ===
-                "quality_check";
+              const status = String(
+                progressModal.item?.order_status || progressModal.item?.order_progress || progressModal.item?.status || ""
+              );
+              const isInQualityCheck = status === "quality_check";
+              const hasReachedQualityCheck = reachedIndex(progressModal.item) >= steps.indexOf("quality_check");
+
+              const normalizedUpdates = updates
+                .slice()
+                .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
+
+              const qcFromUpdates = normalizedUpdates.find((u) => !!u?.is_final_qc);
+              const qcPayload = finalQc && typeof finalQc === "object" ? finalQc : qcFromUpdates;
+
+              const productionUpdates = normalizedUpdates.filter((u) => !u?.is_final_qc);
+
+              const openPreview = (urls: string[], index: number, title?: string) => {
+                if (!urls.length) return;
+                setImagePreviewZoom(1);
+                setImagePreview({ urls, index, title });
+              };
 
               return (
                 <>
+                  {/* Product snapshot */}
+                  {progressModal.product && (
+                    <div className="mb-6 flex items-center gap-3 rounded border p-3">
+                      <div className="h-16 w-16 overflow-hidden rounded border bg-white flex items-center justify-center">
+                        {(() => {
+                          const p = progressModal.product;
+                          const img =
+                            (Array.isArray(p.images) && p.images[0]) ||
+                            p.image1 ||
+                            p.image2 ||
+                            "";
+                          return img ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={img} alt={p.name || "Product"} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="text-xs text-black/60">No image</div>
+                          );
+                        })()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-black truncate">{progressModal.product.name || "Product"}</div>
+                        <div className="text-xs text-black/70">Status: {stageLabel(status || "approved")}</div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Production progress bar */}
                   <div className="mb-6">
                     <div className="flex items-center justify-between">
@@ -594,15 +669,13 @@ export default function ProfileOrderPage() {
                   {/* Approved updates */}
                   <div className="mb-8">
                     <div className="text-sm font-semibold text-black mb-2">Production Updates</div>
-                    {updates.length === 0 ? (
+                    {productionUpdates.length === 0 ? (
                       <div className="text-sm text-black/70">No approved updates yet.</div>
                     ) : (
                       <div className="space-y-3">
-                        {updates
-                          .slice()
-                          .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")))
-                          .map((u, idx) => {
+                        {productionUpdates.map((u, idx) => {
                             const imgs = Array.isArray(u.image_urls) ? u.image_urls : [];
+                            const by = String(u.submitted_by_name || u.employee_name || "").trim();
                             return (
                               <div
                                 key={String(u.task_update_id || u.id || u.approved_at || idx)}
@@ -610,8 +683,8 @@ export default function ProfileOrderPage() {
                               >
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="text-xs text-black/70">
-                                    {u.is_final_qc ? "FINAL QC" : "UPDATE"}
-                                    {u.submitted_by_name ? ` • by ${u.submitted_by_name}` : ""}
+                                    UPDATE
+                                    {by ? ` • by ${by}` : ""}
                                   </div>
                                   <div className="text-xs text-black/60">
                                     {u.approved_at ? new Date(u.approved_at).toLocaleString() : ""}
@@ -622,8 +695,18 @@ export default function ProfileOrderPage() {
                                 )}
                                 {imgs.length > 0 && (
                                   <div className="mt-2 grid grid-cols-3 gap-2">
-                                    {imgs.map((url: string, idx: number) => (
-                                      <img key={idx} src={url} alt="" className="h-24 w-full object-cover rounded border" />
+                                    {imgs.map((url: string, imgIdx: number) => (
+                                      <button
+                                        key={imgIdx}
+                                        type="button"
+                                        className="group relative h-24 w-full overflow-hidden rounded border"
+                                        onClick={() => openPreview(imgs, imgIdx, "Production Update")}
+                                        aria-label="View image"
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={url} alt="" className="h-full w-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
+                                      </button>
                                     ))}
                                   </div>
                                 )}
@@ -635,16 +718,28 @@ export default function ProfileOrderPage() {
                   </div>
 
                   {/* Final QC snapshot (optional) */}
-                  {finalQc && (finalQc.description || (Array.isArray(finalQc.image_urls) && finalQc.image_urls.length)) ? (
+                  {hasReachedQualityCheck &&
+                  qcPayload &&
+                  (qcPayload.description || (Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length)) ? (
                     <div className="mb-8">
                       <div className="text-sm font-semibold text-black mb-2">Quality Check</div>
-                      {finalQc.description && (
-                        <div className="text-sm text-black whitespace-pre-wrap">{finalQc.description}</div>
+                      {qcPayload.description && (
+                        <div className="text-sm text-black whitespace-pre-wrap">{qcPayload.description}</div>
                       )}
-                      {Array.isArray(finalQc.image_urls) && finalQc.image_urls.length > 0 && (
+                      {Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0 && (
                         <div className="mt-2 grid grid-cols-3 gap-2">
-                          {finalQc.image_urls.map((url: string, idx: number) => (
-                            <img key={idx} src={url} alt="" className="h-24 w-full object-cover rounded border" />
+                          {qcPayload.image_urls.map((url: string, idx: number) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="group relative h-24 w-full overflow-hidden rounded border"
+                              onClick={() => openPreview(qcPayload.image_urls, idx, "Final QC")}
+                              aria-label="View final QC image"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url} alt="" className="h-full w-full object-cover" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
+                            </button>
                           ))}
                         </div>
                       )}
@@ -707,6 +802,99 @@ export default function ProfileOrderPage() {
               <button onClick={() => setProgressModal(null)} className="px-4 py-2 bg-black text-white rounded">
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image preview overlay (used from Order Progress) */}
+      {imagePreview && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/70 p-4 flex items-center justify-center"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setImagePreview(null);
+          }}
+        >
+          <div className="w-full max-w-4xl bg-white rounded-lg shadow-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div className="text-sm font-semibold text-black truncate">
+                {imagePreview.title || "Image"} ({imagePreview.index + 1}/{imagePreview.urls.length})
+              </div>
+              <button
+                type="button"
+                className="text-black text-xl"
+                onClick={() => setImagePreview(null)}
+                aria-label="Close image preview"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="bg-black flex items-center justify-center" style={{ height: "70vh" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imagePreview.urls[imagePreview.index]}
+                alt=""
+                className="max-h-full max-w-full"
+                style={{ transform: `scale(${imagePreviewZoom})`, transformOrigin: "center" }}
+              />
+            </div>
+
+            <div className="px-4 py-3 border-t flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-1 rounded border text-sm"
+                  onClick={() => setImagePreview((p) => (p ? { ...p, index: Math.max(0, p.index - 1) } : p))}
+                  disabled={imagePreview.index <= 0}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1 rounded border text-sm"
+                  onClick={() =>
+                    setImagePreview((p) => (p ? { ...p, index: Math.min(p.urls.length - 1, p.index + 1) } : p))
+                  }
+                  disabled={imagePreview.index >= imagePreview.urls.length - 1}
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-1 rounded border text-sm"
+                  onClick={() => setImagePreviewZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))}
+                  disabled={imagePreviewZoom <= 1}
+                >
+                  Zoom −
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1 rounded border text-sm"
+                  onClick={() => setImagePreviewZoom(1)}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1 rounded border text-sm"
+                  onClick={() => setImagePreviewZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))}
+                >
+                  Zoom +
+                </button>
+              </div>
+
+              <a
+                className="px-3 py-1 rounded bg-black text-white text-sm"
+                href={imagePreview.urls[imagePreview.index]}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in new tab
+              </a>
             </div>
           </div>
         </div>

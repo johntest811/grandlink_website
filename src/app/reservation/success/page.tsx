@@ -90,6 +90,14 @@ function ReservationSuccessPageContent() {
                 const branch = reservation?.meta?.selected_branch || '-';
                 const voucherCode = reservation?.meta?.voucher_code || null;
 
+                const formatMeters = (v: any) => {
+                  const n = Number(v);
+                  if (!Number.isFinite(n) || n <= 0) return "-";
+                  // Back-compat: older data may be in mm.
+                  const meters = n > 50 ? n / 1000 : n;
+                  return meters.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
+                };
+
                 return (
                   <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                     <div className="flex justify-between text-sm">
@@ -114,7 +122,7 @@ function ReservationSuccessPageContent() {
                       <span className="text-black font-medium">Dimensions:</span>
                       <span className="text-black">
                         {dims
-                          ? `${dims.width || '-'} x ${dims.height || '-'} x ${dims.thickness || '-'}`
+                          ? `${formatMeters(dims.width)}m x ${formatMeters(dims.height)}m`
                           : '—'}
                       </span>
                     </div>

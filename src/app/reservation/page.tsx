@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
+import { computeMeasurementPricing } from "../../utils/measurementPricing";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -130,7 +131,29 @@ function ReservationPageContent() {
   }, [productId, router]);
 
   const qty = Math.max(1, Number(formData.quantity || 1));
-  const productSubtotal = (product?.price || 0) * qty;
+
+  const measurementPricing = (() => {
+    const unitPricePerSqm = Number(product?.price || 0);
+
+    const baseWmm = Number(product?.width || 0);
+    const baseHmm = Number(product?.height || 0);
+    const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
+    const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+
+    const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
+    const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
+
+    return computeMeasurementPricing({
+      widthMeters,
+      heightMeters,
+      unitPricePerSqm,
+      minSqm: 1,
+      sqmDecimals: 2,
+    });
+  })();
+
+  const computedUnitPrice = measurementPricing.unit_price;
+  const productSubtotal = computedUnitPrice * qty;
   const addonsTotal = formData.colorCustomization ? 2500 * qty : 0;
   const preDiscount = productSubtotal + addonsTotal;
   const discountValue = voucherInfo
@@ -191,9 +214,8 @@ function ReservationPageContent() {
           quantity: qty,
           meta: {
             custom_dimensions: {
-              width: parseFloat(formData.customWidth) || product.width,
-              height: parseFloat(formData.customHeight) || product.height,
-              thickness: parseFloat(formData.customThickness) || product.thickness,
+              width: measurementPricing.width_m,
+              height: measurementPricing.height_m,
             },
             addons,
             voucher_code: voucherInfo?.code || null,
@@ -257,7 +279,8 @@ function ReservationPageContent() {
         meta: {
           product_name: product.name,
           product_fullname: product.fullproductname,
-          product_price: product.price,
+          product_price: computedUnitPrice,
+          product_price_base: product.price,
           product_category: product.category,
           product_type: product.type,
           product_material: product.material,
@@ -267,10 +290,19 @@ function ReservationPageContent() {
           delivery_method: fulfillmentMethod,
           selected_branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
           custom_dimensions: {
-            width: parseFloat(formData.customWidth) || product.width,
-            height: parseFloat(formData.customHeight) || product.height,
-            thickness:
-              parseFloat(formData.customThickness) || product.thickness,
+            width: measurementPricing.width_m,
+            height: measurementPricing.height_m,
+          },
+          pricing: {
+            unit_price: computedUnitPrice,
+            unit_price_per_sqm: Number(product.price || 0),
+            sqm_raw: measurementPricing.sqm_raw,
+            sqm_rounded: measurementPricing.sqm_rounded,
+            sqm_billable: measurementPricing.sqm_billable,
+            base_width_mm: product.width,
+            base_height_mm: product.height,
+            custom_width_m: measurementPricing.width_m,
+            custom_height_m: measurementPricing.height_m,
           },
           delivery_address: selectedAddress
             ? {
@@ -545,11 +577,14 @@ function ReservationPageContent() {
 
                 <div>
                   <label className="text-sm text-gray-600">
-                    Custom Dimensions (Optional)
+                    Custom Measurements (meters, optional)
                   </label>
-                  <div className="grid grid-cols-3 gap-2 mt-1">
+                  <div className="grid grid-cols-2 gap-2 mt-1">
                     <input
-                      placeholder="Width"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Width (m)"
                       className="border rounded px-2 py-2"
                       value={formData.customWidth}
                       onChange={(e) =>
@@ -557,22 +592,14 @@ function ReservationPageContent() {
                       }
                     />
                     <input
-                      placeholder="Height"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Height (m)"
                       className="border rounded px-2 py-2"
                       value={formData.customHeight}
                       onChange={(e) =>
                         setFormData({ ...formData, customHeight: e.target.value })
-                      }
-                    />
-                    <input
-                      placeholder="Thick."
-                      className="border rounded px-2 py-2"
-                      value={formData.customThickness}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customThickness: e.target.value,
-                        })
                       }
                     />
                   </div>

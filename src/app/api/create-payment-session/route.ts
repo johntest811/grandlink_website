@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { computeMeasurementPricing } from '../../../utils/measurementPricing';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,6 +41,19 @@ async function createPayMongoSession(sessionData: any) {
     lineItems = [],
   } = sessionData;
 
+  const configuredMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // PayMongo uses the same API host for test and live; mode is determined by the API key.
+  // In test mode, some accounts may not have e-wallet methods enabled; requesting them can
+  // result in the checkout UI showing "No payment methods are available".
+  const isTestKey = typeof PAYMONGO_SECRET_KEY === 'string' && /^sk_test_/i.test(PAYMONGO_SECRET_KEY);
+  const paymentMethodTypes = configuredMethodTypes.length
+    ? configuredMethodTypes
+    : (isTestKey ? ['card'] : ['gcash', 'paymaya', 'card']);
+
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
   const checkoutData = {
@@ -49,7 +63,7 @@ async function createPayMongoSession(sessionData: any) {
         show_description: true,
         show_line_items: true,
         line_items: lineItems,
-        payment_method_types: ['gcash', 'paymaya'],
+        payment_method_types: paymentMethodTypes,
         success_url,
         cancel_url,
         description: `Payment for ${lineItems.length} item(s)`,
@@ -290,7 +304,7 @@ export async function POST(request: NextRequest) {
     const productIds = Array.from(new Set(rows.map((r) => r.product_id)));
     const { data: products, error: prodErr } = await supabase
       .from('products')
-      .select('id, name, price, inventory')
+      .select('id, name, price, inventory, width, height, images, image1, image2')
       .in('id', productIds);
 
     if (prodErr) {
@@ -298,6 +312,33 @@ export async function POST(request: NextRequest) {
     }
 
     const productMap = new Map((products || []).map((p) => [p.id, p]));
+
+    const computeUnitPriceFromDimensions = (p: any, meta: any) => {
+      const unitPricePerSqm = Number(p?.price || 0);
+
+      const baseWmm = Number(p?.width || 0);
+      const baseHmm = Number(p?.height || 0);
+      const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
+      const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+
+      const customWidth = meta?.custom_dimensions?.width;
+      const customHeight = meta?.custom_dimensions?.height;
+      const widthMeters = customWidth ?? baseWidthM;
+      const heightMeters = customHeight ?? baseHeightM;
+
+      const perPanelPrice = meta?.custom_dimensions?.per_panel_price ?? meta?.pricing?.per_panel_price;
+      const addedPanels = meta?.custom_dimensions?.added_panels ?? meta?.pricing?.added_panels;
+
+      return computeMeasurementPricing({
+        widthMeters,
+        heightMeters,
+        unitPricePerSqm,
+        minSqm: 1,
+        sqmDecimals: 2,
+        perPanelPrice,
+        addedPanels,
+      });
+    };
 
     // Reserve inventory immediately for reservations so UI reflects stock change
     // and avoid double-deduct later by marking inventory_deducted in meta
@@ -346,7 +387,8 @@ export async function POST(request: NextRequest) {
 
     const itemDetails = rows.map((r) => {
       const p = productMap.get(r.product_id);
-      const unit = Number(p?.price || 0);
+      const pricing = computeUnitPriceFromDimensions(p, r.meta);
+      const unit = pricing.unit_price;
       const qty = Math.max(1, Number(r.quantity || 1));
       const addons: any[] = Array.isArray(r.meta?.addons) ? r.meta.addons : [];
       const addonTotal = addons.reduce((sum: number, addon: any) => sum + Number(addon?.fee || 0), 0);
@@ -359,9 +401,12 @@ export async function POST(request: NextRequest) {
 
       return {
         id: r.id,
+        productId: r.product_id,
         name: p?.name || 'Product',
         qty,
         unit,
+        unitBase: Number(p?.price || 0),
+        pricing,
         lineSubtotal,
         lineSubtotalCents,
         addonTotal,
@@ -408,13 +453,22 @@ export async function POST(request: NextRequest) {
         descriptionParts.push(`Total discount: -₱${(discountCents / 100).toFixed(2)}`);
       }
 
-      payMongoLineItems.push({
-        name: item.addonTotal > 0 ? `${item.name} (+addons)` : item.name,
-        quantity: item.qty,
-        amount: unitNetCents,
-        currency: 'PHP',
-        description: descriptionParts.join(' | ')
-      });
+      // Avoid sending 0-amount line items to PayMongo (can lead to checkout showing no methods).
+      if (unitNetCents > 0) {
+        const p: any = item.productId ? productMap.get(item.productId) : null;
+        const imgUrl: string | undefined =
+          (Array.isArray(p?.images) && p.images[0]) || p?.image1 || p?.image2 || undefined;
+        const images = imgUrl && typeof imgUrl === 'string' && /^https?:\/\//i.test(imgUrl) ? [imgUrl] : undefined;
+
+        payMongoLineItems.push({
+          name: item.addonTotal > 0 ? `${item.name} (+addons)` : item.name,
+          quantity: item.qty,
+          amount: unitNetCents,
+          currency: 'PHP',
+          description: descriptionParts.join(' | '),
+          ...(images ? { images } : {}),
+        });
+      }
 
       displayLineItems.push({
         type: 'product',
@@ -454,21 +508,16 @@ export async function POST(request: NextRequest) {
     const finalTotalCents = netProductTotalCents + reservationFeeCents;
 
     if (appliedDiscountCents > 0) {
+      // Keep discount only for our internal display metadata.
+      // Do NOT send a 0-amount discount line item to PayMongo.
       const discountLabel = voucher?.code ? `Discount (${voucher.code})` : 'Discount';
       const discountCurrencyDisplay = (appliedDiscountCents / 100).toFixed(2);
-      payMongoLineItems.push({
-        name: `${discountLabel} -₱${discountCurrencyDisplay}`,
-        quantity: 1,
-        amount: 0,
-        currency: 'PHP',
-        description: `Discount applied: -₱${discountCurrencyDisplay}`
-      });
       displayLineItems.push({
         type: 'discount',
         name: `${discountLabel} -₱${discountCurrencyDisplay}`,
         quantity: 1,
         unit_price: -Number((appliedDiscountCents / 100).toFixed(2)),
-        line_total: -Number((appliedDiscountCents / 100).toFixed(2))
+        line_total: -Number((appliedDiscountCents / 100).toFixed(2)),
       });
     }
 
@@ -530,12 +579,26 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('user_items')
         .update({
-          price: Number(product?.price || 0),
+          price: Number(item.unit || 0),
           // Prefill per-item final total so UI can reflect the PayMongo/PayPal amount immediately
           total_amount: metaInfo.finalTotal,
           meta: {
             ...(r.meta || {}),
             product_name: product?.name || 'Product',
+            pricing: {
+              ...(r.meta?.pricing || {}),
+              unit_price: Number(item.unit || 0),
+              unit_price_per_sqm: Number(product?.price || 0),
+              sqm_raw: item.pricing?.sqm_raw,
+              sqm_rounded: item.pricing?.sqm_rounded,
+              sqm_billable: item.pricing?.sqm_billable,
+              per_panel_price: item.pricing?.per_panel_price,
+              added_panels: item.pricing?.added_panels,
+              base_width_mm: (product as any)?.width,
+              base_height_mm: (product as any)?.height,
+              custom_width_m: item.pricing?.width_m,
+              custom_height_m: item.pricing?.height_m,
+            },
             voucher_code: voucher?.code || null,
             discount_value: appliedDiscount,
             line_discount_value: metaInfo.lineDiscountValue,

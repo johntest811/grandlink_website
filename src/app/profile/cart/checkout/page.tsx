@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FaArrowLeft, FaShoppingCart } from "react-icons/fa";
+import { computeMeasurementPricing } from "../../../../utils/measurementPricing";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,6 +26,8 @@ type Product = {
   images?: string[];
   image1?: string;
   inventory?: number;
+  width?: number;
+  height?: number;
 };
 
 type Address = {
@@ -107,7 +110,7 @@ function CartCheckoutContent() {
         if (productIds.length > 0) {
           const { data: prodData } = await supabase
             .from("products")
-            .select("id, name, price, images, image1, inventory")
+            .select("id, name, price, images, image1, inventory, width, height")
             .in("id", productIds);
 
           const map: Record<string, Product> = {};
@@ -140,11 +143,101 @@ function CartCheckoutContent() {
     loadData();
   }, [itemIdsParam, router]);
 
+  const computeUnitPrice = (item: UserItem) => {
+    const product = products[item.product_id];
+    const unitPricePerSqm = Number(product?.price ?? 0);
+
+    const baseWmm = Number((product as any)?.width ?? 0);
+    const baseHmm = Number((product as any)?.height ?? 0);
+    const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
+    const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+
+    const customWidth = item.meta?.custom_dimensions?.width;
+    const customHeight = item.meta?.custom_dimensions?.height;
+
+    const widthMeters = customWidth ?? baseWidthM;
+    const heightMeters = customHeight ?? baseHeightM;
+
+    const perPanelPrice = (item.meta as any)?.custom_dimensions?.per_panel_price ?? (item.meta as any)?.pricing?.per_panel_price;
+    const addedPanels = (item.meta as any)?.custom_dimensions?.added_panels ?? (item.meta as any)?.pricing?.added_panels;
+
+    const pricing = computeMeasurementPricing({
+      widthMeters,
+      heightMeters,
+      unitPricePerSqm,
+      minSqm: 1,
+      sqmDecimals: 2,
+      perPanelPrice,
+      addedPanels,
+    });
+
+    return pricing.unit_price;
+  };
+
+  const setItemMeasurementLocal = (itemId: string, width: string, height: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        return {
+          ...it,
+          meta: {
+            ...(it.meta || {}),
+            custom_dimensions: {
+              ...(it.meta?.custom_dimensions || {}),
+              width: width,
+              height: height,
+            },
+          },
+        };
+      })
+    );
+  };
+
+  const persistItemMeasurement = async (itemId: string) => {
+    const item = items.find((it) => it.id === itemId);
+    if (!item) return;
+
+    const rawW = item.meta?.custom_dimensions?.width;
+    const rawH = item.meta?.custom_dimensions?.height;
+    const w = rawW === "" || rawW == null ? null : Number(rawW);
+    const h = rawH === "" || rawH == null ? null : Number(rawH);
+
+    // Allow empty to mean "use default product measurement".
+    // If provided, enforce positive finite meters.
+    if ((w != null && (!Number.isFinite(w) || w <= 0)) || (h != null && (!Number.isFinite(h) || h <= 0))) {
+      alert("Please enter valid Width/Height in meters (greater than 0).\nLeave blank to use default size.");
+      return;
+    }
+
+    const nextMeta = {
+      ...(item.meta || {}),
+      custom_dimensions: {
+        ...(item.meta?.custom_dimensions || {}),
+        width: w ?? undefined,
+        height: h ?? undefined,
+      },
+    };
+
+    try {
+      const res = await fetch("/api/cart", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: itemId, meta: nextMeta }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to update measurement");
+      // Update local with canonical meta from server.
+      setItems((prev) => prev.map((it) => (it.id === itemId ? (json.item as any) : it)));
+    } catch (e: any) {
+      alert(e?.message || "Failed to update measurement");
+    }
+  };
+
   const totals = useMemo(() => {
     const base = items.reduce(
       (acc, item) => {
         const product = products[item.product_id];
-        const unitPrice = Number(item.price ?? product?.price ?? 0);
+        const unitPrice = computeUnitPrice(item);
         const quantity = Number(item.quantity || 1);
         const addons = Array.isArray(item.meta?.addons)
           ? item.meta.addons.reduce((sum: number, addon: any) => sum + Number(addon?.fee || 0), 0)
@@ -369,6 +462,74 @@ function CartCheckoutContent() {
               )}
             </div>
 
+            {/* Measurements */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">
+                Measurements (meters)
+              </h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Set your preferred Width and Height in meters. Price updates based on the measurement.
+              </p>
+
+              <div className="space-y-4">
+                {items.map((item) => {
+                  const product = products[item.product_id];
+                  const baseW = Number((product as any)?.width ?? 0);
+                  const baseH = Number((product as any)?.height ?? 0);
+
+                  const w = item.meta?.custom_dimensions?.width ?? (Number.isFinite(baseW) && baseW > 0 ? String(baseW) : "");
+                  const h = item.meta?.custom_dimensions?.height ?? (Number.isFinite(baseH) && baseH > 0 ? String(baseH) : "");
+
+                  return (
+                    <div key={item.id} className="rounded-lg border border-gray-200 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="font-semibold text-gray-900">{product?.name || "Product"}</div>
+                          <div className="text-xs text-gray-500">Qty: {item.quantity || 1}</div>
+                          {(Number.isFinite(baseW) && baseW > 0 && Number.isFinite(baseH) && baseH > 0) && (
+                            <div className="text-xs text-gray-500 mt-1">Default: {baseW}m × {baseH}m</div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-gray-500">Unit</div>
+                          <div className="font-bold text-gray-900">₱{computeUnitPrice(item).toLocaleString()}</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Width (m)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={w}
+                            onChange={(e) => setItemMeasurementLocal(item.id, e.target.value, String(h ?? ""))}
+                            onBlur={() => persistItemMeasurement(item.id)}
+                            placeholder="e.g. 2.40"
+                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Height (m)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={h}
+                            onChange={(e) => setItemMeasurementLocal(item.id, String(w ?? ""), e.target.value)}
+                            onBlur={() => persistItemMeasurement(item.id)}
+                            placeholder="e.g. 1.80"
+                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Payment Method */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">
@@ -446,7 +607,7 @@ function CartCheckoutContent() {
                   const product = products[item.product_id];
                   const image = (product?.images && product.images[0]) || product?.image1 || "/no-orders.png";
                   const qty = item.quantity || 1;
-                  const unitPrice = Number(item.price ?? product?.price ?? 0);
+                  const unitPrice = computeUnitPrice(item);
                   const addons = Array.isArray(item.meta?.addons)
                     ? item.meta.addons.reduce((sum: number, addon: any) => sum + Number(addon?.fee || 0), 0)
                     : 0;
@@ -497,7 +658,11 @@ function CartCheckoutContent() {
               {/* Checkout Button */}
               <button
                 onClick={handleCheckout}
-                disabled={submitting || !selectedAddressId || !selectedBranch || items.length === 0}
+                disabled={
+                  submitting ||
+                  items.length === 0 ||
+                  (fulfillmentMethod === "delivery" ? !selectedAddressId : !selectedBranch)
+                }
                 className="w-full bg-gradient-to-r from-[#8B1C1C] to-[#a83232] text-white rounded-lg px-6 py-4 font-bold text-lg hover:from-[#7a1919] hover:to-[#8B1C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] shadow-lg"
               >
                 {submitting ? "Processing..." : `Pay ₱${totals.total.toLocaleString()}`}

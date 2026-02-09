@@ -500,6 +500,9 @@ function ProfileReservePageContent() {
                       {item.payment_method && (
                         <div>
                           <span className="font-medium">Method:</span> {item.payment_method.toUpperCase()}
+                          {item.payment_method === 'paymongo' && item.meta?.paymongo_channel
+                            ? ` (${String(item.meta.paymongo_channel).toUpperCase()})`
+                            : ''}
                         </div>
                       )}
                       {address && (

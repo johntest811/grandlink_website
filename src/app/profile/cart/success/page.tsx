@@ -229,7 +229,7 @@ function CartSuccessPageContent() {
                     <div className="font-semibold text-gray-900 capitalize">
                       {orderItems.length > 0 && orderItems[0].payment_method 
                         ? orderItems[0].payment_method === 'paymongo' 
-                          ? 'PayMongo (GCash/Maya/Card)' 
+                          ? `PayMongo${orderItems[0].meta?.paymongo_channel ? ` (${String(orderItems[0].meta.paymongo_channel).toUpperCase()})` : ' (GCash/Maya/Card)'}` 
                           : 'PayPal'
                         : '-'}
                     </div>

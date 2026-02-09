@@ -428,7 +428,12 @@ export default function ProfileOrderPage() {
                     <p className="text-sm text-black">Quantity: {item.quantity}</p>
                     <p className="text-lg font-semibold text-black mt-2">Total Paid: ₱{(totalPrice).toLocaleString()}</p>
                     {item.payment_method && (
-                      <p className="text-xs text-black mt-1">via {item.payment_method.toUpperCase()}</p>
+                      <p className="text-xs text-black mt-1">
+                        via {item.payment_method.toUpperCase()}
+                        {item.payment_method === "paymongo" && item.meta?.paymongo_channel
+                          ? ` (${String(item.meta.paymongo_channel).toUpperCase()})`
+                          : ""}
+                      </p>
                     )}
 
                     <div className="mt-3 flex gap-2">

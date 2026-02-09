@@ -7,11 +7,38 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function detectPayMongoChannel(payload: any): string | null {
+  const data = payload?.data;
+  const session = data?.attributes?.data;
+
+  const candidates: any[] = [
+    session?.attributes?.payment_method_used,
+    session?.attributes?.payment_method_type,
+    session?.attributes?.payment_method,
+    session?.attributes?.payments?.data?.[0]?.attributes?.payment_method_details?.type,
+    session?.attributes?.payments?.data?.[0]?.attributes?.source?.type,
+    session?.attributes?.payments?.data?.[0]?.attributes?.source?.payment_method,
+    data?.attributes?.payment_method_used,
+    data?.attributes?.payment_method_type,
+  ];
+
+  const raw = candidates.find((c) => typeof c === 'string' && c.trim().length > 0) as string | undefined;
+  if (!raw) return null;
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized.includes('gcash')) return 'gcash';
+  if (normalized.includes('maya') || normalized.includes('paymaya')) return 'paymaya';
+  if (normalized.includes('card')) return 'card';
+  return normalized;
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('📦 PayMongo webhook received');
     const payload = await request.json();
     const data = payload?.data;
+
+    const paymongoChannel = detectPayMongoChannel(payload);
 
     // PayMongo paid event
     if (data?.attributes?.type === 'checkout_session.payment.paid') {
@@ -38,6 +65,7 @@ export async function POST(request: NextRequest) {
       console.log('💰 Amount paid:', amountPaid, 'Total:', totalAmount);
       console.log('📦 Payment type:', paymentType);
       console.log('🎫 Reservation fee:', reservationFee);
+      if (paymongoChannel) console.log('💳 PayMongo channel:', paymongoChannel);
 
       if (ids.length === 0) {
         console.error('❌ No user_item_id(s) in webhook data');
@@ -108,6 +136,7 @@ export async function POST(request: NextRequest) {
             total_amount: finalTotalPerItem,
             payment_session_id: sessionId,
             payment_method: 'paymongo',
+            paymongo_channel: paymongoChannel,
             subtotal,
             addons_total: addonsTotal,
             addons_total_per_item: addonsPerItem,
@@ -230,7 +259,8 @@ export async function POST(request: NextRequest) {
       if (notifiedItems.length) {
         const paymentLabel = paymentType === 'reservation' ? 'Reservation payment' : 'Order payment';
         const notificationTitle = paymentType === 'reservation' ? 'Reservation Paid' : 'Order Paid';
-        const adminMessage = `${paymentLabel} received via PayMongo. Items: ${notifiedItems.length}. Amount: ₱${Number(grandTotalPaid || amountPaid || 0).toLocaleString()}`;
+        const channelLabel = paymongoChannel ? ` (${paymongoChannel.toUpperCase()})` : '';
+        const adminMessage = `${paymentLabel} received via PayMongo${channelLabel}. Items: ${notifiedItems.length}. Amount: ₱${Number(grandTotalPaid || amountPaid || 0).toLocaleString()}`;
 
         console.log('📢 Inserting admin notification:', {
           title: notificationTitle,
@@ -252,6 +282,7 @@ export async function POST(request: NextRequest) {
             payment_provider: 'paymongo',
             payment_type: paymentType,
             amount_paid: grandTotalPaid || amountPaid,
+            paymongo_channel: paymongoChannel,
             subtotal,
             addons_total: addonsTotal,
             discount_value: discountValue,

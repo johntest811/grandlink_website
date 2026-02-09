@@ -23,6 +23,7 @@ function ProductDetailsPageContent() {
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [show3D, setShow3D] = useState(false);
   const [weather, setWeather] = useState<"sunny" | "rainy" | "night" | "foggy">("sunny");
+  const [frameFinish, setFrameFinish] = useState<"default" | "matteBlack" | "matteGray" | "narra" | "walnut">("default");
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -500,10 +501,53 @@ function ProductDetailsPageContent() {
               ))}
             </div>
 
+            {/* Frame Color Controls - Fixed to modal frame (non-moving) */}
+            <div className="absolute top-20 right-6 z-20 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
+              <div className="text-xs font-semibold text-gray-700 mb-2">Frame</div>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  title="Default"
+                  aria-label="Default"
+                  onClick={() => setFrameFinish("default")}
+                  className={
+                    "px-3 py-2 rounded-md text-xs font-medium border transition-all text-left " +
+                    (frameFinish === "default" ? "border-black bg-white" : "border-gray-300 bg-white hover:border-gray-400")
+                  }
+                >
+                  Default
+                </button>
+                {(
+                  [
+                    { key: "matteBlack", label: "Matte Black", swatchClass: "bg-black" },
+                    { key: "matteGray", label: "Matte Gray", swatchClass: "bg-gray-500" },
+                    { key: "narra", label: "Narra", swatchClass: "bg-amber-800" },
+                    { key: "walnut", label: "Walnut", swatchClass: "bg-stone-700" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    title={opt.label}
+                    aria-label={opt.label}
+                    onClick={() => setFrameFinish(opt.key)}
+                    className={
+                      "flex items-center gap-2 px-2 py-2 rounded-md border transition-all " +
+                      (frameFinish === opt.key ? "border-black bg-white" : "border-gray-300 bg-white hover:border-gray-400")
+                    }
+                  >
+                    <span className={`w-5 h-5 rounded-full border border-black/10 ${opt.swatchClass}`} />
+                    <span className="text-xs font-medium text-gray-800">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="flex-1 w-full min-h-0 relative overflow-hidden">
               <ThreeDFBXViewer
                 modelUrls={modelUrls}
                 weather={weather}
+                frameFinish={frameFinish}
                 skyboxes={product?.skyboxes || null}
                 productDimensions={{
                   width: product.width,

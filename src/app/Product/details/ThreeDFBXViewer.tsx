@@ -14,6 +14,7 @@ function getUrlExtension(url: string): string {
 type Props = {
   modelUrls: string[];
   weather: "sunny" | "rainy" | "night" | "foggy";
+  frameFinish?: FrameFinish;
   skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
   productDimensions?: {
     width?: number | string | null;
@@ -26,6 +27,24 @@ type Props = {
 };
 
 type ModelUnits = "mm" | "cm" | "m";
+
+type FrameFinish = "default" | "matteBlack" | "matteGray" | "narra" | "walnut";
+
+const FRAME_FINISH_PRESETS: Record<Exclude<FrameFinish, "default">, { color: number; roughness: number; metalness: number }> = {
+  matteBlack: { color: 0x1b1b1b, roughness: 0.82, metalness: 0.06 },
+  matteGray: { color: 0x6b6b6b, roughness: 0.82, metalness: 0.06 },
+  narra: { color: 0x8a4b2a, roughness: 0.72, metalness: 0.05 },
+  walnut: { color: 0x5b3a29, roughness: 0.72, metalness: 0.05 },
+};
+
+type MaterialSnapshot = {
+  colorHex?: number;
+  roughness?: number;
+  metalness?: number;
+  map?: THREE.Texture | null;
+  transparent?: boolean;
+  opacity?: number;
+};
 
 function mmPerUnit(units: ModelUnits): number {
   switch (units) {
@@ -82,13 +101,16 @@ function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | 
   return num * mmPerUnit(units);
 }
 
-export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
+export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [modelUnits, setModelUnits] = useState<ModelUnits>("mm");
   const [dimsMm, setDimsMm] = useState<{ width: number; height: number; thickness: number } | null>(null);
+
+  const frameMaterialsRef = useRef<THREE.Material[]>([]);
+  const frameMaterialSnapshotsRef = useRef<WeakMap<THREE.Material, MaterialSnapshot>>(new WeakMap());
 
   const labelElsRef = useRef<{ w?: HTMLDivElement; h?: HTMLDivElement; t?: HTMLDivElement }>({});
   const originalSizeRef = useRef<THREE.Vector3 | null>(null);
@@ -781,8 +803,86 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
     applyWeather(weather);
 
     const modelExt = getUrlExtension(currentFbx);
+
+    const applyFrameFinishToTargets = (finish: FrameFinish) => {
+      const materials = frameMaterialsRef.current;
+      if (!materials || materials.length === 0) return;
+
+      if (finish === "default") {
+        for (const mat of materials) {
+          if (!mat) continue;
+          const snap = frameMaterialSnapshotsRef.current.get(mat);
+          if (!snap) continue;
+          const anyMat: any = mat as any;
+
+          try {
+            if (anyMat.color && typeof anyMat.color.setHex === "function" && typeof snap.colorHex === "number") {
+              anyMat.color.setHex(snap.colorHex);
+            }
+          } catch {}
+          try {
+            if (typeof snap.roughness === "number" && typeof anyMat.roughness === "number") anyMat.roughness = snap.roughness;
+          } catch {}
+          try {
+            if (typeof snap.metalness === "number" && typeof anyMat.metalness === "number") anyMat.metalness = snap.metalness;
+          } catch {}
+          try {
+            if ("map" in anyMat) anyMat.map = snap.map ?? null;
+          } catch {}
+          try {
+            if (typeof snap.transparent === "boolean") anyMat.transparent = snap.transparent;
+            if (typeof snap.opacity === "number") anyMat.opacity = snap.opacity;
+          } catch {}
+          try {
+            anyMat.needsUpdate = true;
+          } catch {}
+        }
+        return;
+      }
+
+      const preset = FRAME_FINISH_PRESETS[finish];
+      if (!preset) return;
+
+      for (const mat of materials) {
+        if (!mat) continue;
+        const anyMat: any = mat as any;
+
+        try {
+          if (anyMat.color && typeof anyMat.color.set === "function") {
+            anyMat.color.set(preset.color);
+          }
+        } catch {}
+
+        // Force solid color finish for the frame.
+        try {
+          if ("map" in anyMat) anyMat.map = null;
+        } catch {}
+
+        try {
+          if (typeof anyMat.roughness === "number") anyMat.roughness = preset.roughness;
+        } catch {}
+
+        try {
+          if (typeof anyMat.metalness === "number") anyMat.metalness = preset.metalness;
+        } catch {}
+
+        try {
+          anyMat.transparent = false;
+          anyMat.opacity = 1;
+        } catch {}
+
+        try {
+          anyMat.needsUpdate = true;
+        } catch {}
+      }
+    };
+
     const handleLoaded = (object: THREE.Object3D) => {
         console.log("3D model loaded successfully");
+
+        // Frame materials are detected after we normalize + scale the model (below),
+        // so our geometry/bounds heuristic works reliably for GLB/GLTF.
+        frameMaterialsRef.current = [];
 
         const upgradeMaterial = (orig: any) => {
           if (!orig) return null;
@@ -1013,6 +1113,119 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
         scene.add(modelGroup);
 
         modelBounds = new THREE.Box3().setFromObject(modelGroup);
+
+        // Detect likely frame materials.
+        // Priorities:
+        // 1) mesh/material name tokens (when available)
+        // 2) geometry close to the outer bounds (frame parts usually touch edges)
+        // 3) dark/neutral default colors (common for frames)
+        const frameTokens = ["frame", "border", "mould", "mold", "molding", "trim", "casing", "bezel", "edge"];
+        const overall = modelBounds.clone();
+        const overallSize = overall.getSize(new THREE.Vector3());
+        const overallVol = Math.max(1e-6, overallSize.x * overallSize.y * overallSize.z);
+        const eps = Math.max(1.25, Math.min(5, overallSize.length() * 0.015));
+
+        const isGlassLike = (mat: any, name: string) => {
+          if (name.includes("glass")) return true;
+          try {
+            if (typeof mat?.transmission === "number" && mat.transmission > 0.2) return true;
+          } catch {}
+          try {
+            if (mat?.transparent && typeof mat?.opacity === "number" && mat.opacity < 0.95) return true;
+          } catch {}
+          return false;
+        };
+
+        const scoreByMaterial = new Map<THREE.Material, { score: number; tokenMatch: boolean }>();
+
+        const perMeshBox = new THREE.Box3();
+        modelGroup.traverse((child: any) => {
+          if (!child?.isMesh) return;
+
+          const meshName = (child?.name || "").toString().toLowerCase();
+          try {
+            perMeshBox.setFromObject(child);
+          } catch {
+            return;
+          }
+          if (perMeshBox.isEmpty()) return;
+
+          const size = perMeshBox.getSize(new THREE.Vector3());
+          const vol = Math.max(1e-6, size.x * size.y * size.z);
+          const volRatio = vol / overallVol;
+
+          const touches =
+            (Math.abs(perMeshBox.min.x - overall.min.x) < eps ? 1 : 0) +
+            (Math.abs(perMeshBox.max.x - overall.max.x) < eps ? 1 : 0) +
+            (Math.abs(perMeshBox.min.y - overall.min.y) < eps ? 1 : 0) +
+            (Math.abs(perMeshBox.max.y - overall.max.y) < eps ? 1 : 0) +
+            (Math.abs(perMeshBox.min.z - overall.min.z) < eps ? 1 : 0) +
+            (Math.abs(perMeshBox.max.z - overall.max.z) < eps ? 1 : 0);
+
+          const mats: any[] = Array.isArray(child.material) ? child.material : [child.material];
+          for (const m of mats) {
+            if (!m) continue;
+            const mat = m as THREE.Material;
+            const matName = (m?.name || "").toString().toLowerCase();
+            const haystack = `${meshName} ${matName}`;
+
+            if (isGlassLike(m, haystack)) continue;
+
+            let score = 0;
+            const tokenMatch = frameTokens.some((t) => haystack.includes(t));
+            if (tokenMatch) score += 5;
+
+            if (touches >= 2) score += 2;
+            if (touches >= 4) score += 1;
+
+            if (volRatio < 0.5) score += 1;
+            if (volRatio < 0.2) score += 1;
+
+            try {
+              const c = (m?.color as THREE.Color | undefined) ?? undefined;
+              if (c && (c as any).isColor) {
+                const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+                if (lum < 0.45) score += 1;
+              }
+            } catch {}
+
+            const prev = scoreByMaterial.get(mat);
+            if (!prev || score > prev.score) {
+              scoreByMaterial.set(mat, { score, tokenMatch });
+            } else if (tokenMatch && !prev.tokenMatch) {
+              scoreByMaterial.set(mat, { score: prev.score, tokenMatch: true });
+            }
+          }
+        });
+
+        const sorted = Array.from(scoreByMaterial.entries()).sort((a, b) => b[1].score - a[1].score);
+        let selected = sorted.filter(([, v]) => v.tokenMatch || v.score >= 4).map(([m]) => m);
+        if (selected.length === 0) {
+          selected = sorted.filter(([, v]) => v.score > 0).slice(0, 3).map(([m]) => m);
+        }
+
+        frameMaterialsRef.current = selected;
+
+        // Snapshot original values so "Default" can restore them.
+        for (const mat of frameMaterialsRef.current) {
+          if (!mat) continue;
+          if (frameMaterialSnapshotsRef.current.has(mat)) continue;
+          const anyMat: any = mat as any;
+          const snap: MaterialSnapshot = {};
+          try { if (anyMat.color && typeof anyMat.color.getHex === "function") snap.colorHex = anyMat.color.getHex(); } catch {}
+          try { if (typeof anyMat.roughness === "number") snap.roughness = anyMat.roughness; } catch {}
+          try { if (typeof anyMat.metalness === "number") snap.metalness = anyMat.metalness; } catch {}
+          try { if ("map" in anyMat) snap.map = anyMat.map ?? null; } catch {}
+          try {
+            if (typeof anyMat.transparent === "boolean") snap.transparent = anyMat.transparent;
+            if (typeof anyMat.opacity === "number") snap.opacity = anyMat.opacity;
+          } catch {}
+          frameMaterialSnapshotsRef.current.set(mat, snap);
+        }
+
+        // Apply chosen finish after we have stable material targets.
+        // (If no frame materials were detected, this is a no-op.)
+        applyFrameFinishToTargets(frameFinish);
 
        
         disposeMeasurementGroup();
@@ -1384,6 +1597,69 @@ export default function ThreeDFBXViewer({ modelUrls, weather, skyboxes, productD
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
   }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions]);
+
+  // Update frame finish without reloading the 3D scene.
+  useEffect(() => {
+    const materials = frameMaterialsRef.current;
+    if (!materials || materials.length === 0) return;
+
+    if (frameFinish === "default") {
+      for (const mat of materials) {
+        if (!mat) continue;
+        const snap = frameMaterialSnapshotsRef.current.get(mat);
+        if (!snap) continue;
+        const anyMat: any = mat as any;
+        try {
+          if (anyMat.color && typeof anyMat.color.setHex === "function" && typeof snap.colorHex === "number") {
+            anyMat.color.setHex(snap.colorHex);
+          }
+        } catch {}
+        try {
+          if (typeof snap.roughness === "number" && typeof anyMat.roughness === "number") anyMat.roughness = snap.roughness;
+        } catch {}
+        try {
+          if (typeof snap.metalness === "number" && typeof anyMat.metalness === "number") anyMat.metalness = snap.metalness;
+        } catch {}
+        try {
+          if ("map" in anyMat) anyMat.map = snap.map ?? null;
+        } catch {}
+        try {
+          if (typeof snap.transparent === "boolean") anyMat.transparent = snap.transparent;
+          if (typeof snap.opacity === "number") anyMat.opacity = snap.opacity;
+        } catch {}
+        try {
+          anyMat.needsUpdate = true;
+        } catch {}
+      }
+      return;
+    }
+
+    const preset = FRAME_FINISH_PRESETS[frameFinish];
+    if (!preset) return;
+    for (const mat of materials) {
+      if (!mat) continue;
+      const anyMat: any = mat as any;
+      try {
+        if (anyMat.color && typeof anyMat.color.set === "function") anyMat.color.set(preset.color);
+      } catch {}
+      try {
+        if ("map" in anyMat) anyMat.map = null;
+      } catch {}
+      try {
+        if (typeof anyMat.roughness === "number") anyMat.roughness = preset.roughness;
+      } catch {}
+      try {
+        if (typeof anyMat.metalness === "number") anyMat.metalness = preset.metalness;
+      } catch {}
+      try {
+        anyMat.transparent = false;
+        anyMat.opacity = 1;
+      } catch {}
+      try {
+        anyMat.needsUpdate = true;
+      } catch {}
+    }
+  }, [frameFinish]);
 
   // Show loading or no files message
   if (!validFbxUrls.length) {

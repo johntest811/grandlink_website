@@ -427,7 +427,7 @@ export async function POST(request: NextRequest) {
       const { data: created, error: insertErr } = await supabase
         .from('user_items')
         .insert(userItemsToInsert)
-        .select('id, quantity, meta, product_id');
+        .select('id, user_id, quantity, meta, product_id, delivery_address_id');
 
       if (insertErr || !created) {
         console.error('Failed to create user_items from cart:', insertErr);
@@ -441,7 +441,7 @@ export async function POST(request: NextRequest) {
       // Handle direct reservation (existing flow)
       const { data: existingItems, error: itemsErr } = await supabase
         .from('user_items')
-        .select('id, quantity, meta, product_id, item_type')
+        .select('id, user_id, quantity, meta, product_id, item_type, delivery_address_id')
         .in('id', user_item_ids);
 
       if (itemsErr || !existingItems || existingItems.length === 0) {
@@ -724,6 +724,51 @@ export async function POST(request: NextRequest) {
       });
     });
 
+    // Best-effort: attach customer contact details (from selected Delivery Address + auth user)
+    // so invoice + provider checkout can prefill these fields.
+    const primaryUserId: string | null = (user_id as string | undefined) || (rows?.[0]?.user_id as string | undefined) || null;
+    const primaryAddressId: string | null =
+      (delivery_address_id as string | undefined) || (rows?.[0]?.delivery_address_id as string | undefined) || null;
+
+    let customerName: string | null = null;
+    let customerPhone: string | null = null;
+    let customerEmail: string | null = null;
+
+    if (primaryAddressId) {
+      const { data: addr } = await supabase
+        .from('addresses')
+        .select('full_name, first_name, last_name, phone, email')
+        .eq('id', primaryAddressId)
+        .maybeSingle();
+
+      if (addr) {
+        const name =
+          (typeof (addr as any).full_name === 'string' && (addr as any).full_name.trim()) ||
+          [
+            typeof (addr as any).first_name === 'string' ? (addr as any).first_name.trim() : '',
+            typeof (addr as any).last_name === 'string' ? (addr as any).last_name.trim() : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
+        customerName = name || null;
+        customerPhone = typeof (addr as any).phone === 'string' && (addr as any).phone.trim() ? (addr as any).phone.trim() : null;
+        customerEmail = typeof (addr as any).email === 'string' && (addr as any).email.trim() ? (addr as any).email.trim() : null;
+      }
+    }
+
+    if (primaryUserId) {
+      try {
+        const { data: userWrap } = await supabase.auth.admin.getUserById(primaryUserId);
+        const authEmail = userWrap?.user?.email;
+        if (typeof authEmail === 'string' && authEmail.trim()) {
+          customerEmail = authEmail.trim();
+        }
+      } catch (e) {
+        // ignore; invoices will still work if we have address email
+      }
+    }
+
     // Update meta for all items (they stay as cart items until payment succeeds)
     for (const r of rows) {
       const item = itemDetails.find(i => i.id === r.id)!;
@@ -743,6 +788,9 @@ export async function POST(request: NextRequest) {
           total_amount: metaInfo.finalTotal,
           meta: {
             ...(r.meta || {}),
+            ...(customerName ? { customer_name: customerName } : {}),
+            ...(customerPhone ? { customer_phone: customerPhone } : {}),
+            ...(customerEmail ? { customer_email: customerEmail } : {}),
             product_name: product?.name || 'Product',
             pricing: {
               ...(r.meta?.pricing || {}),
@@ -803,6 +851,9 @@ export async function POST(request: NextRequest) {
       total_amount: totalAmount,
       line_items_json: JSON.stringify(displayLineItems),
       per_item_summary_json: JSON.stringify(perItemSummary),
+      ...(customerName ? { customer_name: customerName } : {}),
+      ...(customerPhone ? { customer_phone: customerPhone } : {}),
+      ...(customerEmail ? { customer_email: customerEmail } : {}),
       ...(receipt_ref ? { receipt_ref } : {}),
     };
 

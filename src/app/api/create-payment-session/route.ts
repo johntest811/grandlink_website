@@ -17,6 +17,7 @@ const payrexNode = require('payrex-node');
 
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
 const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
+const PAYREX_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYREX_PUBLIC_KEY || process.env.PAYREX_PUBLIC_KEY;
 const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
@@ -27,11 +28,12 @@ const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox'
 
 let payrexClient: any | null = null;
 function getPayrexClient() {
-  if (!PAYREX_SECRET_KEY) {
-    throw new Error('PAYREX_SECRET_KEY is not set on the server');
+  const keyToUse = PAYREX_SECRET_KEY || PAYREX_PUBLIC_KEY;
+  if (!keyToUse) {
+    throw new Error('PAYREX_SECRET_KEY (or NEXT_PUBLIC_PAYREX_PUBLIC_KEY) is not set on the server');
   }
   if (!payrexClient) {
-    payrexClient = payrexNode(PAYREX_SECRET_KEY);
+    payrexClient = payrexNode(keyToUse);
   }
   return payrexClient;
 }
@@ -188,49 +190,33 @@ async function createPayRexCheckoutSession(sessionData: any) {
     },
   };
 
-  // PayRex line item schema may differ across API versions.
-  // Attempt 1: { name, amount, quantity } (amount in centavos).
-  // Attempt 2: { name, unit_price, quantity }.
-  const attemptPayloads: any[] = [
-    {
-      ...basePayload,
-      line_items: rawLineItems.map((li: any) => ({
-        name: li.name,
-        amount: Math.round(li.amount),
-        quantity: Math.round(li.quantity),
-        ...(li.image ? { image: li.image } : {}),
-      })),
-    },
-    {
-      ...basePayload,
-      line_items: rawLineItems.map((li: any) => ({
-        name: li.name,
-        unit_price: Math.round(li.amount),
-        quantity: Math.round(li.quantity),
-        ...(li.image ? { image: li.image } : {}),
-      })),
-    },
-  ];
-
-  let lastError: any = null;
-  for (const payload of attemptPayloads) {
-    try {
-      const checkoutSession = await payrex.checkoutSessions.create(payload);
-      return {
-        sessionId: checkoutSession.id,
-        checkoutUrl: checkoutSession.url,
-      };
-    } catch (err: any) {
-      lastError = err;
-      if (err?.name === 'RequestInvalidError') {
-        console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
-        continue;
-      }
-      throw err;
-    }
+  if (rawLineItems.length === 0) {
+    throw new Error('No valid line items to send to PayRex');
   }
 
-  throw lastError || new Error('Failed to create PayRex checkout session');
+  const payload: any = {
+    ...basePayload,
+    // PayRex requires line_items[*][amount] (integer in centavos).
+    line_items: rawLineItems.map((li: any) => ({
+      name: li.name,
+      amount: Math.round(li.amount),
+      quantity: Math.round(li.quantity),
+      ...(li.image ? { image: li.image } : {}),
+    })),
+  };
+
+  try {
+    const checkoutSession = await payrex.checkoutSessions.create(payload);
+    return {
+      sessionId: checkoutSession.id,
+      checkoutUrl: checkoutSession.url,
+    };
+  } catch (err: any) {
+    if (err?.name === 'RequestInvalidError') {
+      console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
+    }
+    throw err;
+  }
 
 }
 
@@ -779,7 +765,8 @@ export async function POST(request: NextRequest) {
       cart_ids: cart_ids ? cart_ids.join(',') : undefined,
       subtotal,
       addons_total: addonsTotal,
-      discount_code: voucher?.code || null,
+      // PayRex rejects blank/null values for metadata[discount_code]. Keep it always non-blank.
+      discount_code: typeof voucher?.code === 'string' && voucher.code.trim().length > 0 ? voucher.code.trim() : 'none',
       discount_value: appliedDiscount,
       payment_type,
       reservation_fee: reservationFeeCharged,

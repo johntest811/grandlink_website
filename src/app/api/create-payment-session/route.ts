@@ -41,18 +41,28 @@ async function createPayMongoSession(sessionData: any) {
     lineItems = [],
   } = sessionData;
 
+  if (!PAYMONGO_SECRET_KEY) {
+    throw new Error('PAYMONGO_SECRET_KEY is not set on the server');
+  }
+
   const configuredMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
   // PayMongo uses the same API host for test and live; mode is determined by the API key.
-  // In test mode, some accounts may not have e-wallet methods enabled; requesting them can
-  // result in the checkout UI showing "No payment methods are available".
-  const isTestKey = typeof PAYMONGO_SECRET_KEY === 'string' && /^sk_test_/i.test(PAYMONGO_SECRET_KEY);
+  // We default to requesting GCash, Maya, and Card in BOTH modes.
+  // If your PayMongo account doesn't have a method enabled, PayMongo's hosted checkout can
+  // show "No payment methods are available" — in that case, enable the methods in your
+  // PayMongo dashboard or temporarily force method types via PAYMONGO_PAYMENT_METHOD_TYPES.
   const paymentMethodTypes = configuredMethodTypes.length
     ? configuredMethodTypes
-    : (isTestKey ? ['card'] : ['gcash', 'paymaya', 'card']);
+    : ['gcash', 'paymaya', 'card'];
+
+  // Ensure we always request at least one known method.
+  if (paymentMethodTypes.length === 0) {
+    paymentMethodTypes.push('card');
+  }
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 

@@ -151,39 +151,87 @@ async function createPayRexCheckoutSession(sessionData: any) {
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
-  const lineItemsForPayrex = (Array.isArray(lineItems) ? lineItems : [])
+  const rawLineItems = (Array.isArray(lineItems) ? lineItems : [])
     .filter((li) => li && typeof li === 'object')
     .map((li: any) => {
       const image = Array.isArray(li.images) && li.images.length > 0 ? li.images[0] : li.image;
       const normalized: any = {
         name: li.name,
-        amount: li.amount,
-        quantity: li.quantity,
+        quantity: Number(li.quantity),
+        amount: Number(li.amount),
       };
       if (typeof image === 'string' && /^https?:\/\//i.test(image)) {
         normalized.image = image;
       }
       return normalized;
-    });
+    })
+    .filter((li: any) =>
+      typeof li.name === 'string' &&
+      li.name.trim().length > 0 &&
+      Number.isFinite(li.quantity) &&
+      li.quantity > 0 &&
+      Number.isFinite(li.amount) &&
+      li.amount > 0
+    );
 
-  const checkoutSession = await payrex.checkoutSessions.create({
+  const basePayload: any = {
     currency: 'PHP',
     success_url,
     cancel_url,
     payment_methods: paymentMethods,
     customer_reference_id: idsCsv || undefined,
-    line_items: lineItemsForPayrex,
+    description: `Payment for ${rawLineItems.length} item(s)`,
     metadata: {
       ...metadata,
       user_item_ids: idsCsv,
       payment_type,
     },
-  });
-
-  return {
-    sessionId: checkoutSession.id,
-    checkoutUrl: checkoutSession.url,
   };
+
+  // PayRex line item schema may differ across API versions.
+  // Attempt 1: { name, amount, quantity } (amount in centavos).
+  // Attempt 2: { name, unit_price, quantity }.
+  const attemptPayloads: any[] = [
+    {
+      ...basePayload,
+      line_items: rawLineItems.map((li: any) => ({
+        name: li.name,
+        amount: Math.round(li.amount),
+        quantity: Math.round(li.quantity),
+        ...(li.image ? { image: li.image } : {}),
+      })),
+    },
+    {
+      ...basePayload,
+      line_items: rawLineItems.map((li: any) => ({
+        name: li.name,
+        unit_price: Math.round(li.amount),
+        quantity: Math.round(li.quantity),
+        ...(li.image ? { image: li.image } : {}),
+      })),
+    },
+  ];
+
+  let lastError: any = null;
+  for (const payload of attemptPayloads) {
+    try {
+      const checkoutSession = await payrex.checkoutSessions.create(payload);
+      return {
+        sessionId: checkoutSession.id,
+        checkoutUrl: checkoutSession.url,
+      };
+    } catch (err: any) {
+      lastError = err;
+      if (err?.name === 'RequestInvalidError') {
+        console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error('Failed to create PayRex checkout session');
+
 }
 
 async function createPayPalOrder(orderData: any) {
@@ -784,8 +832,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sessionId, checkoutUrl, success: true });
   } catch (error: any) {
     console.error('Payment session creation error:', error);
+    if (error?.name === 'RequestInvalidError') {
+      console.error('PayRex validation errors:', JSON.stringify(error?.errors || [], null, 2));
+    }
     return NextResponse.json(
-      { error: error.message || 'Failed to create payment session' },
+      {
+        error: error.message || 'Failed to create payment session',
+        ...(Array.isArray(error?.errors) ? { provider_errors: error.errors } : {}),
+      },
       { status: 500 }
     );
   }

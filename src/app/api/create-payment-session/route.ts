@@ -17,7 +17,11 @@ const payrexNode = require('payrex-node');
 
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
 const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
-const PAYREX_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYREX_PUBLIC_KEY || process.env.PAYREX_PUBLIC_KEY;
+const PAYREX_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_PAYREX_PUBLIC_KEY ||
+  process.env.NEXT_PUBLIC_PAYREX_PUBLIX_KEY ||
+  process.env.PUBLIC_PAYREX_PUBLIX_KEY ||
+  process.env.PAYREX_PUBLIC_KEY;
 const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
@@ -147,9 +151,16 @@ async function createPayRexCheckoutSession(sessionData: any) {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  const paymentMethods = configuredMethods.length
+  // Business requirement: do NOT show Credit/Debit Card on checkout.
+  // Force-remove card methods even if configured in env.
+  const paymentMethods = (configuredMethods.length
     ? configuredMethods
-    : ['gcash', 'maya', 'card'];
+    : ['gcash', 'maya']
+  ).filter((m) => !['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(m));
+
+  if (paymentMethods.length === 0) {
+    paymentMethods.push('gcash');
+  }
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
@@ -196,6 +207,9 @@ async function createPayRexCheckoutSession(sessionData: any) {
 
   const payload: any = {
     ...basePayload,
+    // Reduce friction: user already provides Delivery Address in our UI.
+    // Prefer PayRex not to force billing details collection.
+    billing_details_collection: 'auto',
     // PayRex requires line_items[*][amount] (integer in centavos).
     line_items: rawLineItems.map((li: any) => ({
       name: li.name,
@@ -214,6 +228,21 @@ async function createPayRexCheckoutSession(sessionData: any) {
   } catch (err: any) {
     if (err?.name === 'RequestInvalidError') {
       console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
+
+      // If PayRex doesn't accept billing_details_collection (older API versions), retry without it.
+      const errors: any[] = Array.isArray(err?.errors) ? err.errors : [];
+      const billingCollectionRejected = errors.some((e) =>
+        typeof e?.parameter === 'string' && e.parameter.includes('billing_details_collection')
+      );
+      if (billingCollectionRejected) {
+        const retryPayload = { ...payload };
+        delete (retryPayload as any).billing_details_collection;
+        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
+        return {
+          sessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        };
+      }
     }
     throw err;
   }

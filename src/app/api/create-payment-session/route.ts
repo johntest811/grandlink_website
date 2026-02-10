@@ -7,13 +7,30 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// PayRex SDK (no types shipped; use require to avoid TS module-declaration errors under strict mode)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const payrexNode = require('payrex-node');
+
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
+const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
+const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
 const PAYPAL_ENVIRONMENT = process.env.PAYPAL_ENVIRONMENT || 'sandbox';
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';
+
+let payrexClient: any | null = null;
+function getPayrexClient() {
+  if (!PAYREX_SECRET_KEY) {
+    throw new Error('PAYREX_SECRET_KEY is not set on the server');
+  }
+  if (!payrexClient) {
+    payrexClient = payrexNode(PAYREX_SECRET_KEY);
+  }
+  return payrexClient;
+}
 
 async function getPayPalAccessToken() {
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
@@ -104,6 +121,64 @@ async function createPayMongoSession(sessionData: any) {
   return {
     sessionId: result.data.id,
     checkoutUrl: result.data.attributes.checkout_url
+  };
+}
+
+async function createPayRexCheckoutSession(sessionData: any) {
+  const {
+    user_item_ids,
+    success_url,
+    cancel_url,
+    metadata = {},
+    payment_type = 'order',
+    lineItems = [],
+  } = sessionData;
+
+  const payrex = getPayrexClient();
+
+  const configuredMethods = (PAYREX_PAYMENT_METHODS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const paymentMethods = configuredMethods.length
+    ? configuredMethods
+    : ['gcash', 'maya', 'card'];
+
+  const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
+
+  const lineItemsForPayrex = (Array.isArray(lineItems) ? lineItems : [])
+    .filter((li) => li && typeof li === 'object')
+    .map((li: any) => {
+      const image = Array.isArray(li.images) && li.images.length > 0 ? li.images[0] : li.image;
+      const normalized: any = {
+        name: li.name,
+        amount: li.amount,
+        quantity: li.quantity,
+      };
+      if (typeof image === 'string' && /^https?:\/\//i.test(image)) {
+        normalized.image = image;
+      }
+      return normalized;
+    });
+
+  const checkoutSession = await payrex.checkoutSessions.create({
+    currency: 'PHP',
+    success_url,
+    cancel_url,
+    payment_methods: paymentMethods,
+    customer_reference_id: idsCsv || undefined,
+    line_items: lineItemsForPayrex,
+    metadata: {
+      ...metadata,
+      user_item_ids: idsCsv,
+      payment_type,
+    },
+  });
+
+  return {
+    sessionId: checkoutSession.id,
+    checkoutUrl: checkoutSession.url,
   };
 }
 
@@ -670,16 +745,25 @@ export async function POST(request: NextRequest) {
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;
     } else {
-      const res = await createPayMongoSession({
-        amount: totalAmount,
-        currency: 'PHP',
-        user_item_ids: createdUserItemIds,
-        success_url,
-        cancel_url,
-        payment_type,
-        metadata: baseMetadata,
-        lineItems: payMongoLineItems,
-      });
+      const res = PAYREX_SECRET_KEY
+        ? await createPayRexCheckoutSession({
+            user_item_ids: createdUserItemIds,
+            success_url,
+            cancel_url,
+            payment_type,
+            metadata: baseMetadata,
+            lineItems: payMongoLineItems,
+          })
+        : await createPayMongoSession({
+            amount: totalAmount,
+            currency: 'PHP',
+            user_item_ids: createdUserItemIds,
+            success_url,
+            cancel_url,
+            payment_type,
+            metadata: baseMetadata,
+            lineItems: payMongoLineItems,
+          });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;
     }

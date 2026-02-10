@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
         success_url: `${baseUrl}/profile/order`,
         cancel_url: `${baseUrl}/profile/cart`,
         payment_type: "order",
-        payment_method: "paymongo",
+        payment_method: "payrex",
         // Attach all item ids; webhooks must handle array/CSV
         metadata: { user_item_ids: userItemIds.join(",") }
       })

@@ -66,8 +66,8 @@ function ReservationPageContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">(
-    "paymongo"
+  const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">(
+    "payrex"
   );
 
   const branches = [
@@ -680,10 +680,10 @@ function ReservationPageContent() {
                       <input
                         type="radio"
                         name="pmethod"
-                        checked={paymentMethod === "paymongo"}
-                        onChange={() => setPaymentMethod("paymongo")}
+                        checked={paymentMethod === "payrex"}
+                        onChange={() => setPaymentMethod("payrex")}
                       />
-                      <span className="text-sm">PayMongo - GCash, Maya, Card</span>
+                      <span className="text-sm">PayRex - GCash, Maya, Card</span>
                     </label>
                   </div>
                   <div className="flex gap-4 mt-1">

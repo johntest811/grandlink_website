@@ -159,8 +159,7 @@ export async function POST(request: NextRequest) {
         total_amount: finalTotalPerItem,
         reservation_fee: reservationFee,
 
-        // Keep existing UI behavior by still storing `paymongo` here.
-        payment_method: 'paymongo',
+        payment_method: 'payrex',
 
         meta: {
           ...itemMeta,
@@ -169,8 +168,10 @@ export async function POST(request: NextRequest) {
           net_line_after_discount: lineAfterDiscount,
           total_amount: finalTotalPerItem,
           payment_session_id: paymentId,
-          payment_method: 'paymongo',
+          payment_method: 'payrex',
+          // Keep `paymongo_channel` for backward compatibility with existing UI.
           paymongo_channel: payrexChannel,
+          payrex_channel: payrexChannel,
           payment_provider: 'payrex',
           payrex_event_type: eventType,
           payrex_event_id: event?.id,

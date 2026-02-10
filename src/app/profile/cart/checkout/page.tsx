@@ -60,7 +60,7 @@ function CartCheckoutContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
+  const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">("payrex");
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -540,12 +540,12 @@ function CartCheckoutContent() {
                   <input
                     type="radio"
                     name="paymentMethod"
-                    checked={paymentMethod === "paymongo"}
-                    onChange={() => setPaymentMethod("paymongo")}
+                    checked={paymentMethod === "payrex"}
+                    onChange={() => setPaymentMethod("payrex")}
                     className="w-4 h-4 text-[#8B1C1C]"
                   />
                   <div className="flex-1">
-                    <div className="font-semibold text-gray-900">PayMongo</div>
+                    <div className="font-semibold text-gray-900">PayRex</div>
                     <div className="text-sm text-gray-500">GCash, Maya, Credit/Debit Card</div>
                   </div>
                 </label>

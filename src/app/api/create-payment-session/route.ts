@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { computeMeasurementPricing } from '../../../utils/measurementPricing';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -289,11 +293,18 @@ function allocateCents(totalCents: number, weights: number[]): number[] {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set on the server');
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set on the server');
+    }
+
     const {
       user_item_ids,
       cart_ids,
       user_id,
-      payment_method = 'paymongo',
+      payment_method = 'payrex',
       payment_type = 'reservation',
       success_url,
       cancel_url,
@@ -745,25 +756,27 @@ export async function POST(request: NextRequest) {
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;
     } else {
-      const res = PAYREX_SECRET_KEY
-        ? await createPayRexCheckoutSession({
-            user_item_ids: createdUserItemIds,
-            success_url,
-            cancel_url,
-            payment_type,
-            metadata: baseMetadata,
-            lineItems: payMongoLineItems,
-          })
-        : await createPayMongoSession({
-            amount: totalAmount,
-            currency: 'PHP',
-            user_item_ids: createdUserItemIds,
-            success_url,
-            cancel_url,
-            payment_type,
-            metadata: baseMetadata,
-            lineItems: payMongoLineItems,
-          });
+      // Backward compatibility: if the client still sends "paymongo", treat it as PayRex.
+      // The project no longer uses PayMongo for checkout session creation.
+      const normalizedMethod = payment_method === 'paymongo' ? 'payrex' : payment_method;
+      if (normalizedMethod !== 'payrex') {
+        return NextResponse.json({ error: 'Unsupported payment method' }, { status: 400 });
+      }
+
+      if (!PAYREX_SECRET_KEY) {
+        throw new Error(
+          'PAYREX_SECRET_KEY is not set on the server. Add it in Vercel Project Settings → Environment Variables (Production), then redeploy.'
+        );
+      }
+
+      const res = await createPayRexCheckoutSession({
+        user_item_ids: createdUserItemIds,
+        success_url,
+        cancel_url,
+        payment_type,
+        metadata: baseMetadata,
+        lineItems: payMongoLineItems,
+      });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;
     }

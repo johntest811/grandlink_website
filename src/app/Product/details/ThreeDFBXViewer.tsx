@@ -10,7 +10,7 @@ function getUrlExtension(url: string): string {
   if (lastDot === -1) return "";
   return clean.slice(lastDot + 1).toLowerCase();
 }
-
+//For weather
 type Props = {
   modelUrls: string[];
   weather: "sunny" | "rainy" | "night" | "foggy";

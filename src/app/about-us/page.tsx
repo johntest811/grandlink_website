@@ -46,13 +46,13 @@ export default function AboutUsPage() {
 
         {/* Logo and Description */}
         <section className="py-10 px-4 bg-white flex flex-col items-center">
-          <Image
+          {/* <Image
             src="/GE Logo.avif"
             alt="Grand East Logo"
             width={220}
             height={120}
             className="mb-4"
-          />
+          /> */}
           <div className="max-w-4xl mx-auto text-center">
             <h3 className="text-3xl font-extrabold text-gray-900 mb-4">
               {about.grand}

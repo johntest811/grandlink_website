@@ -95,7 +95,7 @@ export default function ShowroomPage() {
       <UnifiedTopNavBar />
       <main className="flex-1 bg-white">
         <div className="max-w-7xl mx-auto px-6 py-12">
-          <h2 className="text-center text-3xl font-extrabold leading-tight">
+          <h2 className="text-center text-3xl font-extrabold leading-tight text-black">
             Visit us
             <br />
             <span className="inline-block mt-1">at our Showroom Locations</span>

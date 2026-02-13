@@ -595,7 +595,7 @@ export default function ProfileOrderPage() {
       {/* Progress Modal - NEW vertical aligned stepper */}
       {progressModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between border-b pb-3 mb-6">
               <h2 className="text-xl font-bold text-black">
                 Order Progress • {progressModal.item.id.slice(0, 8)}…
@@ -671,57 +671,6 @@ export default function ProfileOrderPage() {
                     <div className="mt-1 text-xs text-black/70">Only team-leader approved updates appear here.</div>
                   </div>
 
-                  {/* Approved updates */}
-                  <div className="mb-8">
-                    <div className="text-sm font-semibold text-black mb-2">Production Updates</div>
-                    {productionUpdates.length === 0 ? (
-                      <div className="text-sm text-black/70">No approved updates yet.</div>
-                    ) : (
-                      <div className="space-y-3">
-                        {productionUpdates.map((u, idx) => {
-                            const imgs = Array.isArray(u.image_urls) ? u.image_urls : [];
-                            const by = String(u.submitted_by_name || u.employee_name || "").trim();
-                            return (
-                              <div
-                                key={String(u.task_update_id || u.id || u.approved_at || idx)}
-                                className="border rounded-lg p-3"
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-xs text-black/70">
-                                    UPDATE
-                                    {by ? ` • by ${by}` : ""}
-                                  </div>
-                                  <div className="text-xs text-black/60">
-                                    {u.approved_at ? new Date(u.approved_at).toLocaleString() : ""}
-                                  </div>
-                                </div>
-                                {u.description && (
-                                  <div className="mt-2 text-sm text-black whitespace-pre-wrap">{u.description}</div>
-                                )}
-                                {imgs.length > 0 && (
-                                  <div className="mt-2 grid grid-cols-3 gap-2">
-                                    {imgs.map((url: string, imgIdx: number) => (
-                                      <button
-                                        key={imgIdx}
-                                        type="button"
-                                        className="group relative h-24 w-full overflow-hidden rounded border"
-                                        onClick={() => openPreview(imgs, imgIdx, "Production Update")}
-                                        aria-label="View image"
-                                      >
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={url} alt="" className="h-full w-full object-cover" />
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Final QC snapshot (optional) */}
                   {hasReachedQualityCheck &&
                   qcPayload &&
@@ -760,6 +709,20 @@ export default function ProfileOrderPage() {
 
             {(() => {
               const doneIdx = reachedIndex(progressModal.item);
+              const updates = Array.isArray(progressModal.item?.meta?.production_updates)
+                ? (progressModal.item.meta.production_updates as any[])
+                : [];
+              const productionUpdates = updates
+                .filter((u) => !u?.is_final_qc)
+                .slice()
+                .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
+
+              const openPreview = (urls: string[], index: number, title?: string) => {
+                if (!urls.length) return;
+                setImagePreviewZoom(1);
+                setImagePreview({ urls, index, title });
+              };
+
               return (
                 <div className="pl-8">
                   <div className="relative space-y-6">
@@ -793,6 +756,48 @@ export default function ProfileOrderPage() {
                             <div className="flex-1">
                               <div className="font-semibold text-black">{stageLabel(s)}</div>
                               <div className="text-sm text-black/80">{dt ? dt.toLocaleString() : "Pending"}</div>
+
+                              {s === "in_production" && (
+                                <div className="mt-3">
+                                  <div className="text-sm font-semibold text-black mb-2">Production Updates</div>
+                                  {productionUpdates.length === 0 ? (
+                                    <div className="text-sm text-black/70">No approved updates yet.</div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      {productionUpdates.map((u, idx) => {
+                                        const imgs = Array.isArray(u.image_urls) ? u.image_urls : [];
+                                        const by = String(u.submitted_by_name || u.employee_name || "").trim();
+                                        return (
+                                          <div key={String(u.task_update_id || u.id || u.approved_at || idx)} className="border rounded-lg p-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <div className="text-xs text-black/70">UPDATE{by ? ` • by ${by}` : ""}</div>
+                                              <div className="text-xs text-black/60">{u.approved_at ? new Date(u.approved_at).toLocaleString() : ""}</div>
+                                            </div>
+                                            {u.description && <div className="mt-2 text-sm text-black whitespace-pre-wrap">{u.description}</div>}
+                                            {imgs.length > 0 && (
+                                              <div className="mt-2 grid grid-cols-3 gap-2">
+                                                {imgs.map((url: string, imgIdx: number) => (
+                                                  <button
+                                                    key={imgIdx}
+                                                    type="button"
+                                                    className="group relative h-24 w-full overflow-hidden rounded border"
+                                                    onClick={() => openPreview(imgs, imgIdx, "Production Update")}
+                                                    aria-label="View image"
+                                                  >
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={url} alt="" className="h-full w-full object-cover" />
+                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
+                                                  </button>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

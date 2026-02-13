@@ -301,6 +301,15 @@ export async function POST(request: NextRequest) {
         } else {
           console.log('✅ Admin notification inserted successfully:', insertedNotif);
         }
+
+        for (const item of notifiedItems) {
+          try {
+            await ensureInvoiceForUserItem(item.id);
+            console.log(`✅ Invoice ensured and email attempt done for item ${item.id}`);
+          } catch (invErr) {
+            console.error(`⚠️ Failed to ensure invoice for item ${item.id}:`, invErr);
+          }
+        }
       }
 
       console.log('PayPal payment processed successfully for user_item:', userItemIdsCsv);

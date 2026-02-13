@@ -12,6 +12,8 @@ type HomeContent = {
   carousel?: Array<{ image?: string; youtube_url?: string; title?: string; buttonText?: string; buttonLink?: string }>;
   explore?: Array<{ image?: string; title?: string; buttonText?: string; buttonLink?: string }>;
   featured_projects?: Array<{ image?: string; title?: string; description?: string; youtube_url?: string }>;
+  featured_long_images?: Array<{ image?: string; title?: string; description?: string }>;
+  payment?: { payrex_phone?: string; payrex_number?: string };
   services?: { images?: string[]; title?: string; description?: string; buttonText?: string; buttonLink?: string };
   about?: { logo?: string; title?: string; description?: string; buttonText?: string; buttonLink?: string };
   [k: string]: any;
@@ -45,7 +47,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [newestProducts, setNewestProducts] = useState<any[]>([]);
   
-  // load 3 newest products from products table (by created_at) — ensure this runs and populates newestProducts
+  // load 4 newest products from products table (by created_at)
   useEffect(() => {
     const loadNewest = async () => {
       if (!SUPABASE_URL || !SUPABASE_ANON) {
@@ -60,7 +62,7 @@ export default function HomePage() {
           .from("products")
           .select("id, name, description, price, images, image1, image2, image3, image4, image5, created_at")
           .order("created_at", { ascending: false })
-          .limit(3);
+          .limit(4);
 
         if (error) {
           console.warn("[home] fetch newest products error:", error);
@@ -156,7 +158,7 @@ export default function HomePage() {
         {/* make background below the carousel white */}
         <div className="w-full bg-white">
           {/* Product Categories */}
-          <section className="max-w-screen-xl mx-auto py-8">
+          <section className="max-w-screen-xl mx-auto py-10 px-4">
             {/* Only show newest products (sourced directly from products table) */}
             <ProductCategory
               title="Newest Products"
@@ -170,6 +172,8 @@ export default function HomePage() {
 
           {/* Featured Projects */}
           <FeaturedProjects projects={content?.featured_projects} />
+
+          <FeaturedLongImageGallery items={content?.featured_long_images} />
 
           {/* Services + About (2x2 layout) */}
           <ServicesSection services={content?.services} about={content?.about} />
@@ -300,14 +304,14 @@ function ProductCategory({
   identifier: string;
   items: any[] | undefined;
 }) {
-  // ensure we only render the 3 newest items passed in
+  // ensure we only render the 4 newest items passed in
   const rawList = items && items.length ? items : [];
-  const list = rawList.slice(0, 3);
+  const list = rawList.slice(0, 4);
 
   return (
     <div className="mb-8" id={identifier}>
-      <h2 className="text-2xl font-bold mb-4 text-black">{title}</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <h2 className="text-2xl font-bold mb-5 text-black">{title}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {list.length
           ? list.map((item: any, idx: number) => {
               // support plain string items
@@ -333,7 +337,7 @@ function ProductCategory({
               const displayTitle = item.title ?? item.name ?? "Untitled";
 
               return (
-                <div key={key} className="border shadow p-4 flex flex-col">
+                <div key={key} className="border border-gray-200 shadow-sm hover:shadow-md transition rounded-lg p-4 flex flex-col bg-white">
                   <div className="h-40 bg-gray-200 flex items-center justify-center overflow-hidden">
                     {img ? <img src={img} alt={item.title || item.name || "Product"} className="h-full w-full object-cover" /> : <span className="text-gray-500">Image</span>}
                   </div>
@@ -375,6 +379,93 @@ function ProductCategory({
              ))}
       </div>
     </div>
+  );
+}
+
+function FeaturedLongImageGallery({ items }: { items?: Array<any> }) {
+  const gallery = (items && items.length ? items : [
+    { image: "/aboutus.avif", title: "Featured Product 1", description: "Premium aluminum and glass solution." },
+    { image: "/Delivery&Ordering.avif", title: "Featured Product 2", description: "Long-format showcase for your best sellers." },
+    { image: "/sevices.avif", title: "Featured Product 3", description: "Durable, modern, and elegant product design." },
+  ]).slice(0, 3);
+
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  const openAt = (index: number) => setActiveIndex(index);
+  const close = () => setActiveIndex(null);
+  const next = () => setActiveIndex((prev) => (prev == null ? 0 : (prev + 1) % gallery.length));
+  const prev = () => setActiveIndex((prev) => (prev == null ? 0 : (prev - 1 + gallery.length) % gallery.length));
+
+  return (
+    <section className="w-full bg-white py-8">
+      <div className="max-w-screen-xl mx-auto px-4">
+        <div className="mb-6 text-center">
+          <h2 className="text-4xl md:text-5xl font-bold text-[#444]">Featured Products</h2>
+          <div className="h-1 w-20 bg-[#8B1C1C] mx-auto mt-2" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {gallery.map((item, index) => {
+            const img = getImageUrl(item.image);
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => openAt(index)}
+                className="group relative h-[420px] rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition text-left"
+              >
+                {img ? (
+                  <img src={img} alt={item.title || `Featured product ${index + 1}`} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gray-200" />
+                )}
+                <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition" />
+                <div className="absolute left-0 right-0 bottom-0 p-4 text-white">
+                  <h3 className="text-lg font-semibold">{item.title || `Featured Product ${index + 1}`}</h3>
+                  {item.description ? <p className="text-sm text-gray-100 mt-1 line-clamp-2">{item.description}</p> : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {activeIndex !== null && gallery[activeIndex] ? (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-4">
+            <button type="button" onClick={close} className="absolute top-4 right-4 text-white bg-white/10 hover:bg-white/20 rounded px-3 py-1">
+              Close
+            </button>
+            <button type="button" onClick={prev} className="absolute left-4 md:left-8 text-white bg-white/10 hover:bg-white/20 rounded px-3 py-2 text-xl">
+              ←
+            </button>
+            <div className="w-full max-w-4xl">
+              <img
+                src={getImageUrl(gallery[activeIndex].image)}
+                alt={gallery[activeIndex].title || `Featured product ${activeIndex + 1}`}
+                className="w-full max-h-[75vh] object-contain rounded"
+              />
+              <div className="mt-3 text-center text-white">
+                <h4 className="text-xl font-semibold">{gallery[activeIndex].title || `Featured Product ${activeIndex + 1}`}</h4>
+                {gallery[activeIndex].description ? <p className="text-sm text-gray-200 mt-1">{gallery[activeIndex].description}</p> : null}
+              </div>
+              <div className="mt-4 flex justify-center gap-2">
+                {gallery.map((_, dotIndex) => (
+                  <button
+                    key={dotIndex}
+                    type="button"
+                    onClick={() => setActiveIndex(dotIndex)}
+                    className={`w-2.5 h-2.5 rounded-full ${dotIndex === activeIndex ? "bg-white" : "bg-white/40"}`}
+                    aria-label={`Go to featured image ${dotIndex + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <button type="button" onClick={next} className="absolute right-4 md:right-8 text-white bg-white/10 hover:bg-white/20 rounded px-3 py-2 text-xl">
+              →
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

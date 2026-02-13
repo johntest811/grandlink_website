@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -106,6 +107,13 @@ export async function POST(request: NextRequest) {
             }
           })
           .eq('id', userItemId);
+
+        try {
+          await ensureInvoiceForUserItem(userItemId);
+          console.log(`✅ Invoice ensured and email attempt done for item ${userItemId}`);
+        } catch (invoiceErr) {
+          console.warn(`⚠️ Failed to ensure invoice for item ${userItemId}:`, invoiceErr);
+        }
 
         // Deduct inventory unless already reserved/deducted earlier
         const alreadyDeducted = Boolean(userItem.meta?.inventory_deducted);

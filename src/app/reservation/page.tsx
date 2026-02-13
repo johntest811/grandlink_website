@@ -69,6 +69,7 @@ function ReservationPageContent() {
   const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">(
     "payrex"
   );
+  const [payrexPhone, setPayrexPhone] = useState("");
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -129,6 +130,23 @@ function ReservationPageContent() {
     };
     loadData();
   }, [productId, router]);
+
+  useEffect(() => {
+    const loadPaymentSettings = async () => {
+      try {
+        const res = await fetch("/api/home");
+        if (!res.ok) return;
+        const data = await res.json();
+        const content = data?.content ?? data ?? {};
+        const configured = String(content?.payment?.payrex_phone || content?.payment?.payrex_number || "").trim();
+        setPayrexPhone(configured);
+      } catch (err) {
+        console.warn("Failed to load payment settings", err);
+      }
+    };
+
+    loadPaymentSettings();
+  }, []);
 
   const qty = Math.max(1, Number(formData.quantity || 1));
 
@@ -686,6 +704,9 @@ function ReservationPageContent() {
                       <span className="text-sm">PayRex - GCash, Maya, Card</span>
                     </label>
                   </div>
+                  {payrexPhone && (
+                    <div className="text-xs text-[#8B1C1C] mt-1">Admin PayRex Phone: {payrexPhone}</div>
+                  )}
                   <div className="flex gap-4 mt-1">
                     <label className="inline-flex items-center gap-2">
                       <input

@@ -61,6 +61,7 @@ function CartCheckoutContent() {
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">("payrex");
+  const [payrexPhone, setPayrexPhone] = useState("");
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -142,6 +143,23 @@ function CartCheckoutContent() {
     };
     loadData();
   }, [itemIdsParam, router]);
+
+  useEffect(() => {
+    const loadPaymentSettings = async () => {
+      try {
+        const res = await fetch("/api/home");
+        if (!res.ok) return;
+        const data = await res.json();
+        const content = data?.content ?? data ?? {};
+        const configured = String(content?.payment?.payrex_phone || content?.payment?.payrex_number || "").trim();
+        setPayrexPhone(configured);
+      } catch (err) {
+        console.warn("Failed to load payment settings", err);
+      }
+    };
+
+    loadPaymentSettings();
+  }, []);
 
   const computeUnitPrice = (item: UserItem) => {
     const product = products[item.product_id];
@@ -547,6 +565,9 @@ function CartCheckoutContent() {
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayRex</div>
                     <div className="text-sm text-gray-500">GCash, Maya, Credit/Debit Card</div>
+                    {payrexPhone ? (
+                      <div className="text-xs text-[#8B1C1C] mt-1">Admin PayRex Phone: {payrexPhone}</div>
+                    ) : null}
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">

@@ -6,7 +6,8 @@ import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import { ReactNode } from "react";
 
 export default function RegisterPage() {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,6 +27,15 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanFirstName = firstName.trim();
+    const cleanLastName = lastName.trim();
+    const fullName = `${cleanFirstName} ${cleanLastName}`.trim();
+
+    if (!cleanFirstName || !cleanLastName) {
+      setPopup({ success: false, message: "Please enter both first name and last name." });
+      return;
+    }
 
     const passwordChecks = {
       length: password.length >= 8,
@@ -76,7 +86,12 @@ export default function RegisterPage() {
       password,
       options: {
         emailRedirectTo: `${baseUrl}/register/success`,
-        data: { name }
+        data: {
+          first_name: cleanFirstName,
+          last_name: cleanLastName,
+          full_name: fullName,
+          name: fullName,
+        },
       }
     });
     if (error) {
@@ -102,7 +117,8 @@ export default function RegisterPage() {
           </div>
         )
       });
-      setName("");
+      setFirstName("");
+      setLastName("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
@@ -147,21 +163,42 @@ export default function RegisterPage() {
         <div className="bg-white/95 rounded-xl shadow-lg px-8 py-10 w-full max-w-md flex flex-col items-center relative z-10 mt-12 mb-12">
           <h1 className="text-3xl font-bold text-center mb-6 text-[#8B1C1C]">Register</h1>
           <form className="w-full flex flex-col gap-4" onSubmit={handleRegister}>
-            <div>
-              <label className="font-semibold text-sm mb-1 block text-black" htmlFor="name">
-                Full Name
-              </label>
-              <div className="flex items-center border border-gray-400 rounded-lg px-3 py-2 bg-gray-100">
-                <FaUser className="text-gray-500 mr-2" />
-                <input
-                  id="name"
-                  type="text"
-                  placeholder="Please Enter your Full Name"
-                  className="bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400"
-                  autoComplete="name"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-sm mb-1 block text-black" htmlFor="first-name">
+                  First Name
+                </label>
+                <div className="flex items-center border border-gray-400 rounded-lg px-3 py-2 bg-gray-100">
+                  <FaUser className="text-gray-500 mr-2" />
+                  <input
+                    id="first-name"
+                    type="text"
+                    placeholder="First name"
+                    className="bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400"
+                    autoComplete="given-name"
+                    value={firstName}
+                    onChange={e => setFirstName(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-sm mb-1 block text-black" htmlFor="last-name">
+                  Last Name
+                </label>
+                <div className="flex items-center border border-gray-400 rounded-lg px-3 py-2 bg-gray-100">
+                  <FaUser className="text-gray-500 mr-2" />
+                  <input
+                    id="last-name"
+                    type="text"
+                    placeholder="Last name"
+                    className="bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400"
+                    autoComplete="family-name"
+                    value={lastName}
+                    onChange={e => setLastName(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
             </div>
             <div>
@@ -178,6 +215,7 @@ export default function RegisterPage() {
                   autoComplete="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
+                  required
                 />
               </div>
             </div>
@@ -195,6 +233,7 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
+                  required
                 />
               </div>
               <div className="mt-2 text-xs">
@@ -236,6 +275,7 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
+                  required
                 />
               </div>
               {!passwordsMatch ? (

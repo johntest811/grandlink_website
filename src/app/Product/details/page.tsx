@@ -511,7 +511,7 @@ function ProductDetailsPageContent() {
                   aria-label="Default"
                   onClick={() => setFrameFinish("default")}
                   className={
-                    "px-3 py-2 rounded-md text-xs font-medium border transition-all text-left " +
+                    "px-3 py-2 rounded-md text-xs font-medium border transition-all text-left text-black " +
                     (frameFinish === "default" ? "border-black bg-white" : "border-gray-300 bg-white hover:border-gray-400")
                   }
                 >

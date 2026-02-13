@@ -46,6 +46,12 @@ type MaterialSnapshot = {
   opacity?: number;
 };
 
+type WeatherMaterialSnapshot = {
+  roughness?: number;
+  metalness?: number;
+  envMapIntensity?: number;
+};
+
 function mmPerUnit(units: ModelUnits): number {
   switch (units) {
     case "mm":
@@ -106,10 +112,13 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(true);
+  const [showBaseplate, setShowBaseplate] = useState(true);
+  const [showShadows, setShowShadows] = useState(true);
   const [modelUnits, setModelUnits] = useState<ModelUnits>("mm");
   const [dimsMm, setDimsMm] = useState<{ width: number; height: number; thickness: number } | null>(null);
 
   const frameMaterialsRef = useRef<THREE.Material[]>([]);
+  const finishMaterialsRef = useRef<THREE.Material[]>([]);
   const frameMaterialSnapshotsRef = useRef<WeakMap<THREE.Material, MaterialSnapshot>>(new WeakMap());
 
   const labelElsRef = useRef<{ w?: HTMLDivElement; h?: HTMLDivElement; t?: HTMLDivElement }>({});
@@ -117,6 +126,11 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
   const showMeasurementsRef = useRef<boolean>(true);
   const modelUnitsRef = useRef<ModelUnits>("mm");
   const assumedModelUnitsRef = useRef<ModelUnits>("m");
+
+  const showBaseplateRef = useRef<boolean>(true);
+  const showShadowsRef = useRef<boolean>(true);
+  const updateGroundRef = useRef<(() => void) | null>(null);
+  const updateShadowsRef = useRef<(() => void) | null>(null);
 
   // Ensure we have valid model URLs and current index
   const validFbxUrls = Array.isArray(modelUrls) ? modelUrls.filter(url => url && url.trim() !== '') : [];
@@ -138,6 +152,17 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
   useEffect(() => {
     showMeasurementsRef.current = showMeasurements;
   }, [showMeasurements]);
+
+  useEffect(() => {
+    showBaseplateRef.current = showBaseplate;
+    updateGroundRef.current?.();
+  }, [showBaseplate]);
+
+  useEffect(() => {
+    showShadowsRef.current = showShadows;
+    updateShadowsRef.current?.();
+    updateGroundRef.current?.();
+  }, [showShadows]);
 
   useEffect(() => {
     modelUnitsRef.current = modelUnits;
@@ -394,6 +419,86 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     // Skyboxes are applied as BACKGROUND ONLY so they won't change the model's texture/material look.
     scene.environment = null;
 
+    // Floor/baseplate + shadow catcher (toggled via UI)
+    const groundGeometry = new THREE.PlaneGeometry(1, 1);
+    const baseplateMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf3f4f6,
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    const shadowCatcherMaterial = new THREE.ShadowMaterial({ opacity: 0.28 });
+    shadowCatcherMaterial.transparent = true;
+    try {
+      (shadowCatcherMaterial as any).depthWrite = false;
+    } catch {}
+
+    const groundPlane = new THREE.Mesh<THREE.PlaneGeometry, THREE.Material>(groundGeometry, baseplateMaterial);
+    groundPlane.rotation.x = -Math.PI / 2;
+    groundPlane.position.set(0, -0.02, 0);
+    groundPlane.receiveShadow = true;
+    groundPlane.visible = true;
+    scene.add(groundPlane);
+
+    let modelRootForShadows: THREE.Object3D | null = null;
+    const setModelShadowFlags = (enabled: boolean) => {
+      if (!modelRootForShadows) return;
+      try {
+        modelRootForShadows.traverse((obj: any) => {
+          if (!obj || !obj.isMesh) return;
+          obj.castShadow = enabled;
+          obj.receiveShadow = enabled;
+        });
+      } catch {}
+    };
+
+    const updateGround = () => {
+      const base = !!showBaseplateRef.current;
+      const shadows = !!showShadowsRef.current;
+
+      if (base) {
+        groundPlane.visible = true;
+        if (groundPlane.material !== baseplateMaterial) {
+          groundPlane.material = baseplateMaterial;
+        }
+        groundPlane.receiveShadow = shadows;
+        baseplateMaterial.needsUpdate = true;
+      } else if (shadows) {
+        groundPlane.visible = true;
+        if (groundPlane.material !== shadowCatcherMaterial) {
+          groundPlane.material = shadowCatcherMaterial;
+        }
+        groundPlane.receiveShadow = true;
+        shadowCatcherMaterial.needsUpdate = true;
+      } else {
+        groundPlane.visible = false;
+      }
+    };
+
+    const updateShadowsNow = () => {
+      const enabled = !!showShadowsRef.current;
+
+      try {
+        renderer.shadowMap.enabled = enabled;
+        renderer.shadowMap.needsUpdate = true;
+      } catch {}
+
+      try {
+        sunLight.castShadow = enabled;
+      } catch {}
+      try {
+        fillLight.castShadow = enabled && !isLowEnd;
+      } catch {}
+
+      setModelShadowFlags(enabled);
+      updateGround();
+    };
+
+    updateGroundRef.current = updateGround;
+    updateShadowsRef.current = updateShadowsNow;
+
+    // Apply initial UI state.
+    updateShadowsNow();
+
     let skyboxTex: THREE.Texture | null = null;
     let activeSkyboxUrl: string | null = null;
 
@@ -478,6 +583,20 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     let windVel: Float32Array | null = null;
     let windLifetime: Float32Array | null = null;
     let windBaseOpacity = 0.3;
+    let splashSystem: THREE.Points | null = null;
+    let splashVelY: Float32Array | null = null;
+    let splashLifetime: Float32Array | null = null;
+    let splashArea: { minX: number; maxX: number; minZ: number; maxZ: number; groundY: number } | null = null;
+    let lightningFlash = 0;
+    let activeWeather: Props["weather"] = weather;
+    let lightingBase = {
+      ambient: 0.45,
+      hemi: 0.6,
+      fill: 0.6,
+      sun: 2.2,
+      exposure: 1.1,
+    };
+    const weatherMaterialSnapshots = new WeakMap<THREE.Material, WeatherMaterialSnapshot>();
     let modelBounds: THREE.Box3 | null = null;
     let measurementGroup: THREE.Group | null = null;
 
@@ -619,6 +738,8 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     };
 
     const applyWeather = (type: string) => {
+      activeWeather = (type as Props["weather"]) || "sunny";
+
    
       if (rainSystem) {
         try {
@@ -642,7 +763,19 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         windVel = null;
         windLifetime = null;
       }
+      if (splashSystem) {
+        try {
+          scene.remove(splashSystem);
+          splashSystem.geometry.dispose();
+          (splashSystem.material as THREE.PointsMaterial).dispose();
+        } catch (e) {}
+        splashSystem = null;
+        splashVelY = null;
+        splashLifetime = null;
+        splashArea = null;
+      }
       scene.fog = null;
+      lightningFlash = 0;
 
       // Reset skybox (if any) when weather changes
       activeSkyboxUrl = null;
@@ -695,28 +828,39 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
 
       if (type === "sunny") {
         scene.background = new THREE.Color(0x87ceeb);
-        ambient.intensity = 0.45;
-        hemi.intensity = 0.6;
-        fillLight.intensity = 0.6;
+        lightingBase.ambient = 0.45;
+        lightingBase.hemi = 0.6;
+        lightingBase.fill = 0.62;
+        lightingBase.sun = 2.2;
+        lightingBase.exposure = 1.12;
+        ambient.intensity = lightingBase.ambient;
+        hemi.intensity = lightingBase.hemi;
+        fillLight.intensity = lightingBase.fill;
         try { sunLight.color.set(0xfff1c0); } catch {}
         sunLight.visible = true;
-        sunLight.intensity = 2.2;
+        sunLight.intensity = lightingBase.sun;
+        renderer.toneMappingExposure = lightingBase.exposure;
         renderer.setClearColor(0x87ceeb, 1);
       } else if (type === "rainy") {
-        scene.background = new THREE.Color(0xbfd1e5);
-        ambient.intensity = 0.3;
-        hemi.intensity = 0.5;
-        fillLight.intensity = 0.55;
-        try { sunLight.color.set(0xfff1c0); } catch {}
+        scene.background = new THREE.Color(0xa7b5c4);
+        lightingBase.ambient = 0.24;
+        lightingBase.hemi = 0.36;
+        lightingBase.fill = 0.46;
+        lightingBase.sun = 0.55;
+        lightingBase.exposure = 0.94;
+        ambient.intensity = lightingBase.ambient;
+        hemi.intensity = lightingBase.hemi;
+        fillLight.intensity = lightingBase.fill;
+        try { sunLight.color.set(0xc7d5e6); } catch {}
         sunLight.visible = true;
-        sunLight.intensity = 0.8;
-        renderer.setClearColor(0xbfd1e5, 1);
+        sunLight.intensity = lightingBase.sun;
+        renderer.toneMappingExposure = lightingBase.exposure;
+        renderer.setClearColor(0xa7b5c4, 1);
 
         // Streak rain (LineSegments) anchored to model bounds so it always appears.
-        // Lower density to match typical "animation rain" (readable, not a wall).
-        const rainDensity = isLowEnd ? 0.10 : 0.16;
+        const rainDensity = isLowEnd ? 0.16 : 0.26;
         const rainCount = Math.max(
-          250,
+          420,
           Math.round((performanceFactor > 0.6 ? STORM_RAIN : BASE_RAIN) * rainDensity)
         );
         rainArea = computeRainArea();
@@ -732,17 +876,12 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
           const headY = rainArea.maxY + Math.random() * (rainArea.maxY - rainArea.minY) * 0.3;
           const headZ = rainArea.minZ + Math.random() * (rainArea.maxZ - rainArea.minZ);
 
-          // Shorter streaks (user requested) while keeping thin lines.
-          const baseLen = 7 + Math.random() * 12;
+          const baseLen = 9 + Math.random() * 16;
           const len = baseLen * (0.85 + Math.min(1, performanceFactor) * 0.25);
           rainLen![i] = len;
 
-          // Natural-ish pace (units are in scene space per second).
-          // Too fast makes it look like "teleporting"; too slow looks like drifting snow.
-          // Much faster fall speed (user requested)
-          rainVelY![i] = (44 + Math.random() * 34) * (1 + (0.75 - performanceFactor) * 0.2);
-          // Wind slant (x direction)
-          rainVelX![i] = (Math.random() - 0.5) * (6 + Math.random() * 10);
+          rainVelY![i] = (58 + Math.random() * 48) * (1 + (0.75 - performanceFactor) * 0.2);
+          rainVelX![i] = (Math.random() - 0.5) * (10 + Math.random() * 14);
 
           const idx = i * 6;
           positions[idx + 0] = headX;
@@ -760,10 +899,9 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
 
         const mat = new THREE.LineBasicMaterial({
-          // Blue, but less intense so it reads like rain not neon.
-          color: 0x6bb6ff,
+          color: 0xb9d8ff,
           transparent: true,
-          opacity: Math.min(0.42, Math.max(0.22, rainBaseOpacity * 0.75)),
+          opacity: Math.min(0.5, Math.max(0.28, rainBaseOpacity * 0.82)),
           depthWrite: false,
           blending: THREE.NormalBlending,
         });
@@ -772,31 +910,157 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         rainSystem.renderOrder = 1;
         scene.add(rainSystem);
 
-        const fogDensity = performanceFactor > 0.5 ? 0.001 : 0.0006;
-        scene.fog = new THREE.FogExp2(0xbfd1e5, fogDensity);
+        const fogDensity = performanceFactor > 0.5 ? 0.0016 : 0.0011;
+        scene.fog = new THREE.FogExp2(0xa7b5c4, fogDensity);
+
+        const splashCount = Math.max(220, Math.round((isLowEnd ? BASE_WIND : STRONG_WIND) * 0.9));
+        const splashPositions = new Float32Array(splashCount * 3);
+        splashVelY = new Float32Array(splashCount);
+        splashLifetime = new Float32Array(splashCount);
+        if (modelBounds) {
+          const size = modelBounds.getSize(new THREE.Vector3());
+          splashArea = {
+            minX: modelBounds.min.x - Math.max(8, size.x * 0.2),
+            maxX: modelBounds.max.x + Math.max(8, size.x * 0.2),
+            minZ: modelBounds.min.z - Math.max(8, size.z * 0.2),
+            maxZ: modelBounds.max.z + Math.max(8, size.z * 0.2),
+            groundY: groundPlane.position.y + 0.03,
+          };
+        } else {
+          splashArea = { minX: -60, maxX: 60, minZ: -60, maxZ: 60, groundY: groundPlane.position.y + 0.03 };
+        }
+
+        for (let i = 0; i < splashCount; i++) {
+          const base = i * 3;
+          splashPositions[base + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
+          splashPositions[base + 1] = splashArea.groundY + Math.random() * 0.04;
+          splashPositions[base + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
+          splashVelY[i] = 1.8 + Math.random() * 2.8;
+          splashLifetime[i] = Math.random();
+        }
+
+        const splashGeo = new THREE.BufferGeometry();
+        splashGeo.setAttribute("position", new THREE.BufferAttribute(splashPositions, 3));
+        const splashMat = new THREE.PointsMaterial({
+          color: 0xd9e9ff,
+          size: isLowEnd ? 1.4 : 2.1,
+          transparent: true,
+          opacity: 0.34,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          sizeAttenuation: true,
+        });
+        splashSystem = new THREE.Points(splashGeo, splashMat);
+        splashSystem.frustumCulled = false;
+        splashSystem.renderOrder = 2;
+        scene.add(splashSystem);
+
+        const windCount = Math.max(120, Math.round((isLowEnd ? BASE_WIND : STRONG_WIND) * 0.6));
+        const windPositions = new Float32Array(windCount * 3);
+        windVel = new Float32Array(windCount * 3);
+        windLifetime = new Float32Array(windCount);
+        const center = modelBounds ? modelBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+        const size = modelBounds ? modelBounds.getSize(new THREE.Vector3()) : new THREE.Vector3(40, 40, 40);
+        const spread = Math.max(size.x, size.z) * 2.2;
+        for (let i = 0; i < windCount; i++) {
+          const base = i * 3;
+          windPositions[base + 0] = center.x - spread + Math.random() * spread * 2;
+          windPositions[base + 1] = center.y - size.y * 0.2 + Math.random() * size.y * 1.3;
+          windPositions[base + 2] = center.z - spread + Math.random() * spread * 2;
+          windVel[base + 0] = 6 + Math.random() * 8;
+          windVel[base + 1] = (Math.random() - 0.5) * 0.6;
+          windVel[base + 2] = (Math.random() - 0.5) * 1.8;
+          windLifetime[i] = Math.random() * 100;
+        }
+        const windGeo = new THREE.BufferGeometry();
+        windGeo.setAttribute("position", new THREE.BufferAttribute(windPositions, 3));
+        const windMat = new THREE.PointsMaterial({
+          map: windTexture,
+          color: 0xd3e5ff,
+          size: isLowEnd ? 6 : 8,
+          transparent: true,
+          opacity: Math.max(0.16, windBaseOpacity * 0.7),
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          sizeAttenuation: true,
+        });
+        windSystem = new THREE.Points(windGeo, windMat);
+        windSystem.frustumCulled = false;
+        windSystem.renderOrder = 1;
+        scene.add(windSystem);
       } else if (type === "night") {
-        // Night mode
         scene.background = new THREE.Color(0x0b1020);
         renderer.setClearColor(0x0b1020, 1);
-        // "moonlight"
-        ambient.intensity = 0.32;
-        hemi.intensity = 0.35;
-        fillLight.intensity = 0.75;
-        try { sunLight.color.set(0xbdd1ff); } catch {}
+        lightingBase.ambient = 0.2;
+        lightingBase.hemi = 0.24;
+        lightingBase.fill = 0.62;
+        lightingBase.sun = 0.95;
+        lightingBase.exposure = 0.74;
+        ambient.intensity = lightingBase.ambient;
+        hemi.intensity = lightingBase.hemi;
+        fillLight.intensity = lightingBase.fill;
+        try { sunLight.color.set(0x9fc3ff); } catch {}
         sunLight.visible = true;
-        sunLight.intensity = 1.15;
-      
-        scene.fog = new THREE.FogExp2(0x0b1020, 0.0006);
+        sunLight.intensity = lightingBase.sun;
+        renderer.toneMappingExposure = lightingBase.exposure;
+        scene.fog = new THREE.FogExp2(0x0b1020, 0.0012);
       } else if (type === "foggy") {
         scene.background = new THREE.Color(0xd6dbe0);
-        ambient.intensity = 0.6;
-        hemi.intensity = 0.65;
-        fillLight.intensity = 0.6;
-        try { sunLight.color.set(0xfff1c0); } catch {}
+        lightingBase.ambient = 0.52;
+        lightingBase.hemi = 0.58;
+        lightingBase.fill = 0.5;
+        lightingBase.sun = 0.58;
+        lightingBase.exposure = 0.92;
+        ambient.intensity = lightingBase.ambient;
+        hemi.intensity = lightingBase.hemi;
+        fillLight.intensity = lightingBase.fill;
+        try { sunLight.color.set(0xf2f5f8); } catch {}
         sunLight.visible = true;
-        sunLight.intensity = 0.8;
-        scene.fog = new THREE.FogExp2(0xd6dbe0, 0.002);
+        sunLight.intensity = lightingBase.sun;
+        renderer.toneMappingExposure = lightingBase.exposure;
+        scene.fog = new THREE.FogExp2(0xd6dbe0, 0.0032);
         renderer.setClearColor(0xd6dbe0, 1);
+      }
+
+      const materials = finishMaterialsRef.current;
+      for (const mat of materials) {
+        if (!mat) continue;
+        const anyMat: any = mat as any;
+        if (typeof anyMat.roughness !== "number" && typeof anyMat.metalness !== "number") continue;
+
+        if (!weatherMaterialSnapshots.has(mat)) {
+          weatherMaterialSnapshots.set(mat, {
+            roughness: typeof anyMat.roughness === "number" ? anyMat.roughness : undefined,
+            metalness: typeof anyMat.metalness === "number" ? anyMat.metalness : undefined,
+            envMapIntensity: typeof anyMat.envMapIntensity === "number" ? anyMat.envMapIntensity : undefined,
+          });
+        }
+
+        const snap = weatherMaterialSnapshots.get(mat);
+        if (!snap) continue;
+
+        const baseRough = typeof snap.roughness === "number" ? snap.roughness : anyMat.roughness;
+        const baseMetal = typeof snap.metalness === "number" ? snap.metalness : anyMat.metalness;
+        const baseEnv = typeof snap.envMapIntensity === "number" ? snap.envMapIntensity : anyMat.envMapIntensity;
+
+        if (type === "rainy") {
+          if (typeof anyMat.roughness === "number" && typeof baseRough === "number") anyMat.roughness = THREE.MathUtils.clamp(baseRough * 0.55, 0.05, 0.62);
+          if (typeof anyMat.metalness === "number" && typeof baseMetal === "number") anyMat.metalness = THREE.MathUtils.clamp(baseMetal + 0.12, 0, 1);
+          if (typeof anyMat.envMapIntensity === "number" && typeof baseEnv === "number") anyMat.envMapIntensity = Math.max(baseEnv * 1.4, baseEnv + 0.2);
+        } else if (type === "foggy") {
+          if (typeof anyMat.roughness === "number" && typeof baseRough === "number") anyMat.roughness = THREE.MathUtils.clamp(baseRough * 1.08, 0.1, 1);
+          if (typeof anyMat.metalness === "number" && typeof baseMetal === "number") anyMat.metalness = THREE.MathUtils.clamp(baseMetal * 0.9, 0, 1);
+          if (typeof anyMat.envMapIntensity === "number" && typeof baseEnv === "number") anyMat.envMapIntensity = baseEnv * 0.9;
+        } else if (type === "night") {
+          if (typeof anyMat.roughness === "number" && typeof baseRough === "number") anyMat.roughness = THREE.MathUtils.clamp(baseRough * 0.9, 0.06, 1);
+          if (typeof anyMat.metalness === "number" && typeof baseMetal === "number") anyMat.metalness = THREE.MathUtils.clamp(baseMetal + 0.03, 0, 1);
+          if (typeof anyMat.envMapIntensity === "number" && typeof baseEnv === "number") anyMat.envMapIntensity = Math.max(baseEnv, baseEnv * 1.05);
+        } else {
+          if (typeof anyMat.roughness === "number" && typeof baseRough === "number") anyMat.roughness = baseRough;
+          if (typeof anyMat.metalness === "number" && typeof baseMetal === "number") anyMat.metalness = baseMetal;
+          if (typeof anyMat.envMapIntensity === "number" && typeof baseEnv === "number") anyMat.envMapIntensity = baseEnv;
+        }
+        anyMat.needsUpdate = true;
       }
     };
 
@@ -805,8 +1069,9 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     const modelExt = getUrlExtension(currentFbx);
 
     const applyFrameFinishToTargets = (finish: FrameFinish) => {
-      const materials = frameMaterialsRef.current;
+      const materials = finishMaterialsRef.current;
       if (!materials || materials.length === 0) return;
+      const frameMaterials = frameMaterialsRef.current || [];
 
       if (finish === "default") {
         for (const mat of materials) {
@@ -853,11 +1118,6 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
           }
         } catch {}
 
-        // Force solid color finish for the frame.
-        try {
-          if ("map" in anyMat) anyMat.map = null;
-        } catch {}
-
         try {
           if (typeof anyMat.roughness === "number") anyMat.roughness = preset.roughness;
         } catch {}
@@ -867,10 +1127,21 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         } catch {}
 
         try {
+          anyMat.needsUpdate = true;
+        } catch {}
+      }
+
+      // Force solid color finish for detected frame materials only.
+      for (const mat of frameMaterials) {
+        if (!mat) continue;
+        const anyMat: any = mat as any;
+        try {
+          if ("map" in anyMat) anyMat.map = null;
+        } catch {}
+        try {
           anyMat.transparent = false;
           anyMat.opacity = 1;
         } catch {}
-
         try {
           anyMat.needsUpdate = true;
         } catch {}
@@ -883,6 +1154,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         // Frame materials are detected after we normalize + scale the model (below),
         // so our geometry/bounds heuristic works reliably for GLB/GLTF.
         frameMaterialsRef.current = [];
+        finishMaterialsRef.current = [];
 
         const upgradeMaterial = (orig: any) => {
           if (!orig) return null;
@@ -1112,7 +1384,21 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         modelGroup.position.set(0, 0, 0);
         scene.add(modelGroup);
 
+        modelRootForShadows = modelGroup;
+        setModelShadowFlags(!!showShadowsRef.current);
+
         modelBounds = new THREE.Box3().setFromObject(modelGroup);
+
+        // Fit ground plane to model bounds and keep it slightly below the model.
+        if (modelBounds) {
+          const size = modelBounds.getSize(new THREE.Vector3());
+          const span = Math.max(size.x, size.z);
+          const floorSize = Math.max(180, span * 2.4);
+          groundPlane.scale.set(floorSize, floorSize, 1);
+          groundPlane.position.y = modelBounds.min.y - Math.max(0.02, size.y * 0.002);
+        }
+
+        updateGround();
 
         // Detect likely frame materials.
         // Priorities:
@@ -1137,6 +1423,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         };
 
         const scoreByMaterial = new Map<THREE.Material, { score: number; tokenMatch: boolean }>();
+        const finishMaterials = new Set<THREE.Material>();
 
         const perMeshBox = new THREE.Box3();
         modelGroup.traverse((child: any) => {
@@ -1170,6 +1457,9 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
             const haystack = `${meshName} ${matName}`;
 
             if (isGlassLike(m, haystack)) continue;
+
+            // Track all non-glass materials so finish changes can recolor the whole model.
+            finishMaterials.add(mat);
 
             let score = 0;
             const tokenMatch = frameTokens.some((t) => haystack.includes(t));
@@ -1205,9 +1495,10 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         }
 
         frameMaterialsRef.current = selected;
+        finishMaterialsRef.current = Array.from(finishMaterials);
 
         // Snapshot original values so "Default" can restore them.
-        for (const mat of frameMaterialsRef.current) {
+        for (const mat of finishMaterialsRef.current) {
           if (!mat) continue;
           if (frameMaterialSnapshotsRef.current.has(mat)) continue;
           const anyMat: any = mat as any;
@@ -1491,6 +1782,50 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         posAttr.needsUpdate = true;
       }
 
+      if (activeWeather === "rainy") {
+        if (Math.random() < dt * 0.11) {
+          lightningFlash = Math.max(lightningFlash, 0.32 + Math.random() * 0.42);
+        }
+        if (lightningFlash > 0) {
+          ambient.intensity = lightingBase.ambient + lightningFlash * 0.18;
+          hemi.intensity = lightingBase.hemi + lightningFlash * 0.2;
+          fillLight.intensity = lightingBase.fill + lightningFlash * 0.3;
+          sunLight.intensity = lightingBase.sun + lightningFlash * 2.25;
+          renderer.toneMappingExposure = Math.min(1.65, lightingBase.exposure + lightningFlash * 0.45);
+          lightningFlash = Math.max(0, lightningFlash - dt * 1.9);
+          if (lightningFlash <= 0) {
+            ambient.intensity = lightingBase.ambient;
+            hemi.intensity = lightingBase.hemi;
+            fillLight.intensity = lightingBase.fill;
+            sunLight.intensity = lightingBase.sun;
+            renderer.toneMappingExposure = lightingBase.exposure;
+          }
+        }
+      }
+
+      if (splashSystem && splashVelY && splashLifetime && splashArea) {
+        const splashPositions = splashSystem.geometry.attributes.position as THREE.BufferAttribute;
+        const arr = splashPositions.array as Float32Array;
+        const count = splashVelY.length;
+
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3;
+          splashLifetime[i] += dt * (1.6 + Math.random() * 0.8);
+          arr[idx + 1] += splashVelY[i] * dt;
+          splashVelY[i] -= 14 * dt;
+
+          if (splashLifetime[i] >= 1 || arr[idx + 1] < splashArea.groundY) {
+            arr[idx + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
+            arr[idx + 1] = splashArea.groundY + Math.random() * 0.03;
+            arr[idx + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
+            splashVelY[i] = 1.4 + Math.random() * 3.2;
+            splashLifetime[i] = 0;
+          }
+        }
+
+        splashPositions.needsUpdate = true;
+      }
+
       if (heavyStep && windSystem && windVel && windLifetime && modelBounds) {
         const positions = windSystem.geometry.attributes.position as THREE.BufferAttribute;
         const arr = positions.array as Float32Array;
@@ -1589,6 +1924,28 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
       try { skyboxTex?.dispose(); } catch(e) {}
       try { rainTexture.dispose(); } catch(e) {}
       try { windTexture.dispose(); } catch(e) {}
+      if (splashSystem) {
+        try {
+          splashSystem.geometry.dispose();
+          (splashSystem.material as THREE.PointsMaterial).dispose();
+        } catch {}
+      }
+      try {
+        updateGroundRef.current = null;
+        updateShadowsRef.current = null;
+      } catch {}
+      try {
+        scene.remove(groundPlane);
+      } catch {}
+      try {
+        groundGeometry.dispose();
+      } catch {}
+      try {
+        baseplateMaterial.dispose();
+      } catch {}
+      try {
+        shadowCatcherMaterial.dispose();
+      } catch {}
       if (labelRenderer) {
         try {
           container.removeChild(labelRenderer.domElement);
@@ -1737,6 +2094,34 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
             {usesProductDimensions
               ? "Using product dimensions from Supabase. Use “Units” to convert display."
               : "Use “Units” to change measurement display."}
+          </div>
+        </div>
+      </div>
+
+      {/* Floor + Shadow toggles (fixed position; independent of other top controls) */}
+      <div className="absolute bottom-4 left-3 z-[9999] pointer-events-auto">
+        <div className="bg-black/70 backdrop-blur-md rounded-xl px-4 py-3 shadow-lg text-white min-w-[200px]">
+          <div className="text-sm font-semibold">Scene</div>
+
+          <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-white/90">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-white/80">Baseplate</span>
+              <input
+                type="checkbox"
+                checked={showBaseplate}
+                onChange={(e) => setShowBaseplate(e.target.checked)}
+                aria-label="Toggle baseplate"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-white/80">Shadows</span>
+              <input
+                type="checkbox"
+                checked={showShadows}
+                onChange={(e) => setShowShadows(e.target.checked)}
+                aria-label="Toggle shadows"
+              />
+            </label>
           </div>
         </div>
       </div>

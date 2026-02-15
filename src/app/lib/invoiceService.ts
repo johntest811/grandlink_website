@@ -56,9 +56,13 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     }
   }
 
-  // 5) Load user email
-  const { data: userWrap } = await supabaseAdmin.auth.admin.getUserById(item.user_id);
-  const userEmail = userWrap?.user?.email || item.customer_email || item.meta?.customer_email || null;
+  // 5) Resolve invoice recipient (prefer billing email entered during checkout/reservation)
+  const billingEmail = item.meta?.billing_email || item.customer_email || item.meta?.customer_email || null;
+  let userEmail = billingEmail;
+  if (!userEmail) {
+    const { data: userWrap } = await supabaseAdmin.auth.admin.getUserById(item.user_id);
+    userEmail = userWrap?.user?.email || null;
+  }
 
   const issuedAtIso = new Date().toISOString();
   const invoiceNumber = buildInvoiceNumber(userItemId);
@@ -88,9 +92,9 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     companyName: "GrandLink Glass and Aluminium",
     companyAddress: "Philippines",
     companyEmail: "support@grandlink.com",
-    customerName: item.customer_name || item.meta?.customer_name || item.meta?.full_name || "",
+    customerName: item.meta?.billing_name || item.customer_name || item.meta?.customer_name || item.meta?.full_name || "",
     customerEmail: userEmail || "",
-    customerPhone: item.customer_phone || item.meta?.customer_phone || "",
+    customerPhone: item.meta?.billing_phone || item.customer_phone || item.meta?.customer_phone || "",
     billingAddress: item.delivery_address || item.meta?.billing_address || "",
     deliveryMethod,
     deliveryAddress: deliveryAddressText || item.delivery_address || item.meta?.delivery_address || "",

@@ -70,6 +70,11 @@ function ReservationPageContent() {
     "payrex"
   );
   const [payrexPhone, setPayrexPhone] = useState("");
+  const [billingInfo, setBillingInfo] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+  });
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -266,6 +271,16 @@ function ReservationPageContent() {
       alert("Insufficient inventory for this quantity");
       return;
     }
+    if (!billingInfo.phone.trim()) {
+      alert("Please enter your billing phone number");
+      return;
+    }
+    const billingEmail = billingInfo.email.trim();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!billingEmail || !emailPattern.test(billingEmail)) {
+      alert("Please enter a valid billing email address");
+      return;
+    }
     setSubmitting(true);
     try {
       const selectedAddress = fulfillmentMethod === "delivery" ? addresses.find((a) => a.id === selectedAddressId) : null;
@@ -339,6 +354,12 @@ function ReservationPageContent() {
           reservation_fee: reservationFee,
           balance_due: balanceDue,
           voucher_code: voucherInfo?.code || null,
+          billing_name: billingInfo.fullName.trim() || null,
+          billing_email: billingEmail,
+          billing_phone: billingInfo.phone.trim(),
+          customer_name: billingInfo.fullName.trim() || null,
+          customer_email: billingEmail,
+          customer_phone: billingInfo.phone.trim(),
           created_by: "user",
           reservation_created_at: new Date().toISOString(),
         },
@@ -363,6 +384,9 @@ function ReservationPageContent() {
         success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
+        billing_name: billingInfo.fullName.trim() || null,
+        billing_email: billingEmail,
+        billing_phone: billingInfo.phone.trim(),
       };
 
       const response = await fetch("/api/create-payment-session", {
@@ -689,6 +713,42 @@ function ReservationPageContent() {
                       )
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="text-sm text-gray-600">Billing Information</label>
+                  <div className="grid grid-cols-1 gap-2 mt-1">
+                    <input
+                      className="w-full border rounded px-3 py-2"
+                      placeholder="Full name (optional)"
+                      value={billingInfo.fullName}
+                      onChange={(e) =>
+                        setBillingInfo({ ...billingInfo, fullName: e.target.value })
+                      }
+                    />
+                    <input
+                      className="w-full border rounded px-3 py-2"
+                      type="email"
+                      required
+                      placeholder="Billing email *"
+                      value={billingInfo.email}
+                      onChange={(e) =>
+                        setBillingInfo({ ...billingInfo, email: e.target.value })
+                      }
+                    />
+                    <input
+                      className="w-full border rounded px-3 py-2"
+                      required
+                      placeholder="Billing phone number *"
+                      value={billingInfo.phone}
+                      onChange={(e) =>
+                        setBillingInfo({ ...billingInfo, phone: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Invoice will be sent to the billing email you enter.
+                  </div>
                 </div>
 
                 <div>

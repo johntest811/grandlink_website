@@ -186,6 +186,17 @@ function CartSuccessPageContent() {
   };
 
   const totals = calculateTotals();
+  const primaryMeta = orderItems[0]?.meta || {};
+  const billingEmail =
+    primaryMeta?.billing_email ||
+    primaryMeta?.customer_email ||
+    orderItems[0]?.meta?.delivery_address?.email ||
+    null;
+  const billingPhone =
+    primaryMeta?.billing_phone ||
+    primaryMeta?.customer_phone ||
+    orderItems[0]?.meta?.delivery_address?.phone ||
+    null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -207,6 +218,14 @@ function CartSuccessPageContent() {
                 <FaShoppingCart className="text-[#8B1C1C]" />
                 Order Receipt
               </h2>
+
+              {(billingEmail || billingPhone) && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-sm text-blue-900">
+                  <div className="font-semibold">Invoice Destination</div>
+                  {billingEmail && <div>Email: {billingEmail}</div>}
+                  {billingPhone && <div>Phone: {billingPhone}</div>}
+                </div>
+              )}
               
               <div className="bg-gray-50 rounded-lg p-4 mb-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">

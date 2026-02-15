@@ -89,6 +89,16 @@ function ReservationSuccessPageContent() {
                 const dims = reservation?.meta?.custom_dimensions;
                 const branch = reservation?.meta?.selected_branch || '-';
                 const voucherCode = reservation?.meta?.voucher_code || null;
+                const billingEmail =
+                  reservation?.meta?.billing_email ||
+                  reservation?.meta?.customer_email ||
+                  reservation?.customer_email ||
+                  null;
+                const billingPhone =
+                  reservation?.meta?.billing_phone ||
+                  reservation?.meta?.customer_phone ||
+                  reservation?.customer_phone ||
+                  null;
 
                 const formatMeters = (v: any) => {
                   const n = Number(v);
@@ -159,6 +169,14 @@ function ReservationSuccessPageContent() {
                       <span className="text-black">₱{Math.max(0, Number(total) - reservationFee).toLocaleString()}</span>
                     </div>
 
+                    {(billingEmail || billingPhone) && (
+                      <div className="rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                        <div className="font-semibold">Invoice Destination</div>
+                        {billingEmail && <div>Email: {billingEmail}</div>}
+                        {billingPhone && <div>Phone: {billingPhone}</div>}
+                      </div>
+                    )}
+
                     {typeof stockBefore !== 'undefined' && (
                       <div className="flex justify-between text-xs text-black pt-2">
                         <span className="font-medium">Stock Before:</span>
@@ -203,7 +221,7 @@ function ReservationSuccessPageContent() {
                   <div className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold mr-3 mt-0.5">2</div>
                   <div>
                     <p className="font-medium text-gray-800">Order Confirmation</p>
-                    <p>Once approved, your reservation will move to the orders section where you can see the full receipt.</p>
+                    <p>Once approved, your reservation will move to the orders section where you can see the full receipt and invoice.</p>
                   </div>
                 </div>
                 

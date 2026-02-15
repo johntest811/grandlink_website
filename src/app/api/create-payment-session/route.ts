@@ -42,6 +42,46 @@ function getPayrexClient() {
   return payrexClient;
 }
 
+function getRequestOrigin(request: NextRequest) {
+  const proto = request.headers.get('x-forwarded-proto');
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  if (host) {
+    return `${proto || 'https'}://${host}`;
+  }
+  return new URL(request.url).origin;
+}
+
+function toAbsoluteUrl(urlLike: unknown, origin: string): string | null {
+  if (typeof urlLike !== 'string' || !urlLike.trim()) return null;
+  try {
+    return new URL(urlLike, origin).toString();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizePayRexMetadata(input: Record<string, unknown>) {
+  const output: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value == null) continue;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length) output[key] = trimmed.slice(0, 240);
+      continue;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      output[key] = value;
+      continue;
+    }
+    if (typeof value === 'boolean') {
+      output[key] = value;
+      continue;
+    }
+    output[key] = String(value).slice(0, 240);
+  }
+  return output;
+}
+
 async function getPayPalAccessToken() {
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
@@ -219,6 +259,8 @@ async function createPayRexCheckoutSession(sessionData: any) {
     })),
   };
 
+  payload.metadata = sanitizePayRexMetadata(payload.metadata || {});
+
   try {
     const checkoutSession = await payrex.checkoutSessions.create(payload);
     return {
@@ -376,10 +418,29 @@ export async function POST(request: NextRequest) {
       delivery_address_id,
       branch,
       receipt_ref,
+      billing_name,
+      billing_email,
+      billing_phone,
     } = await request.json();
 
-    if (!success_url || !cancel_url) {
+    const requestOrigin = getRequestOrigin(request);
+    const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);
+    const resolvedCancelUrl = toAbsoluteUrl(cancel_url, requestOrigin);
+
+    if (!resolvedSuccessUrl || !resolvedCancelUrl) {
       return NextResponse.json({ error: 'Missing required data' }, { status: 400 });
+    }
+
+    const normalizedBillingName = typeof billing_name === 'string' ? billing_name.trim() : '';
+    const normalizedBillingEmail = typeof billing_email === 'string' ? billing_email.trim().toLowerCase() : '';
+    const normalizedBillingPhone = typeof billing_phone === 'string' ? billing_phone.trim() : '';
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!normalizedBillingPhone) {
+      return NextResponse.json({ error: 'Billing phone is required' }, { status: 400 });
+    }
+    if (!normalizedBillingEmail || !emailPattern.test(normalizedBillingEmail)) {
+      return NextResponse.json({ error: 'Valid billing email is required' }, { status: 400 });
     }
 
     let rows: any[] = [];
@@ -730,11 +791,11 @@ export async function POST(request: NextRequest) {
     const primaryAddressId: string | null =
       (delivery_address_id as string | undefined) || (rows?.[0]?.delivery_address_id as string | undefined) || null;
 
-    let customerName: string | null = null;
-    let customerPhone: string | null = null;
-    let customerEmail: string | null = null;
+    let customerName: string | null = normalizedBillingName || null;
+    let customerPhone: string | null = normalizedBillingPhone || null;
+    let customerEmail: string | null = normalizedBillingEmail || null;
 
-    if (primaryAddressId) {
+    if (primaryAddressId && (!customerName || !customerPhone || !customerEmail)) {
       const { data: addr } = await supabase
         .from('addresses')
         .select('full_name, first_name, last_name, phone, email')
@@ -751,13 +812,17 @@ export async function POST(request: NextRequest) {
             .filter(Boolean)
             .join(' ');
 
-        customerName = name || null;
-        customerPhone = typeof (addr as any).phone === 'string' && (addr as any).phone.trim() ? (addr as any).phone.trim() : null;
-        customerEmail = typeof (addr as any).email === 'string' && (addr as any).email.trim() ? (addr as any).email.trim() : null;
+        if (!customerName) customerName = name || null;
+        if (!customerPhone) {
+          customerPhone = typeof (addr as any).phone === 'string' && (addr as any).phone.trim() ? (addr as any).phone.trim() : null;
+        }
+        if (!customerEmail) {
+          customerEmail = typeof (addr as any).email === 'string' && (addr as any).email.trim() ? (addr as any).email.trim() : null;
+        }
       }
     }
 
-    if (primaryUserId) {
+    if (primaryUserId && !customerEmail) {
       try {
         const { data: userWrap } = await supabase.auth.admin.getUserById(primaryUserId);
         const authEmail = userWrap?.user?.email;
@@ -791,6 +856,9 @@ export async function POST(request: NextRequest) {
             ...(customerName ? { customer_name: customerName } : {}),
             ...(customerPhone ? { customer_phone: customerPhone } : {}),
             ...(customerEmail ? { customer_email: customerEmail } : {}),
+            ...(normalizedBillingName ? { billing_name: normalizedBillingName } : {}),
+            ...(normalizedBillingPhone ? { billing_phone: normalizedBillingPhone } : {}),
+            ...(normalizedBillingEmail ? { billing_email: normalizedBillingEmail } : {}),
             product_name: product?.name || 'Product',
             pricing: {
               ...(r.meta?.pricing || {}),
@@ -826,17 +894,6 @@ export async function POST(request: NextRequest) {
         .eq('id', r.id);
     }
 
-    const perItemSummary = itemDetails.map((item, idx) => ({
-      id: item.id,
-      quantity: item.qty,
-      gross_total: Number((lineTotalsCents[idx] / 100).toFixed(2)),
-      discount_value: Number((discountAllocations[idx] / 100).toFixed(2)),
-      net_total: Number((netLineCents[idx] / 100).toFixed(2)),
-      reservation_fee_share: Number(((reservationAllocations[idx] || 0) / 100).toFixed(2)),
-      final_total: Number(((netLineCents[idx] + (reservationAllocations[idx] || 0)) / 100).toFixed(2)),
-      addons_total: Number(item.addonTotal.toFixed(2)),
-    }));
-
     const baseMetadata = {
       user_item_ids: createdUserItemIds.join(','),
       cart_ids: cart_ids ? cart_ids.join(',') : undefined,
@@ -849,11 +906,12 @@ export async function POST(request: NextRequest) {
       reservation_fee: reservationFeeCharged,
       reservation_fee_base: reservationFeeBase,
       total_amount: totalAmount,
-      line_items_json: JSON.stringify(displayLineItems),
-      per_item_summary_json: JSON.stringify(perItemSummary),
       ...(customerName ? { customer_name: customerName } : {}),
       ...(customerPhone ? { customer_phone: customerPhone } : {}),
       ...(customerEmail ? { customer_email: customerEmail } : {}),
+      ...(normalizedBillingName ? { billing_name: normalizedBillingName } : {}),
+      ...(normalizedBillingPhone ? { billing_phone: normalizedBillingPhone } : {}),
+      ...(normalizedBillingEmail ? { billing_email: normalizedBillingEmail } : {}),
       ...(receipt_ref ? { receipt_ref } : {}),
     };
 
@@ -864,8 +922,8 @@ export async function POST(request: NextRequest) {
       const res = await createPayPalOrder({
         amount: totalAmount,
         user_item_ids: createdUserItemIds,
-        success_url,
-        cancel_url,
+        success_url: resolvedSuccessUrl,
+        cancel_url: resolvedCancelUrl,
         items: payPalItems,
       });
       sessionId = res.sessionId;
@@ -886,8 +944,8 @@ export async function POST(request: NextRequest) {
 
       const res = await createPayRexCheckoutSession({
         user_item_ids: createdUserItemIds,
-        success_url,
-        cancel_url,
+        success_url: resolvedSuccessUrl,
+        cancel_url: resolvedCancelUrl,
         payment_type,
         metadata: baseMetadata,
         lineItems: payMongoLineItems,

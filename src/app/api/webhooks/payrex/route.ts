@@ -49,6 +49,88 @@ function detectPayrexChannel(resource: any): string | null {
   return normalizeChannel(raw);
 }
 
+type PayrexBillingDetails = {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+function normalizeText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  return t.length ? t : null;
+}
+
+function normalizeEmail(value: unknown): string | null {
+  const t = normalizeText(value);
+  if (!t) return null;
+  const e = t.toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailPattern.test(e) ? e : null;
+}
+
+function extractBillingDetailsFromResource(resource: any): PayrexBillingDetails {
+  const billing = resource?.billing || resource?.billing_details || resource?.billingDetails || null;
+  const customer = resource?.customer || null;
+
+  // PayRex PaymentEntity exposes `billing` and `customer`.
+  const name =
+    normalizeText(billing?.name) ||
+    normalizeText(billing?.full_name) ||
+    normalizeText(customer?.name) ||
+    null;
+
+  const email =
+    normalizeEmail(billing?.email) ||
+    normalizeEmail(billing?.email_address) ||
+    normalizeEmail(customer?.email) ||
+    normalizeEmail(customer?.email_address) ||
+    null;
+
+  const phone =
+    normalizeText(billing?.phone) ||
+    normalizeText(billing?.phone_number) ||
+    normalizeText(customer?.phone) ||
+    normalizeText(customer?.phone_number) ||
+    null;
+
+  return { name, email, phone };
+}
+
+async function resolvePayrexBillingDetails(payrex: any, resource: any, eventType?: string): Promise<PayrexBillingDetails> {
+  const fromEvent = extractBillingDetailsFromResource(resource);
+  if (fromEvent.email || fromEvent.phone || fromEvent.name) return fromEvent;
+
+  const resourceId = typeof resource?.id === 'string' ? resource.id : null;
+  if (!resourceId) return fromEvent;
+
+  // Best-effort hydration: events can sometimes include a minimal payload.
+  try {
+    // If it's a Payment ID, this will return PaymentEntity with `billing`.
+    const payment = await payrex.payments.retrieve(resourceId);
+    const fromPayment = extractBillingDetailsFromResource(payment);
+    if (fromPayment.email || fromPayment.phone || fromPayment.name) return fromPayment;
+  } catch {
+    // ignore
+  }
+
+  if (eventType && String(eventType).includes('payment_intent')) {
+    try {
+      const pi = await payrex.paymentIntents.retrieve(resourceId);
+      const latestPaymentId = (pi as any)?.latestPayment || (pi as any)?.latest_payment;
+      if (typeof latestPaymentId === 'string' && latestPaymentId.trim()) {
+        const payment = await payrex.payments.retrieve(latestPaymentId.trim());
+        const fromLatestPayment = extractBillingDetailsFromResource(payment);
+        if (fromLatestPayment.email || fromLatestPayment.phone || fromLatestPayment.name) return fromLatestPayment;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return fromEvent;
+}
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -86,6 +168,8 @@ export async function POST(request: NextRequest) {
     const paymentId = resource?.id || event?.id || 'unknown';
     const amountPaid = Number(resource?.amount || 0) / 100;
     const payrexChannel = detectPayrexChannel(resource);
+
+    const payrexBilling = await resolvePayrexBillingDetails(payrex, resource, eventType);
 
     const userItemIdsCsv = metadata?.user_item_ids || '';
     const ids: string[] = String(userItemIdsCsv)
@@ -163,6 +247,9 @@ export async function POST(request: NextRequest) {
 
         meta: {
           ...itemMeta,
+          ...(payrexBilling?.name ? { billing_name: payrexBilling.name, customer_name: payrexBilling.name } : {}),
+          ...(payrexBilling?.email ? { billing_email: payrexBilling.email, customer_email: payrexBilling.email } : {}),
+          ...(payrexBilling?.phone ? { billing_phone: payrexBilling.phone, customer_phone: payrexBilling.phone } : {}),
           payment_confirmed_at: new Date().toISOString(),
           amount_paid: finalTotalPerItem,
           net_line_after_discount: lineAfterDiscount,

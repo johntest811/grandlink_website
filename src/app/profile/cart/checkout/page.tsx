@@ -62,11 +62,6 @@ function CartCheckoutContent() {
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">("payrex");
   const [payrexPhone, setPayrexPhone] = useState("");
-  const [billingInfo, setBillingInfo] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-  });
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -325,16 +320,6 @@ function CartCheckoutContent() {
       alert("No items to checkout");
       return;
     }
-    if (!billingInfo.phone.trim()) {
-      alert("Please enter your billing phone number");
-      return;
-    }
-    const billingEmail = billingInfo.email.trim();
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!billingEmail || !emailPattern.test(billingEmail)) {
-      alert("Please enter a valid billing email address");
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -359,9 +344,6 @@ function CartCheckoutContent() {
           voucher: voucherInfo || undefined,
           // Also pass the ref so the server can store it in metadata and on each user_item
           receipt_ref: receiptRef,
-          billing_name: billingInfo.fullName.trim() || null,
-          billing_email: billingEmail,
-          billing_phone: billingInfo.phone.trim(),
         })
       });
 
@@ -571,30 +553,11 @@ function CartCheckoutContent() {
               <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">
                 Payment Method
               </h2>
-              <div className="mb-4 space-y-2">
+              <div className="mb-4">
                 <div className="text-sm font-semibold text-gray-700">Billing Information</div>
-                <input
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
-                  placeholder="Full name (optional)"
-                  value={billingInfo.fullName}
-                  onChange={(e) => setBillingInfo({ ...billingInfo, fullName: e.target.value })}
-                />
-                <input
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
-                  type="email"
-                  required
-                  placeholder="Billing email *"
-                  value={billingInfo.email}
-                  onChange={(e) => setBillingInfo({ ...billingInfo, email: e.target.value })}
-                />
-                <input
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
-                  required
-                  placeholder="Billing phone number *"
-                  value={billingInfo.phone}
-                  onChange={(e) => setBillingInfo({ ...billingInfo, phone: e.target.value })}
-                />
-                <div className="text-xs text-gray-500">Invoice will be sent to this billing email.</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Billing details (including phone number and email) will be collected inside the PayRex checkout.
+                </div>
               </div>
               <div className="space-y-3">
                 <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">

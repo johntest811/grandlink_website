@@ -62,6 +62,11 @@ function CartCheckoutContent() {
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">("payrex");
   const [payrexPhone, setPayrexPhone] = useState("");
+  const [billingInfo, setBillingInfo] = useState({
+    name: "",
+    email: "",
+    phone: "",
+  });
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -87,6 +92,10 @@ function CartCheckoutContent() {
         }
         const uid = userData.user.id;
         setUserId(uid);
+        setBillingInfo((prev) => ({
+          ...prev,
+          email: userData.user?.email || prev.email,
+        }));
 
         // Parse item IDs from query string
         const itemIds = itemIdsParam ? itemIdsParam.split(",") : [];
@@ -160,6 +169,19 @@ function CartCheckoutContent() {
 
     loadPaymentSettings();
   }, []);
+
+  useEffect(() => {
+    if (fulfillmentMethod !== "delivery") return;
+    if (!selectedAddressId) return;
+    const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
+    if (!selectedAddress) return;
+
+    setBillingInfo((prev) => ({
+      ...prev,
+      name: selectedAddress.full_name?.trim() || prev.name,
+      phone: selectedAddress.phone?.trim() || prev.phone,
+    }));
+  }, [addresses, selectedAddressId, fulfillmentMethod]);
 
   const computeUnitPrice = (item: UserItem) => {
     const product = products[item.product_id];
@@ -321,6 +343,24 @@ function CartCheckoutContent() {
       return;
     }
 
+    const normalizedBillingName = billingInfo.name.trim();
+    const normalizedBillingEmail = billingInfo.email.trim().toLowerCase();
+    const normalizedBillingPhone = billingInfo.phone.trim();
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedBillingEmail);
+
+    if (!normalizedBillingName) {
+      alert("Please enter your full name");
+      return;
+    }
+    if (!normalizedBillingEmail || !isValidEmail) {
+      alert("Please enter a valid email address");
+      return;
+    }
+    if (!normalizedBillingPhone) {
+      alert("Please enter your phone number");
+      return;
+    }
+
     setSubmitting(true);
     try {
       // Generate a unique receipt reference to scope items for the success page
@@ -342,6 +382,9 @@ function CartCheckoutContent() {
           success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}`,
           cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}`,
           voucher: voucherInfo || undefined,
+          billing_name: normalizedBillingName,
+          billing_email: normalizedBillingEmail,
+          billing_phone: normalizedBillingPhone,
           // Also pass the ref so the server can store it in metadata and on each user_item
           receipt_ref: receiptRef,
         })
@@ -554,9 +597,35 @@ function CartCheckoutContent() {
                 Payment Method
               </h2>
               <div className="mb-4">
-                <div className="text-sm font-semibold text-gray-700">Billing Information</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Billing details (including phone number and email) will be collected inside the PayRex checkout.
+                <div className="text-sm font-semibold text-gray-700">Contact Information</div>
+                <div className="grid grid-cols-1 gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={billingInfo.name}
+                    onChange={(e) =>
+                      setBillingInfo((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                    placeholder="Full Name"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                  />
+                  <input
+                    type="email"
+                    value={billingInfo.email}
+                    onChange={(e) =>
+                      setBillingInfo((prev) => ({ ...prev, email: e.target.value }))
+                    }
+                    placeholder="Email"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                  />
+                  <input
+                    type="text"
+                    value={billingInfo.phone}
+                    onChange={(e) =>
+                      setBillingInfo((prev) => ({ ...prev, phone: e.target.value }))
+                    }
+                    placeholder="Phone Number"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                  />
                 </div>
               </div>
               <div className="space-y-3">

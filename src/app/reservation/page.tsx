@@ -70,6 +70,11 @@ function ReservationPageContent() {
     "payrex"
   );
   const [payrexPhone, setPayrexPhone] = useState("");
+  const [billingInfo, setBillingInfo] = useState({
+    name: "",
+    email: "",
+    phone: "",
+  });
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -100,6 +105,10 @@ function ReservationPageContent() {
         }
         const uid = userData.user.id;
         setUserId(uid);
+        setBillingInfo((prev) => ({
+          ...prev,
+          email: userData.user?.email || prev.email,
+        }));
 
         if (productId) {
           const { data: productData, error: productError } = await supabase
@@ -266,6 +275,25 @@ function ReservationPageContent() {
       alert("Insufficient inventory for this quantity");
       return;
     }
+
+    const normalizedBillingName = billingInfo.name.trim();
+    const normalizedBillingEmail = billingInfo.email.trim().toLowerCase();
+    const normalizedBillingPhone = billingInfo.phone.trim();
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedBillingEmail);
+
+    if (!normalizedBillingName) {
+      alert("Please enter your full name");
+      return;
+    }
+    if (!normalizedBillingEmail || !isValidEmail) {
+      alert("Please enter a valid email address");
+      return;
+    }
+    if (!normalizedBillingPhone) {
+      alert("Please enter your phone number");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const selectedAddress = fulfillmentMethod === "delivery" ? addresses.find((a) => a.id === selectedAddressId) : null;
@@ -305,6 +333,12 @@ function ReservationPageContent() {
           product_description: product.description,
           additional_features: product.additionalfeatures,
           payment_method: paymentMethod,
+          billing_name: normalizedBillingName,
+          billing_email: normalizedBillingEmail,
+          billing_phone: normalizedBillingPhone,
+          customer_name: normalizedBillingName,
+          customer_email: normalizedBillingEmail,
+          customer_phone: normalizedBillingPhone,
           delivery_method: fulfillmentMethod,
           selected_branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
           custom_dimensions: {
@@ -360,6 +394,9 @@ function ReservationPageContent() {
         delivery_method: fulfillmentMethod,
         delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
         branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
+        billing_name: normalizedBillingName,
+        billing_email: normalizedBillingEmail,
+        billing_phone: normalizedBillingPhone,
         success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
@@ -692,6 +729,39 @@ function ReservationPageContent() {
                 </div>
 
                 <div>
+                  <label className="text-sm text-gray-600">Contact Information *</label>
+                  <div className="grid grid-cols-1 gap-2 mt-1">
+                    <input
+                      type="text"
+                      placeholder="Full Name"
+                      className="border rounded px-3 py-2"
+                      value={billingInfo.name}
+                      onChange={(e) =>
+                        setBillingInfo((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      className="border rounded px-3 py-2"
+                      value={billingInfo.email}
+                      onChange={(e) =>
+                        setBillingInfo((prev) => ({ ...prev, email: e.target.value }))
+                      }
+                    />
+                    <input
+                      type="text"
+                      placeholder="Phone Number"
+                      className="border rounded px-3 py-2"
+                      value={billingInfo.phone}
+                      onChange={(e) =>
+                        setBillingInfo((prev) => ({ ...prev, phone: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div>
                   <label className="text-sm text-gray-600">Payment Method</label>
                   <div className="flex gap-4 mt-1">
                     <label className="inline-flex items-center gap-2">
@@ -703,9 +773,6 @@ function ReservationPageContent() {
                       />
                       <span className="text-sm">PayRex - GCash, Maya, Card</span>
                     </label>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Billing details (including phone number and email) will be collected inside the PayRex checkout.
                   </div>
                   {payrexPhone && (
                     <div className="text-xs text-[#8B1C1C] mt-1">Admin PayRex Phone: {payrexPhone}</div>

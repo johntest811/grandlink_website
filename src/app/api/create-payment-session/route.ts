@@ -182,6 +182,8 @@ async function createPayRexCheckoutSession(sessionData: any) {
     metadata = {},
     payment_type = 'order',
     lineItems = [],
+    customer,
+    billing,
   } = sessionData;
 
   const payrex = getPayrexClient();
@@ -250,8 +252,9 @@ async function createPayRexCheckoutSession(sessionData: any) {
     // Business requirement: collect only contact details (name/email/phone)
     // inside PayRex checkout (not on website forms).
     billing_details_collection: 'required',
-    // Try to suppress full address collection inside hosted checkout.
-    // If not supported by the merchant API version, we gracefully retry below.
+    // Attempt field-level billing control if supported.
+    // Note: If PayRex ignores this, the hosted UI may still show address fields.
+    // We also prefill from the website address via `billing` below.
     billing_details_fields: {
       name: 'required',
       email: 'required',
@@ -266,6 +269,15 @@ async function createPayRexCheckoutSession(sessionData: any) {
       ...(li.image ? { image: li.image } : {}),
     })),
   };
+
+  // Best-effort prefill for hosted checkout.
+  // We keep the website address as the source of truth and only *prefill* PayRex.
+  if (customer && typeof customer === 'object') {
+    payload.customer = customer;
+  }
+  if (billing && typeof billing === 'object') {
+    payload.billing = billing;
+  }
 
   payload.metadata = sanitizePayRexMetadata(payload.metadata || {});
 
@@ -288,6 +300,19 @@ async function createPayRexCheckoutSession(sessionData: any) {
       const billingFieldsRejected = errors.some((e) =>
         typeof e?.parameter === 'string' && e.parameter.includes('billing_details_fields')
       );
+      const billingPrefillRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('billing'));
+      const customerPrefillRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('customer'));
+
+      if (billingPrefillRejected || customerPrefillRejected) {
+        const retryPayload = { ...payload };
+        delete (retryPayload as any).billing;
+        delete (retryPayload as any).customer;
+        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
+        return {
+          sessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        };
+      }
       if (billingFieldsRejected) {
         const retryPayload = { ...payload };
         delete (retryPayload as any).billing_details_fields;
@@ -301,6 +326,8 @@ async function createPayRexCheckoutSession(sessionData: any) {
         const retryPayload = { ...payload };
         delete (retryPayload as any).billing_details_collection;
         delete (retryPayload as any).billing_details_fields;
+        delete (retryPayload as any).billing;
+        delete (retryPayload as any).customer;
         const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
         return {
           sessionId: checkoutSession.id,
@@ -801,11 +828,12 @@ export async function POST(request: NextRequest) {
     let customerName: string | null = null;
     let customerPhone: string | null = null;
     let customerEmail: string | null = null;
+    let customerAddressLine1: string | null = null;
 
     if (primaryAddressId && (!customerName || !customerPhone || !customerEmail)) {
       const { data: addr } = await supabase
         .from('addresses')
-        .select('full_name, first_name, last_name, phone, email')
+        .select('full_name, first_name, last_name, phone, email, address')
         .eq('id', primaryAddressId)
         .maybeSingle();
 
@@ -826,6 +854,11 @@ export async function POST(request: NextRequest) {
         if (!customerEmail) {
           customerEmail = typeof (addr as any).email === 'string' && (addr as any).email.trim() ? (addr as any).email.trim() : null;
         }
+
+        // Capture a simple, provider-agnostic address string for prefill.
+        // PayRex may still show address fields, but this prevents retyping.
+        customerAddressLine1 =
+          typeof (addr as any).address === 'string' && (addr as any).address.trim() ? (addr as any).address.trim() : null;
       }
     }
 
@@ -950,6 +983,20 @@ export async function POST(request: NextRequest) {
         payment_type,
         metadata: baseMetadata,
         lineItems: payMongoLineItems,
+        customer: {
+          ...(customerName ? { name: customerName } : {}),
+          ...(customerEmail ? { email: customerEmail } : {}),
+          ...(customerPhone ? { phone: customerPhone } : {}),
+        },
+        billing: {
+          ...(customerName ? { name: customerName } : {}),
+          ...(customerEmail ? { email: customerEmail } : {}),
+          ...(customerPhone ? { phone: customerPhone } : {}),
+          address: {
+            ...(typeof customerAddressLine1 === 'string' && customerAddressLine1 ? { line1: customerAddressLine1 } : {}),
+            country: 'PH',
+          },
+        },
       });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;

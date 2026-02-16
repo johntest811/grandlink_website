@@ -182,8 +182,8 @@ async function createPayRexCheckoutSession(sessionData: any) {
     metadata = {},
     payment_type = 'order',
     lineItems = [],
-    customer,
     billing,
+    customer,
   } = sessionData;
 
   const payrex = getPayrexClient();
@@ -243,24 +243,25 @@ async function createPayRexCheckoutSession(sessionData: any) {
     },
   };
 
+  // Best-effort: if the website already has an address on file, pass it to PayRex
+  // so the user does not need to re-enter address fields in the hosted checkout.
+  // We intentionally do NOT rely on website-provided email/phone for invoicing.
+  if (billing && typeof billing === 'object') {
+    basePayload.billing = billing;
+  }
+  if (customer && typeof customer === 'object') {
+    basePayload.customer = customer;
+  }
+
   if (rawLineItems.length === 0) {
     throw new Error('No valid line items to send to PayRex');
   }
 
   const payload: any = {
     ...basePayload,
-    // Business requirement: collect only contact details (name/email/phone)
-    // inside PayRex checkout (not on website forms).
+    // Business requirement: collect billing details inside PayRex.
+    // This is where the user must enter their billing phone/email for invoicing.
     billing_details_collection: 'required',
-    // Attempt field-level billing control if supported.
-    // Note: If PayRex ignores this, the hosted UI may still show address fields.
-    // We also prefill from the website address via `billing` below.
-    billing_details_fields: {
-      name: 'required',
-      email: 'required',
-      phone: 'required',
-      address: 'never',
-    },
     // PayRex requires line_items[*][amount] (integer in centavos).
     line_items: rawLineItems.map((li: any) => ({
       name: li.name,
@@ -269,15 +270,6 @@ async function createPayRexCheckoutSession(sessionData: any) {
       ...(li.image ? { image: li.image } : {}),
     })),
   };
-
-  // Best-effort prefill for hosted checkout.
-  // We keep the website address as the source of truth and only *prefill* PayRex.
-  if (customer && typeof customer === 'object') {
-    payload.customer = customer;
-  }
-  if (billing && typeof billing === 'object') {
-    payload.billing = billing;
-  }
 
   payload.metadata = sanitizePayRexMetadata(payload.metadata || {});
 
@@ -291,43 +283,21 @@ async function createPayRexCheckoutSession(sessionData: any) {
     if (err?.name === 'RequestInvalidError') {
       console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
 
-      // If PayRex doesn't accept field-level billing controls on this API version,
-      // retry with only billing_details_collection.
+      // If PayRex doesn't accept billing_details_collection (older API versions), retry without it.
+      // Also: if PayRex rejects optional prefill fields, retry without them to avoid checkout failures.
       const errors: any[] = Array.isArray(err?.errors) ? err.errors : [];
       const billingCollectionRejected = errors.some((e) =>
         typeof e?.parameter === 'string' && e.parameter.includes('billing_details_collection')
       );
-      const billingFieldsRejected = errors.some((e) =>
-        typeof e?.parameter === 'string' && e.parameter.includes('billing_details_fields')
-      );
-      const billingPrefillRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('billing'));
-      const customerPrefillRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('customer'));
 
-      if (billingPrefillRejected || customerPrefillRejected) {
-        const retryPayload = { ...payload };
-        delete (retryPayload as any).billing;
-        delete (retryPayload as any).customer;
-        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
-        return {
-          sessionId: checkoutSession.id,
-          checkoutUrl: checkoutSession.url,
-        };
-      }
-      if (billingFieldsRejected) {
-        const retryPayload = { ...payload };
-        delete (retryPayload as any).billing_details_fields;
-        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
-        return {
-          sessionId: checkoutSession.id,
-          checkoutUrl: checkoutSession.url,
-        };
-      }
-      if (billingCollectionRejected) {
-        const retryPayload = { ...payload };
-        delete (retryPayload as any).billing_details_collection;
-        delete (retryPayload as any).billing_details_fields;
-        delete (retryPayload as any).billing;
-        delete (retryPayload as any).customer;
+      const billingRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('billing'));
+      const customerRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('customer'));
+
+      if (billingCollectionRejected || billingRejected || customerRejected) {
+        const retryPayload = { ...payload } as any;
+        if (billingCollectionRejected) delete retryPayload.billing_details_collection;
+        if (billingRejected) delete retryPayload.billing;
+        if (customerRejected) delete retryPayload.customer;
         const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
         return {
           sessionId: checkoutSession.id,
@@ -854,11 +824,9 @@ export async function POST(request: NextRequest) {
         if (!customerEmail) {
           customerEmail = typeof (addr as any).email === 'string' && (addr as any).email.trim() ? (addr as any).email.trim() : null;
         }
-
-        // Capture a simple, provider-agnostic address string for prefill.
-        // PayRex may still show address fields, but this prevents retyping.
-        customerAddressLine1 =
-          typeof (addr as any).address === 'string' && (addr as any).address.trim() ? (addr as any).address.trim() : null;
+        if (!customerAddressLine1) {
+          customerAddressLine1 = typeof (addr as any).address === 'string' && (addr as any).address.trim() ? (addr as any).address.trim() : null;
+        }
       }
     }
 
@@ -983,20 +951,18 @@ export async function POST(request: NextRequest) {
         payment_type,
         metadata: baseMetadata,
         lineItems: payMongoLineItems,
-        customer: {
-          ...(customerName ? { name: customerName } : {}),
-          ...(customerEmail ? { email: customerEmail } : {}),
-          ...(customerPhone ? { phone: customerPhone } : {}),
-        },
-        billing: {
-          ...(customerName ? { name: customerName } : {}),
-          ...(customerEmail ? { email: customerEmail } : {}),
-          ...(customerPhone ? { phone: customerPhone } : {}),
-          address: {
-            ...(typeof customerAddressLine1 === 'string' && customerAddressLine1 ? { line1: customerAddressLine1 } : {}),
-            country: 'PH',
-          },
-        },
+        // Best-effort: use the website-selected address so PayRex doesn't ask for address fields.
+        // PayRex will still collect name/email/phone inside the hosted checkout.
+        ...(customerAddressLine1
+          ? {
+              billing: {
+                address: {
+                  line1: customerAddressLine1,
+                  country: 'PH',
+                },
+              },
+            }
+          : {}),
       });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;

@@ -441,7 +441,7 @@ function CartCheckoutContent() {
                   <option value="">Select Address</option>
                   {addresses.map((addr) => (
                     <option key={addr.id} value={addr.id}>
-                      {addr.full_name} - {addr.address} {addr.phone && `(${addr.phone})`}
+                      {addr.full_name} - {addr.address}
                       {addr.is_default && " (Default)"}
                     </option>
                   ))}
@@ -556,7 +556,7 @@ function CartCheckoutContent() {
               <div className="mb-4">
                 <div className="text-sm font-semibold text-gray-700">Billing Information</div>
                 <div className="text-xs text-gray-500 mt-1">
-                  Billing details (Name, Email, and Phone Number only) will be collected inside the PayRex checkout.
+                  Billing details (including phone number and email) will be collected inside the PayRex checkout.
                 </div>
               </div>
               <div className="space-y-3">

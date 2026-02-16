@@ -262,6 +262,9 @@ async function createPayRexCheckoutSession(sessionData: any) {
     // Business requirement: collect billing details inside PayRex.
     // This is where the user must enter their billing phone/email for invoicing.
     billing_details_collection: 'required',
+    // Best-effort: avoid prompting for full billing address in hosted checkout.
+    // If PayRex doesn't support this flag, we safely retry without it.
+    billing_address_collection: 'auto',
     // PayRex requires line_items[*][amount] (integer in centavos).
     line_items: rawLineItems.map((li: any) => ({
       name: li.name,
@@ -290,12 +293,17 @@ async function createPayRexCheckoutSession(sessionData: any) {
         typeof e?.parameter === 'string' && e.parameter.includes('billing_details_collection')
       );
 
+      const billingAddressCollectionRejected = errors.some((e) =>
+        typeof e?.parameter === 'string' && e.parameter.includes('billing_address_collection')
+      );
+
       const billingRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('billing'));
       const customerRejected = errors.some((e) => typeof e?.parameter === 'string' && e.parameter.startsWith('customer'));
 
-      if (billingCollectionRejected || billingRejected || customerRejected) {
+      if (billingCollectionRejected || billingAddressCollectionRejected || billingRejected || customerRejected) {
         const retryPayload = { ...payload } as any;
         if (billingCollectionRejected) delete retryPayload.billing_details_collection;
+        if (billingAddressCollectionRejected) delete retryPayload.billing_address_collection;
         if (billingRejected) delete retryPayload.billing;
         if (customerRejected) delete retryPayload.customer;
         const checkoutSession = await payrex.checkoutSessions.create(retryPayload);

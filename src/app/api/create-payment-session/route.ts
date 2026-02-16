@@ -247,10 +247,17 @@ async function createPayRexCheckoutSession(sessionData: any) {
 
   const payload: any = {
     ...basePayload,
-    // Business requirement: collect contact details inside PayRex,
-    // while avoiding full billing-address prompts in checkout.
-    // `auto` keeps name/email/phone collection flow without forcing address fields.
-    billing_details_collection: 'auto',
+    // Business requirement: collect only contact details (name/email/phone)
+    // inside PayRex checkout (not on website forms).
+    billing_details_collection: 'required',
+    // Try to suppress full address collection inside hosted checkout.
+    // If not supported by the merchant API version, we gracefully retry below.
+    billing_details_fields: {
+      name: 'required',
+      email: 'required',
+      phone: 'required',
+      address: 'never',
+    },
     // PayRex requires line_items[*][amount] (integer in centavos).
     line_items: rawLineItems.map((li: any) => ({
       name: li.name,
@@ -272,14 +279,28 @@ async function createPayRexCheckoutSession(sessionData: any) {
     if (err?.name === 'RequestInvalidError') {
       console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
 
-      // If PayRex doesn't accept billing_details_collection (older API versions), retry without it.
+      // If PayRex doesn't accept field-level billing controls on this API version,
+      // retry with only billing_details_collection.
       const errors: any[] = Array.isArray(err?.errors) ? err.errors : [];
       const billingCollectionRejected = errors.some((e) =>
         typeof e?.parameter === 'string' && e.parameter.includes('billing_details_collection')
       );
+      const billingFieldsRejected = errors.some((e) =>
+        typeof e?.parameter === 'string' && e.parameter.includes('billing_details_fields')
+      );
+      if (billingFieldsRejected) {
+        const retryPayload = { ...payload };
+        delete (retryPayload as any).billing_details_fields;
+        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
+        return {
+          sessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        };
+      }
       if (billingCollectionRejected) {
         const retryPayload = { ...payload };
         delete (retryPayload as any).billing_details_collection;
+        delete (retryPayload as any).billing_details_fields;
         const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
         return {
           sessionId: checkoutSession.id,

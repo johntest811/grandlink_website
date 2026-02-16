@@ -556,8 +556,7 @@ function CartCheckoutContent() {
               <div className="mb-4">
                 <div className="text-sm font-semibold text-gray-700">Billing Information</div>
                 <div className="text-xs text-gray-500 mt-1">
-                  Contact details (Name, Email, Phone) will be collected inside PayRex checkout.
-                  Your delivery/pickup address stays from the address or branch selected on this page.
+                  Billing details (Name, Email, and Phone Number only) will be collected inside the PayRex checkout.
                 </div>
               </div>
               <div className="space-y-3">

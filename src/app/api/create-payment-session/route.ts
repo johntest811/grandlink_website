@@ -82,18 +82,6 @@ function sanitizePayRexMetadata(input: Record<string, unknown>) {
   return output;
 }
 
-function normalizeText(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-
-function normalizeEmail(value: unknown): string | null {
-  const normalized = normalizeText(value);
-  if (!normalized) return null;
-  return normalized.toLowerCase();
-}
-
 async function getPayPalAccessToken() {
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
@@ -259,6 +247,10 @@ async function createPayRexCheckoutSession(sessionData: any) {
 
   const payload: any = {
     ...basePayload,
+    // Business requirement: collect contact details inside PayRex,
+    // while avoiding full billing-address prompts in checkout.
+    // `auto` keeps name/email/phone collection flow without forcing address fields.
+    billing_details_collection: 'auto',
     // PayRex requires line_items[*][amount] (integer in centavos).
     line_items: rawLineItems.map((li: any) => ({
       name: li.name,
@@ -279,6 +271,21 @@ async function createPayRexCheckoutSession(sessionData: any) {
   } catch (err: any) {
     if (err?.name === 'RequestInvalidError') {
       console.error('❌ PayRex RequestInvalidError:', JSON.stringify(err?.errors || [], null, 2));
+
+      // If PayRex doesn't accept billing_details_collection (older API versions), retry without it.
+      const errors: any[] = Array.isArray(err?.errors) ? err.errors : [];
+      const billingCollectionRejected = errors.some((e) =>
+        typeof e?.parameter === 'string' && e.parameter.includes('billing_details_collection')
+      );
+      if (billingCollectionRejected) {
+        const retryPayload = { ...payload };
+        delete (retryPayload as any).billing_details_collection;
+        const checkoutSession = await payrex.checkoutSessions.create(retryPayload);
+        return {
+          sessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        };
+      }
     }
     throw err;
   }
@@ -412,9 +419,6 @@ export async function POST(request: NextRequest) {
       delivery_address_id,
       branch,
       receipt_ref,
-      billing_name,
-      billing_email,
-      billing_phone,
     } = await request.json();
 
     const requestOrigin = getRequestOrigin(request);
@@ -423,18 +427,6 @@ export async function POST(request: NextRequest) {
 
     if (!resolvedSuccessUrl || !resolvedCancelUrl) {
       return NextResponse.json({ error: 'Missing required data' }, { status: 400 });
-    }
-
-    const normalizedBillingName = normalizeText(billing_name);
-    const normalizedBillingEmail = normalizeEmail(billing_email);
-    const normalizedBillingPhone = normalizeText(billing_phone);
-    const isValidEmail = !!normalizedBillingEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedBillingEmail);
-
-    if (!normalizedBillingName || !normalizedBillingPhone || !isValidEmail) {
-      return NextResponse.json(
-        { error: 'Name, valid email, and phone number are required' },
-        { status: 400 }
-      );
     }
 
     let rows: any[] = [];
@@ -468,12 +460,6 @@ export async function POST(request: NextRequest) {
         quantity: cartItem.quantity,
         meta: {
           ...(cartItem.meta || {}),
-          billing_name: normalizedBillingName,
-          billing_email: normalizedBillingEmail,
-          billing_phone: normalizedBillingPhone,
-          customer_name: normalizedBillingName,
-          customer_email: normalizedBillingEmail,
-          customer_phone: normalizedBillingPhone,
           ...(delivery_method ? { delivery_method } : {}),
           branch,
           from_cart: true,
@@ -791,9 +777,9 @@ export async function POST(request: NextRequest) {
     const primaryAddressId: string | null =
       (delivery_address_id as string | undefined) || (rows?.[0]?.delivery_address_id as string | undefined) || null;
 
-    let customerName: string | null = normalizedBillingName;
-    let customerPhone: string | null = normalizedBillingPhone;
-    let customerEmail: string | null = normalizedBillingEmail;
+    let customerName: string | null = null;
+    let customerPhone: string | null = null;
+    let customerEmail: string | null = null;
 
     if (primaryAddressId && (!customerName || !customerPhone || !customerEmail)) {
       const { data: addr } = await supabase
@@ -856,9 +842,6 @@ export async function POST(request: NextRequest) {
             ...(customerName ? { customer_name: customerName } : {}),
             ...(customerPhone ? { customer_phone: customerPhone } : {}),
             ...(customerEmail ? { customer_email: customerEmail } : {}),
-            ...(normalizedBillingName ? { billing_name: normalizedBillingName } : {}),
-            ...(normalizedBillingPhone ? { billing_phone: normalizedBillingPhone } : {}),
-            ...(normalizedBillingEmail ? { billing_email: normalizedBillingEmail } : {}),
             product_name: product?.name || 'Product',
             pricing: {
               ...(r.meta?.pricing || {}),
@@ -909,9 +892,6 @@ export async function POST(request: NextRequest) {
       ...(customerName ? { customer_name: customerName } : {}),
       ...(customerPhone ? { customer_phone: customerPhone } : {}),
       ...(customerEmail ? { customer_email: customerEmail } : {}),
-      ...(normalizedBillingName ? { billing_name: normalizedBillingName } : {}),
-      ...(normalizedBillingPhone ? { billing_phone: normalizedBillingPhone } : {}),
-      ...(normalizedBillingEmail ? { billing_email: normalizedBillingEmail } : {}),
       ...(receipt_ref ? { receipt_ref } : {}),
     };
 

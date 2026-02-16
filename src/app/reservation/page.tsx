@@ -701,7 +701,7 @@ function ReservationPageContent() {
                         checked={paymentMethod === "payrex"}
                         onChange={() => setPaymentMethod("payrex")}
                       />
-                      <span className="text-sm">PayRex - GCash, Maya, Card</span>
+                      <span className="text-sm">PayRex - GCash, Maya</span>
                     </label>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
@@ -719,7 +719,7 @@ function ReservationPageContent() {
                         checked={paymentMethod === "paypal"}
                         onChange={() => setPaymentMethod("paypal")}
                       />
-                      <span className="text-sm">PayRex - GCash, Maya</span>
+                      <span className="text-sm">PayPal</span>
                     </label>
                   </div>
                 </div>

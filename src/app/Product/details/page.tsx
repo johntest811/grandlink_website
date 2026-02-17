@@ -410,9 +410,10 @@ function ProductDetailsPageContent() {
           <div className="mt-12 border-t pt-8">
             <div className="mb-6">
               <label className="block text-lg font-semibold text-gray-700 mb-2">Product Description</label>
-              <p className="text-gray-800 text-sm md:text-base leading-relaxed">
-                {product.description}
-              </p>
+              <div
+                className="blog-content text-gray-800 text-sm md:text-base leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: product.description || "" }}
+              />
             </div>
 
             <h4 className="text-red-700 font-bold mb-4 text-xl">Key Features</h4>
@@ -443,11 +444,14 @@ function ProductDetailsPageContent() {
 
             <div className="mt-2">
               <h5 className="text-lg font-semibold text-red-700 mb-2">Additional Features</h5>
-              <div className="text-lg text-gray-700 whitespace-pre-line">
-                {product.additionalfeatures
-                  ?? (product.features?.length ? product.features.join("\n") : "")
-                }
-              </div>
+              <div
+                className="blog-content text-lg text-gray-700"
+                dangerouslySetInnerHTML={{
+                  __html:
+                    product.additionalfeatures ||
+                    (product.features?.length ? product.features.join("<br/>") : ""),
+                }}
+              />
             </div>
           </div>
         </div>

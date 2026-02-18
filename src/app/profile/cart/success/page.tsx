@@ -248,7 +248,18 @@ function CartSuccessPageContent() {
                     <div className="font-semibold text-gray-900 capitalize">
                       {orderItems.length > 0 && orderItems[0].payment_method 
                         ? orderItems[0].payment_method === 'paymongo' 
-                          ? `PayMongo${orderItems[0].meta?.paymongo_channel ? ` (${String(orderItems[0].meta.paymongo_channel).toUpperCase()})` : ' (GCash/Maya/Card)'}` 
+                          ? (() => {
+                              const rawChannel = orderItems[0].meta?.paymongo_channel;
+                              const channel = rawChannel != null ? String(rawChannel) : '';
+                              const normalized = channel.trim().toLowerCase();
+
+                              // Hide card-related channels; checkout no longer offers card.
+                              if (normalized && ['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(normalized)) {
+                                return 'PayMongo';
+                              }
+
+                              return `PayMongo${normalized ? ` (${channel.toUpperCase()})` : ' (GCash/Maya)'}`;
+                            })()
                           : 'PayPal'
                         : '-'}
                     </div>

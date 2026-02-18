@@ -701,11 +701,11 @@ function ReservationPageContent() {
                         checked={paymentMethod === "payrex"}
                         onChange={() => setPaymentMethod("payrex")}
                       />
-                      <span className="text-sm">PayRex - GCash, Maya, Card</span>
+                      <span className="text-sm">PayRex - GCash, Maya</span>
                     </label>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    Billing details (including phone number and email) will be collected inside the PayRex checkout.
+                    Contact details (phone/email) will be collected inside the PayRex checkout.
                   </div>
                   {payrexPhone && (
                     <div className="text-xs text-[#8B1C1C] mt-1">Admin PayRex Phone: {payrexPhone}</div>

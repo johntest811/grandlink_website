@@ -262,8 +262,8 @@ async function createPayRexCheckoutSession(sessionData: any) {
     // Business requirement: collect billing details inside PayRex.
     // This is where the user must enter their billing phone/email for invoicing.
     billing_details_collection: 'required',
-    // Do not collect billing address inside PayRex.
-    // We rely on the user's saved default address (delivery_address_id) instead.
+    // Avoid collecting billing address in hosted checkout.
+    // Delivery address is already chosen in the website UI (default address) and stored in Supabase.
     // If PayRex doesn't support this flag, we safely retry without it.
     billing_address_collection: 'never',
     // PayRex requires line_items[*][amount] (integer in centavos).
@@ -801,21 +801,8 @@ export async function POST(request: NextRequest) {
     // Best-effort: attach customer contact details (from selected Delivery Address + auth user)
     // so invoice + provider checkout can prefill these fields.
     const primaryUserId: string | null = (user_id as string | undefined) || (rows?.[0]?.user_id as string | undefined) || null;
-    let primaryAddressId: string | null =
+    const primaryAddressId: string | null =
       (delivery_address_id as string | undefined) || (rows?.[0]?.delivery_address_id as string | undefined) || null;
-
-    // If delivery is selected but client didn't send a delivery address id, fall back to user's default address.
-    if (!primaryAddressId && primaryUserId && String(delivery_method || '').toLowerCase() === 'delivery') {
-      const { data: defAddr } = await supabase
-        .from('addresses')
-        .select('id')
-        .eq('user_id', primaryUserId)
-        .order('is_default', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (defAddr?.id) primaryAddressId = String(defAddr.id);
-    }
 
     let customerName: string | null = null;
     let customerPhone: string | null = null;
@@ -973,27 +960,6 @@ export async function POST(request: NextRequest) {
         payment_type,
         metadata: baseMetadata,
         lineItems: payMongoLineItems,
-        // Best-effort: prefill customer + billing info from saved default address.
-        // Combined with billing_address_collection='never', this should remove address inputs on PayRex hosted checkout.
-        ...(customerAddressLine1
-          ? {
-              billing: {
-                address: {
-                  line1: customerAddressLine1,
-                  country: 'PH',
-                },
-              },
-            }
-          : {}),
-        ...(customerName || customerEmail || customerPhone
-          ? {
-              customer: {
-                ...(customerName ? { name: customerName } : {}),
-                ...(customerEmail ? { email: customerEmail } : {}),
-                ...(customerPhone ? { phone: customerPhone } : {}),
-              },
-            }
-          : {}),
       });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;

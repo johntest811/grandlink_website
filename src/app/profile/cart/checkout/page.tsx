@@ -554,9 +554,8 @@ function CartCheckoutContent() {
                 Payment Method
               </h2>
               <div className="mb-4">
-                <div className="text-sm font-semibold text-gray-700">Billing Information</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Billing details (including phone number and email) will be collected inside the PayRex checkout.
+                <div className="text-xs text-gray-500">
+                  Billing address is pre-filled from your selected Delivery Address. PayRex may still ask for contact details (phone/email) for invoicing.
                 </div>
               </div>
               <div className="space-y-3">

@@ -1034,7 +1034,14 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         sunLight.visible = true;
         sunLight.intensity = lightingBase.sun;
         renderer.toneMappingExposure = lightingBase.exposure;
-        scene.fog = new THREE.FogExp2(0xd6dbe0, 0.0032);
+        // Use linear fog so it stays visible at close zoom distances.
+        const fogFar = (() => {
+          if (!modelBounds) return 420;
+          const size = modelBounds.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          return THREE.MathUtils.clamp(maxDim * 3.2, 260, 560);
+        })();
+        scene.fog = new THREE.Fog(0xd6dbe0, 0, fogFar);
         renderer.setClearColor(0xd6dbe0, 1);
       }
 

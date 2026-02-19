@@ -570,6 +570,10 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     let rainVelY: Float32Array | null = null;
     let rainVelX: Float32Array | null = null;
     let rainLen: Float32Array | null = null;
+    let rainSwirlPhase: Float32Array | null = null;
+    let rainSwirlRadius: Float32Array | null = null;
+    let rainBaseX: Float32Array | null = null;
+    let rainBaseZ: Float32Array | null = null;
     let rainArea: {
       minX: number;
       maxX: number;
@@ -751,6 +755,10 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         rainVelY = null;
         rainVelX = null;
         rainLen = null;
+        rainSwirlPhase = null;
+        rainSwirlRadius = null;
+        rainBaseX = null;
+        rainBaseZ = null;
         rainArea = null;
       }
       if (windSystem) {
@@ -869,12 +877,18 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
         rainVelY = new Float32Array(rainCount);
         rainVelX = new Float32Array(rainCount);
         rainLen = new Float32Array(rainCount);
+        rainSwirlPhase = new Float32Array(rainCount);
+        rainSwirlRadius = new Float32Array(rainCount);
+        rainBaseX = new Float32Array(rainCount);
+        rainBaseZ = new Float32Array(rainCount);
 
         const spawnOne = (i: number) => {
           if (!rainArea) return;
           const headX = rainArea.minX + Math.random() * (rainArea.maxX - rainArea.minX);
           const headY = rainArea.maxY + Math.random() * (rainArea.maxY - rainArea.minY) * 0.3;
           const headZ = rainArea.minZ + Math.random() * (rainArea.maxZ - rainArea.minZ);
+          rainBaseX![i] = headX;
+          rainBaseZ![i] = headZ;
 
           const baseLen = 9 + Math.random() * 16;
           const len = baseLen * (0.85 + Math.min(1, performanceFactor) * 0.25);
@@ -882,6 +896,8 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
 
           rainVelY![i] = (58 + Math.random() * 48) * (1 + (0.75 - performanceFactor) * 0.2);
           rainVelX![i] = (Math.random() - 0.5) * (10 + Math.random() * 14);
+          rainSwirlPhase![i] = Math.random() * Math.PI * 2;
+          rainSwirlRadius![i] = 0.4 + Math.random() * 2.2;
 
           const idx = i * 6;
           positions[idx + 0] = headX;
@@ -1735,7 +1751,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
 
       // Weather animations
       const shouldUpdateRain = !isLowEnd || heavyStep;
-      if (shouldUpdateRain && rainSystem && rainVelY && rainVelX && rainLen) {
+      if (shouldUpdateRain && rainSystem && rainVelY && rainVelX && rainLen && rainSwirlPhase && rainSwirlRadius && rainBaseX && rainBaseZ) {
         // Re-anchor rain bounds if model bounds changed (e.g., switching models)
         if (!rainArea || modelBounds) {
           rainArea = computeRainArea();
@@ -1750,17 +1766,26 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
           const idx = i * 6;
 
           const gust = Math.sin(i * 0.013 + t * 1.7) * 0.4;
+          rainSwirlPhase[i] += dt * (1.8 + i * 0.0008);
+          const swirlX = Math.cos(rainSwirlPhase[i]) * rainSwirlRadius[i];
+          const swirlZ = Math.sin(rainSwirlPhase[i]) * rainSwirlRadius[i];
 
-          let headX = arr[idx + 0] + (rainVelX[i] + gust) * dt;
+          let headX = arr[idx + 0] + (rainVelX[i] + gust) * dt + swirlX * dt * 7;
           let headY = arr[idx + 1] - rainVelY[i] * dt;
-          let headZ = arr[idx + 2];
+          let headZ = arr[idx + 2] + swirlZ * dt * 6;
 
           const bounds = rainArea;
           if (bounds) {
             if (headY < bounds.minY) {
-              headX = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+              const resetX = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+              const resetZ = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
+              rainBaseX[i] = resetX;
+              rainBaseZ[i] = resetZ;
+              rainSwirlPhase[i] = Math.random() * Math.PI * 2;
+              rainSwirlRadius[i] = 0.4 + Math.random() * 2.2;
+              headX = resetX;
               headY = bounds.maxY + Math.random() * (bounds.maxY - bounds.minY) * 0.25;
-              headZ = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
+              headZ = resetZ;
             }
 
             if (headX < bounds.minX) headX = bounds.maxX;

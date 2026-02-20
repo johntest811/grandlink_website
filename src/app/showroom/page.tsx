@@ -13,6 +13,17 @@ type Showroom = {
   image?: string;
 };
 
+function normalizeRichText(input?: string) {
+  const value = String(input || "").trim();
+  if (!value) return "";
+  if (/<[a-z][\s\S]*>/i.test(value)) return value;
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
+}
+
 function Expandable({ open, children }: { open: boolean; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -105,8 +116,8 @@ export default function ShowroomPage() {
           {chunked.map((row, rowIdx) => (
             <div key={rowIdx} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch mb-10">
               {row.map((s) => {
-                const preview = s.description;
                 const isOpen = openIndex === s.id;
+                const normalizedDescription = normalizeRichText(s.description);
                 return (
                   <article
                     key={s.id}
@@ -134,13 +145,13 @@ export default function ShowroomPage() {
                       <p className="text-center text-base text-black mb-2">{s.address}</p>
                       {!isOpen ? (
                         <div
-                          className="mt-1 text-lg text-gray-700 min-h-[72px] line-clamp-4"
-                          dangerouslySetInnerHTML={{ __html: s.description }}
+                          className="blog-content mt-1 text-base text-gray-700 min-h-[72px] max-h-[120px] overflow-hidden [&_*]:text-inherit"
+                          dangerouslySetInnerHTML={{ __html: normalizedDescription }}
                         />
                       ) : (
                         <div
-                          className="mt-1 text-lg text-black min-h-[72px]"
-                          dangerouslySetInnerHTML={{ __html: s.description }}
+                          className="blog-content mt-1 text-base text-black min-h-[72px] [&_*]:text-inherit"
+                          dangerouslySetInnerHTML={{ __html: normalizedDescription }}
                         />
                       )}
                       <Expandable open={isOpen} children={undefined}>
@@ -240,8 +251,8 @@ export default function ShowroomPage() {
               <div className="p-5 overflow-auto max-h-[70vh]">
                 <div className="text-sm font-semibold text-black">Description</div>
                 <div
-                  className="mt-2 text-sm sm:text-base text-gray-800"
-                  dangerouslySetInnerHTML={{ __html: selectedShowroom.description }}
+                  className="blog-content mt-2 text-sm sm:text-base text-gray-800 [&_*]:text-inherit"
+                  dangerouslySetInnerHTML={{ __html: normalizeRichText(selectedShowroom.description) }}
                 />
               </div>
             </div>

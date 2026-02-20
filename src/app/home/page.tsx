@@ -358,15 +358,16 @@ function ProductCategory({
                       <h3 className="font-semibold text-center text-black">{displayTitle}</h3>
                       {previewHtml ? (
                         <div
-                          className="blog-content text-sm text-gray-600 mt-1 text-center [&_*]:text-gray-600"
+                          className="blog-content text-sm text-gray-600 mt-2 text-center [&_*]:text-gray-600"
                           style={{
                             maxHeight: "4.75rem",
                             overflow: "hidden",
+                            paddingBottom: "0.5rem",
                           }}
                           dangerouslySetInnerHTML={{ __html: previewHtml }}
                         />
                       ) : null}
-                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-2">{dateLabel}</div> : null}
+                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-3">{dateLabel}</div> : null}
                     </div>
 
                     <div className="mt-3">
@@ -739,7 +740,7 @@ function ServicesSection({ services, about }: { services?: any; about?: any }) {
 
         {/* Bottom-left: Logo (kept size moderate) */}
         <div className="order-3 md:order-3 flex items-center justify-center relative z-20 pl-4 pt-4">
-          <div className="w-full h-40 md:h-48 flex items-center justify-center bg-white border border-gray-200 overflow-hidden rounded shadow-sm p-3">
+          <div className="w-full h-40 md:h-48 flex items-center justify-center bg-white overflow-hidden rounded shadow-sm p-3">
             {logoUrl ? <img src={logoUrl} alt="Logo" className="max-h-full object-contain" /> : <span className="text-gray-400 text-lg">LOGO IMAGE</span>}
           </div>
         </div>

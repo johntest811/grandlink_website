@@ -46,6 +46,7 @@ function ProductsPageContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSideFilter, setShowSideFilter] = useState(false);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
@@ -85,6 +86,15 @@ function ProductsPageContent() {
     onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!mobileFilterOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileFilterOpen]);
 
   // Get unique categories from products
   const categories = [
@@ -220,8 +230,25 @@ function ProductsPageContent() {
           </div>
         </div>
 
+        {/* Mobile / tablet filter trigger */}
+        <section className="lg:hidden pb-3">
+          <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Category: <span className="font-semibold text-gray-800">{selectedCategory}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileFilterOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow-sm transition hover:bg-gray-50"
+            >
+              <span className="inline-block h-2 w-2 rounded-full bg-[#8B1C1C]" aria-hidden="true" />
+              Open Filters
+            </button>
+          </div>
+        </section>
+
         {/* Price range filter (applies to all layouts) */}
-        <section className="pb-2">
+        <section className="hidden lg:block pb-2">
           <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-4 text-sm text-black">
             <span className="font-medium">Price range:</span>
             <div className="flex items-center gap-2">
@@ -271,7 +298,7 @@ function ProductsPageContent() {
         </section>
 
         {/* Category Tabs */}
-        <section className={`py-6 border-b ${showSideFilter ? "lg:hidden" : ""}`}>
+        <section className={`hidden lg:block py-6 border-b ${showSideFilter ? "lg:hidden" : ""}`}>
           <div className="flex flex-wrap justify-center gap-4 text-sm font-medium">
             {categories.map((cat) => (
               <button
@@ -296,7 +323,7 @@ function ProductsPageContent() {
           }`}
           aria-hidden={!showSideFilter}
         >
-          <div className="w-60 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+          <div className="w-60 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
             <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-3 text-white">
               <p className="text-[11px] uppercase tracking-[0.16em] opacity-80">Smart Filters</p>
               <p className="text-sm font-semibold">Refine Products</p>
@@ -363,6 +390,118 @@ function ProductsPageContent() {
             </div>
           </div>
         </aside>
+
+        {/* Mobile/Tablet animated side filter drawer */}
+        <div
+          className={`lg:hidden fixed inset-0 z-50 transition-opacity duration-300 ${
+            mobileFilterOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
+          aria-hidden={!mobileFilterOpen}
+        >
+          <button
+            type="button"
+            onClick={() => setMobileFilterOpen(false)}
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close filters"
+          />
+
+          <aside
+            className={`absolute left-0 top-0 h-full w-[min(22rem,92vw)] bg-white shadow-2xl transition-transform duration-300 ${
+              mobileFilterOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <div className="h-full overflow-y-auto">
+              <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-4 text-white flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] opacity-80">Smart Filters</p>
+                  <p className="text-sm font-semibold">Refine Products</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterOpen(false)}
+                  className="rounded bg-white/15 px-2.5 py-1 text-sm hover:bg-white/20"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                  Active category: <span className="font-semibold text-gray-800">{selectedCategory}</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {categories.map((cat) => {
+                    const selected = selectedCategory === cat;
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => {
+                          selectCategory(cat);
+                          setMobileFilterOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl transition-all border ${
+                          selected
+                            ? "bg-red-50 text-red-700 border-red-300 shadow-sm"
+                            : "bg-white hover:bg-gray-50 text-gray-700 border-transparent"
+                        }`}
+                        aria-pressed={selected}
+                      >
+                        {cat}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t pt-4 text-sm text-gray-700 space-y-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">Price range</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Min</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={minPrice}
+                      onChange={(e) => setMinPrice(e.target.value)}
+                      className="w-28 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Max</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxPrice}
+                      onChange={(e) => setMaxPrice(e.target.value)}
+                      className="w-28 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      checked={inStockOnly}
+                      onChange={(e) => setInStockOnly(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Only show available stock</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMinPrice("");
+                      setMaxPrice("");
+                      setInStockOnly(false);
+                    }}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
 
         {/* Product Grid */}
         <section className="py-10 max-w-6xl mx-auto px-4">

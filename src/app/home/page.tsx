@@ -360,19 +360,19 @@ function ProductCategory({
                         <div
                           className="blog-content text-sm leading-relaxed text-gray-600 mt-2 text-center [&_*]:text-gray-600"
                           style={{
-                            minHeight: "5.75rem",
-                            maxHeight: "6.2rem",
+                            minHeight: "7.25rem",
+                            maxHeight: "8.5rem",
                             overflow: "hidden",
                             paddingTop: "0.15rem",
-                            paddingBottom: "0.75rem",
+                            paddingBottom: "1.1rem",
                           }}
                           dangerouslySetInnerHTML={{ __html: previewHtml }}
                         />
                       ) : null}
-                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-3 mb-1">{dateLabel}</div> : null}
+                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-3 mb-3">{dateLabel}</div> : null}
                     </div>
 
-                    <div className="mt-4">
+                    <div className="mt-5">
                       {/* link to product page if id exists, otherwise no-op */}
                       {item.id ? (
                         // navigate to the details page and pass id as a query param so the details page can read it

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { FaBell, FaChevronDown, FaEnvelope, FaPhone, FaThumbsUp, FaUserCircle, FaShoppingCart } from "react-icons/fa";
@@ -39,7 +39,7 @@ export default function UnifiedTopNavBar() {
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isNavVisible, setIsNavVisible] = useState(true);
-  const [navShellHeight, setNavShellHeight] = useState(0);
+  const [navShellHeight, setNavShellHeight] = useState<number | null>(null);
   const lastScrollYRef = useRef(0);
   const navShellRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
@@ -47,7 +47,7 @@ export default function UnifiedTopNavBar() {
   const notifRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const measure = () => {
       if (!navShellRef.current) return;
       setNavShellHeight(navShellRef.current.offsetHeight);
@@ -326,7 +326,7 @@ export default function UnifiedTopNavBar() {
       >
       {/* Main Navigation */}
       <header className="w-full bg-white flex flex-col sm:flex-row items-center justify-between px-4 py-2 shadow z-20 relative">
-        <div className="flex items-center gap-2 mb-3 mt-3">
+        <div className="flex items-center gap-2 my-1">
           <Link href={user ? "/home" : "/"}>
             <Image src="/ge-logo.avif" alt="Grand East Logo" width={170} height={170} />
           </Link>
@@ -672,7 +672,7 @@ export default function UnifiedTopNavBar() {
       </div>
       </div>
 
-      <div aria-hidden="true" style={{ height: navShellHeight || 116 }} />
+      <div aria-hidden="true" className="shrink-0" style={{ height: navShellHeight ?? 0 }} />
 
       {/* Toast Notification */}
       {toast && (

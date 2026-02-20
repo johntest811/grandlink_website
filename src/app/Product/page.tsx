@@ -216,7 +216,7 @@ function ProductsPageContent() {
   return (
     <div className="min-h-screen flex flex-col">
       <UnifiedTopNavBar />
-      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-56" : ""}`}>
+      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-60" : ""}`}>
         {/* Search bar */}
         <div className="py-6">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
@@ -323,24 +323,24 @@ function ProductsPageContent() {
           }`}
           aria-hidden={!showSideFilter}
         >
-          <div className="w-48 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+          <div className="w-52 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
             <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-3 text-white">
-              <p className="text-sm font-semibold">Filters</p>
+              <p className="text-sm font-semibold">Refine Products</p>
             </div>
 
-            <div className="p-3">
+            <div className="p-2.5">
               <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
                 Active category: <span className="font-semibold text-gray-800">{selectedCategory}</span>
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1">
                 {categories.map((cat) => {
                   const selected = selectedCategory === cat;
                   return (
                     <button
                       key={cat}
                       onClick={() => selectCategory(cat)}
-                      className={`w-full text-left px-3 py-2 rounded-xl transition-all border ${
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[13px] transition-all border ${
                         selected
                           ? "bg-red-50 text-red-700 border-red-300 shadow-sm"
                           : "bg-white hover:bg-gray-50 text-gray-700 border-transparent"
@@ -362,7 +362,7 @@ function ProductsPageContent() {
                     min={0}
                     value={minPrice}
                     onChange={(e) => setMinPrice(e.target.value)}
-                    className="w-20 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-20 border rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -372,7 +372,7 @@ function ProductsPageContent() {
                     min={0}
                     value={maxPrice}
                     onChange={(e) => setMaxPrice(e.target.value)}
-                    className="w-20 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-20 border rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
 
@@ -405,14 +405,14 @@ function ProductsPageContent() {
           />
 
           <aside
-            className={`absolute left-0 top-0 h-full w-[min(18rem,88vw)] bg-white shadow-2xl transition-transform duration-300 ${
+            className={`absolute left-0 top-0 h-full w-[min(22rem,92vw)] bg-white shadow-2xl transition-transform duration-300 ${
               mobileFilterOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
             <div className="h-full overflow-y-auto">
               <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-4 text-white flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold">Filters</p>
+                  <p className="text-sm font-semibold">Refine Products</p>
                 </div>
                 <button
                   type="button"

@@ -353,24 +353,26 @@ function ProductCategory({
                     {img ? <img src={img} alt={item.title || item.name || "Product"} className="h-full w-full object-cover" /> : <span className="text-gray-500">Image</span>}
                   </div>
 
-                  <div className="flex-1 flex flex-col justify-between mt-2">
+                  <div className="flex-1 flex flex-col justify-between mt-3">
                     <div>
-                      <h3 className="font-semibold text-center text-black">{displayTitle}</h3>
+                      <h3 className="font-semibold text-center text-black mb-1">{displayTitle}</h3>
                       {previewHtml ? (
                         <div
-                          className="blog-content text-sm text-gray-600 mt-3 text-center [&_*]:text-gray-600"
+                          className="blog-content text-sm leading-relaxed text-gray-600 mt-2 text-center [&_*]:text-gray-600"
                           style={{
-                            maxHeight: "5.75rem",
+                            minHeight: "5.75rem",
+                            maxHeight: "6.2rem",
                             overflow: "hidden",
-                            paddingBottom: "0.85rem",
+                            paddingTop: "0.15rem",
+                            paddingBottom: "0.75rem",
                           }}
                           dangerouslySetInnerHTML={{ __html: previewHtml }}
                         />
                       ) : null}
-                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-4 mb-2">{dateLabel}</div> : null}
+                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-3 mb-1">{dateLabel}</div> : null}
                     </div>
 
-                    <div className="mt-3">
+                    <div className="mt-4">
                       {/* link to product page if id exists, otherwise no-op */}
                       {item.id ? (
                         // navigate to the details page and pass id as a query param so the details page can read it

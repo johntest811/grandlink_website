@@ -216,7 +216,7 @@ function ProductsPageContent() {
   return (
     <div className="min-h-screen flex flex-col">
       <UnifiedTopNavBar />
-      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-72" : ""}`}>
+      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-56" : ""}`}>
         {/* Search bar */}
         <div className="py-6">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
@@ -323,10 +323,9 @@ function ProductsPageContent() {
           }`}
           aria-hidden={!showSideFilter}
         >
-          <div className="w-60 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+          <div className="w-48 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
             <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-3 text-white">
-              <p className="text-[11px] uppercase tracking-[0.16em] opacity-80">Smart Filters</p>
-              <p className="text-sm font-semibold">Refine Products</p>
+              <p className="text-sm font-semibold">Filters</p>
             </div>
 
             <div className="p-3">
@@ -363,7 +362,7 @@ function ProductsPageContent() {
                     min={0}
                     value={minPrice}
                     onChange={(e) => setMinPrice(e.target.value)}
-                    className="w-24 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-20 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -373,7 +372,7 @@ function ProductsPageContent() {
                     min={0}
                     value={maxPrice}
                     onChange={(e) => setMaxPrice(e.target.value)}
-                    className="w-24 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-20 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
 
@@ -406,15 +405,14 @@ function ProductsPageContent() {
           />
 
           <aside
-            className={`absolute left-0 top-0 h-full w-[min(22rem,92vw)] bg-white shadow-2xl transition-transform duration-300 ${
+            className={`absolute left-0 top-0 h-full w-[min(18rem,88vw)] bg-white shadow-2xl transition-transform duration-300 ${
               mobileFilterOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
             <div className="h-full overflow-y-auto">
               <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-4 text-white flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] opacity-80">Smart Filters</p>
-                  <p className="text-sm font-semibold">Refine Products</p>
+                  <p className="text-sm font-semibold">Filters</p>
                 </div>
                 <button
                   type="button"

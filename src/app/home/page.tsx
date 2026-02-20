@@ -358,16 +358,16 @@ function ProductCategory({
                       <h3 className="font-semibold text-center text-black">{displayTitle}</h3>
                       {previewHtml ? (
                         <div
-                          className="blog-content text-sm text-gray-600 mt-2 text-center [&_*]:text-gray-600"
+                          className="blog-content text-sm text-gray-600 mt-3 text-center [&_*]:text-gray-600"
                           style={{
-                            maxHeight: "4.75rem",
+                            maxHeight: "5.75rem",
                             overflow: "hidden",
-                            paddingBottom: "0.5rem",
+                            paddingBottom: "0.85rem",
                           }}
                           dangerouslySetInnerHTML={{ __html: previewHtml }}
                         />
                       ) : null}
-                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-3">{dateLabel}</div> : null}
+                      {dateLabel ? <div className="text-xs text-gray-500 text-center mt-4 mb-2">{dateLabel}</div> : null}
                     </div>
 
                     <div className="mt-3">

@@ -425,7 +425,7 @@ CREATE TABLE public.reservations (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT reservations_pkey PRIMARY KEY (id)
 );
-CREATE TABLE public.sales_inventory_9months (
+CREATE TABLE public.sales_inventory_data (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   product_id uuid NOT NULL,
   month_start date NOT NULL,
@@ -434,7 +434,9 @@ CREATE TABLE public.sales_inventory_9months (
   revenue numeric NOT NULL DEFAULT 0,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT sales_inventory_9months_pkey PRIMARY KEY (id),
+  Ending_Stock integer DEFAULT 0,
+  Beginning_Stock integer DEFAULT 0,
+  CONSTRAINT sales_inventory_data_pkey PRIMARY KEY (id),
   CONSTRAINT sales_inventory_9months_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
 );
 CREATE TABLE public.sales_reports (

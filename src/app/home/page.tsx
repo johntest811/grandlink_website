@@ -42,6 +42,18 @@ function getImageUrl(val?: string) {
   return `${base}/storage/v1/object/public/uploads/${encodeURIComponent(cleaned)}`;
 }
 
+function renderHtmlPreview(value: unknown): string {
+  if (!value) return "";
+  const source = String(value).trim();
+  if (!source) return "";
+  if (/<[a-z][\s\S]*>/i.test(source)) return source;
+  return source
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
+}
+
 export default function HomePage() {
   const [content, setContent] = useState<HomeContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -332,8 +344,7 @@ function ProductCategory({
               const imgKey = item.image ?? (Array.isArray(item.images) && item.images.length ? item.images[0] : undefined);
               const img = imgKey ? getImageUrl(imgKey) : null;
               const dateLabel = item.created_at ? new Date(item.created_at).toLocaleDateString() : null;
-              const shortDesc =
-                item.description ?? item.summary ?? (typeof item.content === "string" ? item.content.slice(0, 120) : undefined);
+              const previewHtml = renderHtmlPreview(item.description ?? item.summary ?? item.content);
               const displayTitle = item.title ?? item.name ?? "Untitled";
 
               return (
@@ -345,7 +356,16 @@ function ProductCategory({
                   <div className="flex-1 flex flex-col justify-between mt-2">
                     <div>
                       <h3 className="font-semibold text-center text-black">{displayTitle}</h3>
-                      {shortDesc ? <p className="text-sm text-gray-600 mt-1 text-center">{shortDesc}</p> : null}
+                      {previewHtml ? (
+                        <div
+                          className="blog-content text-sm text-gray-600 mt-1 text-center [&_*]:text-gray-600"
+                          style={{
+                            maxHeight: "4.75rem",
+                            overflow: "hidden",
+                          }}
+                          dangerouslySetInnerHTML={{ __html: previewHtml }}
+                        />
+                      ) : null}
                       {dateLabel ? <div className="text-xs text-gray-500 text-center mt-2">{dateLabel}</div> : null}
                     </div>
 
@@ -719,7 +739,7 @@ function ServicesSection({ services, about }: { services?: any; about?: any }) {
 
         {/* Bottom-left: Logo (kept size moderate) */}
         <div className="order-3 md:order-3 flex items-center justify-center relative z-20 pl-4 pt-4">
-          <div className="w-full h-40 md:h-48 flex items-center justify-center bg-gray-100 border overflow-hidden rounded">
+          <div className="w-full h-40 md:h-48 flex items-center justify-center bg-white border border-gray-200 overflow-hidden rounded shadow-sm p-3">
             {logoUrl ? <img src={logoUrl} alt="Logo" className="max-h-full object-contain" /> : <span className="text-gray-400 text-lg">LOGO IMAGE</span>}
           </div>
         </div>

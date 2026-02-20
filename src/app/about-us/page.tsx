@@ -79,7 +79,7 @@ export default function AboutUsPage() {
                 MISSION
               </h4>
               <div
-                className="blog-content text-center text-xl font-normal text-white max-w-lg mx-auto leading-snug"
+                className="blog-content blog-content-light text-center text-xl font-normal text-white max-w-lg mx-auto leading-snug"
                 dangerouslySetInnerHTML={{ __html: about.mission || "" }}
               />
             </div>
@@ -96,7 +96,7 @@ export default function AboutUsPage() {
                 VISION
               </h4>
               <div
-                className="blog-content text-center text-xl font-normal text-white max-w-lg mx-auto leading-snug"
+                className="blog-content blog-content-light text-center text-xl font-normal text-white max-w-lg mx-auto leading-snug"
                 dangerouslySetInnerHTML={{ __html: about.vision || "" }}
               />
             </div>

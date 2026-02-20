@@ -98,3 +98,8 @@ body {
   border-radius: 0.75rem;
   border: 1px solid #e5e7eb;
 }
+
+.blog-content-light,
+.blog-content-light * {
+  color: #ffffff;
+}

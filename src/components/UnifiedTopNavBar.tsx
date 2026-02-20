@@ -38,10 +38,41 @@ export default function UnifiedTopNavBar() {
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [isNavVisible, setIsNavVisible] = useState(true);
+  const [navShellHeight, setNavShellHeight] = useState(0);
+  const lastScrollYRef = useRef(0);
+  const navShellRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const measure = () => {
+      if (!navShellRef.current) return;
+      setNavShellHeight(navShellRef.current.offsetHeight);
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const currentScrollY = window.scrollY;
+      const nearTop = currentScrollY < 80;
+      if (nearTop) {
+        setIsNavVisible(true);
+      } else {
+        setIsNavVisible(currentScrollY < lastScrollYRef.current);
+      }
+      lastScrollYRef.current = currentScrollY;
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     const sync = () => {
@@ -287,6 +318,12 @@ export default function UnifiedTopNavBar() {
 
   return (
     <>
+      <div
+        ref={navShellRef}
+        className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-out ${
+          isNavVisible ? "translate-y-0" : "-translate-y-full"
+        }`}
+      >
       {/* Main Navigation */}
       <header className="w-full bg-white flex flex-col sm:flex-row items-center justify-between px-4 py-2 shadow z-20 relative">
         <div className="flex items-center gap-2 mb-3 mt-3">
@@ -633,6 +670,9 @@ export default function UnifiedTopNavBar() {
           <FaPhone className="text-base" /> Smart | 09082810586 Globe (Viber) | 09277640475
         </div>
       </div>
+      </div>
+
+      <div aria-hidden="true" style={{ height: navShellHeight || 116 }} />
 
       {/* Toast Notification */}
       {toast && (

@@ -206,7 +206,7 @@ function ProductsPageContent() {
   return (
     <div className="min-h-screen flex flex-col">
       <UnifiedTopNavBar />
-      <main className={`flex-1 bg-white ${showSideFilter ? "lg:pl-64" : ""}`}>
+      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-72" : ""}`}>
         {/* Search bar */}
         <div className="py-6">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
@@ -290,20 +290,33 @@ function ProductsPageContent() {
         </section>
 
         {/* Floating Left Sidebar Filter (shown after scrolling on large screens) */}
-        {showSideFilter && (
-          <aside className="hidden lg:block fixed left-6 top-28 z-40">
-            <div className="w-56 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg p-3">
-              <div className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Filter</div>
-              <div className="flex flex-col gap-1">
+        <aside
+          className={`hidden lg:block fixed left-5 top-28 z-40 transform transition-all duration-300 ease-out ${
+            showSideFilter ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none"
+          }`}
+          aria-hidden={!showSideFilter}
+        >
+          <div className="w-60 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+            <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-3 text-white">
+              <p className="text-[11px] uppercase tracking-[0.16em] opacity-80">Smart Filters</p>
+              <p className="text-sm font-semibold">Refine Products</p>
+            </div>
+
+            <div className="p-3">
+              <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
+                Active category: <span className="font-semibold text-gray-800">{selectedCategory}</span>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
                 {categories.map((cat) => {
                   const selected = selectedCategory === cat;
                   return (
                     <button
                       key={cat}
                       onClick={() => selectCategory(cat)}
-                      className={`w-full text-left px-3 py-2 rounded-lg transition border ${
+                      className={`w-full text-left px-3 py-2 rounded-xl transition-all border ${
                         selected
-                          ? "bg-red-50 text-red-700 border-red-300"
+                          ? "bg-red-50 text-red-700 border-red-300 shadow-sm"
                           : "bg-white hover:bg-gray-50 text-gray-700 border-transparent"
                       }`}
                       aria-pressed={selected}
@@ -314,32 +327,30 @@ function ProductsPageContent() {
                 })}
               </div>
 
-              {/* Price range controls inside sidebar */}
-              <div className="mt-4 border-t pt-3 text-xs text-gray-700 flex flex-col gap-2">
+              <div className="mt-4 border-t pt-3 text-xs text-gray-700 flex flex-col gap-2.5">
                 <div className="font-semibold uppercase tracking-wider text-gray-500">Price range</div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <span>Min</span>
                   <input
                     type="number"
                     min={0}
                     value={minPrice}
                     onChange={(e) => setMinPrice(e.target.value)}
-                    className="w-20 border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-24 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <span>Max</span>
                   <input
                     type="number"
                     min={0}
                     value={maxPrice}
                     onChange={(e) => setMaxPrice(e.target.value)}
-                    className="w-20 border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-600"
+                    className="w-24 border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
                   />
                 </div>
 
-                {/* In-stock toggle in sidebar */}
-                <label className="mt-2 flex items-center gap-2 cursor-pointer">
+                <label className="mt-1 flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-gray-50">
                   <input
                     type="checkbox"
                     checked={inStockOnly}
@@ -350,8 +361,8 @@ function ProductsPageContent() {
                 </label>
               </div>
             </div>
-          </aside>
-        )}
+          </div>
+        </aside>
 
         {/* Product Grid */}
         <section className="py-10 max-w-6xl mx-auto px-4">

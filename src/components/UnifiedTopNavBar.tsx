@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { FaBell, FaChevronDown, FaEnvelope, FaPhone, FaThumbsUp, FaUserCircle, FaShoppingCart } from "react-icons/fa";
@@ -39,24 +39,11 @@ export default function UnifiedTopNavBar() {
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isNavVisible, setIsNavVisible] = useState(true);
-  const [navShellHeight, setNavShellHeight] = useState<number | null>(null);
   const lastScrollYRef = useRef(0);
-  const navShellRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-
-  useLayoutEffect(() => {
-    const measure = () => {
-      if (!navShellRef.current) return;
-      setNavShellHeight(navShellRef.current.offsetHeight);
-    };
-
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
 
   useEffect(() => {
     const onScroll = () => {
@@ -319,8 +306,7 @@ export default function UnifiedTopNavBar() {
   return (
     <>
       <div
-        ref={navShellRef}
-        className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-out ${
+        className={`sticky top-0 z-50 transition-transform duration-300 ease-out ${
           isNavVisible ? "translate-y-0" : "-translate-y-full"
         }`}
       >
@@ -671,8 +657,6 @@ export default function UnifiedTopNavBar() {
         </div>
       </div>
       </div>
-
-      <div aria-hidden="true" className="shrink-0" style={{ height: navShellHeight ?? 0 }} />
 
       {/* Toast Notification */}
       {toast && (

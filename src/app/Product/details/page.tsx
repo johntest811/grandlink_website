@@ -224,6 +224,7 @@ function ProductDetailsPageContent() {
                 alt={product.name || "Product image"}
                 fill
                 priority
+                unoptimized
                 quality={95}
                 sizes="(max-width: 768px) 100vw, 1200px"
                 className="object-contain"
@@ -266,6 +267,7 @@ function ProductDetailsPageContent() {
                       src={img || "https://placehold.co/200x200/png?text=No+Image"}
                       alt={`Thumbnail ${idx + 1}`}
                       fill
+                      unoptimized
                       quality={90}
                       sizes="96px"
                       className="object-cover"

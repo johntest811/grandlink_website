@@ -216,7 +216,7 @@ function ProductsPageContent() {
   return (
     <div className="min-h-screen flex flex-col">
       <UnifiedTopNavBar />
-      <main className={`flex-1 bg-white transition-[padding] duration-300 ${showSideFilter ? "lg:pl-60" : ""}`}>
+      <main className="flex-1 bg-white">
         {/* Search bar */}
         <div className="py-6">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
@@ -519,6 +519,7 @@ function ProductsPageContent() {
                       alt={prod.name}
                       width={400}
                       height={300}
+                      unoptimized
                       className="w-full h-40 object-cover rounded"
                     />
                   )}

@@ -420,7 +420,7 @@ function ProductDetailsPageContent() {
 
             <h4 className="text-red-700 font-bold mb-4 text-xl">Key Features</h4>
 
-            {/* Dimensions & Material summary */}
+            {/* Dimensions summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
               <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
                 <div className="text-sm text-gray-500">Height</div>
@@ -433,14 +433,6 @@ function ProductDetailsPageContent() {
               <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
                 <div className="text-sm text-gray-500">Thickness</div>
                 <div className="text-lg font-semibold text-gray-500">{product.thickness ?? "—"}</div>
-              </div>
-              <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
-                <div className="text-sm text-gray-500">Material</div>
-                <div className="text-lg font-semibold text-gray-500">{product.material ?? "Wood"}</div>
-              </div>
-              <div className="bg-gray-50 p-3 rounded border col-span-2 sm:col-span-1 flex flex-col items-center justify-center text-center">
-                <div className="text-sm text-gray-500">Type</div>
-                <div className="text-lg font-semibold text-gray-500">{product.type ?? "Clear"}</div>
               </div>
             </div>
 

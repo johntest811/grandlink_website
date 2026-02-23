@@ -59,9 +59,13 @@ export async function POST(request: NextRequest) {
     const captureData = await captureResponse.json();
     
     // Process the successful payment (similar to webhook logic)
-    const userItemId = captureData.purchase_units?.[0]?.custom_id || captureData.purchase_units?.[0]?.reference_id;
-    
-    if (userItemId) {
+    const userItemIdsCsv = captureData.purchase_units?.[0]?.custom_id || captureData.purchase_units?.[0]?.reference_id;
+    const userItemIds: string[] = String(userItemIdsCsv || "")
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    if (userItemIds.length > 0) {
       // Update payment session
       await supabase
         .from('payment_sessions')
@@ -71,36 +75,33 @@ export async function POST(request: NextRequest) {
         })
         .eq('stripe_session_id', orderId);
 
-      // Get user_item and update
-      const { data: userItem, error: fetchError } = await supabase
-        .from('user_items')
-        .select('product_id, quantity, meta')
-        .eq('id', userItemId)
-        .single();
+      for (const userItemId of userItemIds) {
+        const { data: userItem, error: fetchError } = await supabase
+          .from('user_items')
+          .select('id, product_id, quantity, meta, price')
+          .eq('id', userItemId)
+          .single();
 
-      if (!fetchError && userItem) {
-        // Calculate total amount from metadata
-        const unit = Number(userItem.meta?.unit_price || 0);
-        const qty = Number(userItem.quantity || 1);
-        const addons: any[] = Array.isArray(userItem.meta?.addons) ? userItem.meta.addons : [];
-        const addonsLine = addons.reduce((s, a) => s + Number(a?.fee || 0), 0) * qty;
-        const subtotal = unit * qty;
-        const addonsTotal = addonsLine;
-        const discountValue = Number(userItem.meta?.voucher_discount || 0);
-        const totalAmount = Math.max(0, subtotal + addonsTotal - discountValue);
+        if (fetchError || !userItem) continue;
 
-        // Update user_item status
+        const itemMeta = userItem.meta || {};
+        const lineAfterDiscount = Number(itemMeta.line_total_after_discount ?? itemMeta.line_total ?? 0);
+        const reservationShare = Number(itemMeta.reservation_fee_share ?? 0);
+        const fallbackTotal = lineAfterDiscount + reservationShare;
+        const totalAmount = Number((itemMeta.final_total_per_item ?? fallbackTotal || 0).toFixed(2));
+
         await supabase
           .from('user_items')
-          .update({ 
+          .update({
             status: 'pending_payment',
             order_status: 'pending_payment',
             payment_status: 'completed',
             payment_id: orderId,
             total_paid: totalAmount,
+            total_amount: totalAmount,
             payment_method: 'paypal',
             meta: {
-              ...userItem.meta,
+              ...itemMeta,
               payment_confirmed_at: new Date().toISOString(),
               payment_method: 'paypal',
               paypal_order_id: orderId
@@ -108,15 +109,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', userItemId);
 
-        try {
-          await ensureInvoiceForUserItem(userItemId);
-          console.log(`✅ Invoice ensured and email attempt done for item ${userItemId}`);
-        } catch (invoiceErr) {
-          console.warn(`⚠️ Failed to ensure invoice for item ${userItemId}:`, invoiceErr);
-        }
-
-        // Deduct inventory unless already reserved/deducted earlier
-        const alreadyDeducted = Boolean(userItem.meta?.inventory_deducted);
+        const alreadyDeducted = Boolean(itemMeta?.inventory_deducted);
         if (!alreadyDeducted) {
           const { data: product } = await supabase
             .from('products')
@@ -134,7 +127,7 @@ export async function POST(request: NextRequest) {
               .from('user_items')
               .update({
                 meta: {
-                  ...(userItem.meta || {}),
+                  ...itemMeta,
                   inventory_deducted: true,
                   product_stock_before: product.inventory,
                   product_stock_after: newInventory,
@@ -143,13 +136,20 @@ export async function POST(request: NextRequest) {
               .eq('id', userItemId);
           }
         }
+
+        try {
+          await ensureInvoiceForUserItem(userItemId);
+          console.log(`✅ Invoice ensured and email attempt done for item ${userItemId}`);
+        } catch (invoiceErr) {
+          console.warn(`⚠️ Failed to ensure invoice for item ${userItemId}:`, invoiceErr);
+        }
       }
     }
 
     return NextResponse.json({ 
       success: true,
       captureData,
-      userItemId 
+      userItemIds 
     });
 
   } catch (error: any) {

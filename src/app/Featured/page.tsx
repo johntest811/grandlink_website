@@ -47,7 +47,7 @@ function FeaturedProjectsContent() {
           <motion.div
             key={p.id}
             whileHover={{ scale: 1.05 }}
-            className="cursor-pointer bg-white rounded-lg shadow"
+            className="cursor-pointer bg-white rounded-lg shadow border border-gray-200 overflow-hidden"
             onClick={() => setSelected(p)}
           >
             <Image
@@ -55,8 +55,11 @@ function FeaturedProjectsContent() {
               alt={p.title}
               width={400}
               height={300}
-              className="w-full h-40 object-cover rounded-lg"
+              className="w-full h-40 object-cover"
             />
+            <div className="bg-white px-3 py-2">
+              <div className="text-sm font-semibold text-gray-900 truncate">{p.title}</div>
+            </div>
           </motion.div>
         ))}
       </div>

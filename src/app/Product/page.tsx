@@ -42,6 +42,12 @@ function extractProductCategoryKeys(p: any): string[] {
   return Array.from(new Set(simplified));
 }
 
+type ProductPageHero = {
+  title?: string;
+  subtitle?: string;
+  image?: string;
+};
+
 function ProductsPageContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +56,11 @@ function ProductsPageContent() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
+  const [productHero, setProductHero] = useState<ProductPageHero>({
+    title: "Our Products",
+    subtitle: "Discover quality glass and aluminum solutions designed for modern spaces.",
+    image: "",
+  });
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -72,6 +83,30 @@ function ProductsPageContent() {
       setLoading(false);
     };
     fetchProducts();
+  }, []);
+
+  useEffect(() => {
+    const fetchHeroContent = async () => {
+      try {
+        const res = await fetch("/api/home");
+        if (!res.ok) return;
+        const data = await res.json();
+        const content = data?.content ?? data ?? {};
+        const hero = content?.product_page_hero;
+        if (hero && typeof hero === "object") {
+          setProductHero((prev) => ({
+            ...prev,
+            title: typeof hero.title === "string" && hero.title.trim() ? hero.title : prev.title,
+            subtitle: typeof hero.subtitle === "string" && hero.subtitle.trim() ? hero.subtitle : prev.subtitle,
+            image: typeof hero.image === "string" ? hero.image : prev.image,
+          }));
+        }
+      } catch (err) {
+        console.warn("Failed to load product page hero content", err);
+      }
+    };
+
+    fetchHeroContent();
   }, []);
 
   // Toggle side filter visibility based on scroll position (desktop only behavior)
@@ -217,6 +252,30 @@ function ProductsPageContent() {
     <div className="min-h-screen flex flex-col">
       <UnifiedTopNavBar />
       <main className="flex-1 bg-white">
+        <section className="relative w-full">
+          <div className="h-[220px] md:h-[300px] w-full overflow-hidden bg-gray-100">
+            {productHero.image ? (
+              <Image
+                src={productHero.image}
+                alt={productHero.title || "Products"}
+                width={1600}
+                height={400}
+                className="h-full w-full object-cover"
+                unoptimized
+              />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-r from-[#232d3b] to-[#3b4a5f]" />
+            )}
+          </div>
+          <div className="absolute inset-0 bg-black/35" />
+          <div className="absolute inset-0 flex items-center justify-center px-4">
+            <div className="text-center text-white max-w-3xl">
+              <h1 className="text-3xl md:text-5xl font-bold">{productHero.title}</h1>
+              {productHero.subtitle ? <p className="mt-3 text-sm md:text-lg text-gray-100">{productHero.subtitle}</p> : null}
+            </div>
+          </div>
+        </section>
+
         {/* Search bar */}
         <div className="py-6">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
@@ -298,7 +357,7 @@ function ProductsPageContent() {
         </section>
 
         {/* Category Tabs */}
-        <section className={`hidden lg:block py-6 border-b ${showSideFilter ? "lg:hidden" : ""}`}>
+        <section className="hidden lg:block py-6 border-b">
           <div className="flex flex-wrap justify-center gap-4 text-sm font-medium">
             {categories.map((cat) => (
               <button

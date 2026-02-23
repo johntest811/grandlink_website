@@ -9,6 +9,14 @@ const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (!email) return null;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailPattern.test(email) ? email : null;
+}
+
 function buildInvoiceNumber(userItemId: string, issuedAt = new Date()) {
   const y = issuedAt.getFullYear();
   const m = String(issuedAt.getMonth() + 1).padStart(2, "0");
@@ -44,25 +52,37 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
 
   // 4) Load address if present
   let deliveryAddressText: string | undefined;
+  let addressEmail: string | null = null;
   if (item.delivery_address_id) {
     const { data: addr } = await supabaseAdmin
       .from("addresses")
-      .select("address,full_name,phone,first_name,last_name")
+      .select("address,full_name,phone,first_name,last_name,email")
       .eq("id", item.delivery_address_id)
       .maybeSingle();
     if (addr) {
       const name = addr.full_name || [addr.first_name, addr.last_name].filter(Boolean).join(" ");
       deliveryAddressText = `${name ? name + " — " : ""}${addr.address || ""}${addr.phone ? " — " + addr.phone : ""}`;
+      addressEmail = normalizeEmail((addr as any).email);
     }
   }
 
-  // 5) Resolve invoice recipient (prefer billing email entered during checkout/reservation)
-  const billingEmail = item.meta?.billing_email || item.customer_email || item.meta?.customer_email || null;
-  let userEmail = billingEmail;
-  if (!userEmail) {
+  // 5) Resolve invoice recipients
+  const billingEmail = normalizeEmail(item.meta?.billing_email || item.customer_email || item.meta?.customer_email || null);
+  let authEmail: string | null = null;
+  try {
     const { data: userWrap } = await supabaseAdmin.auth.admin.getUserById(item.user_id);
-    userEmail = userWrap?.user?.email || null;
+    authEmail = normalizeEmail(userWrap?.user?.email || null);
+  } catch {
+    authEmail = null;
   }
+
+  const recipients = Array.from(
+    new Set([
+      billingEmail,
+      addressEmail,
+      authEmail,
+    ].filter((v): v is string => Boolean(v)))
+  );
 
   const issuedAtIso = new Date().toISOString();
   const invoiceNumber = buildInvoiceNumber(userItemId);
@@ -93,7 +113,7 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     companyAddress: "Philippines",
     companyEmail: "support@grandlink.com",
     customerName: item.meta?.billing_name || item.customer_name || item.meta?.customer_name || item.meta?.full_name || "",
-    customerEmail: userEmail || "",
+    customerEmail: recipients[0] || "",
     customerPhone: item.meta?.billing_phone || item.customer_phone || item.meta?.customer_phone || "",
     billingAddress: item.delivery_address || item.meta?.billing_address || "",
     deliveryMethod,
@@ -146,10 +166,10 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
   // Send email (best-effort)
   try {
     const transporter = getMailTransporter();
-    if (transporter && userEmail) {
+    if (transporter && recipients.length > 0) {
       await transporter.sendMail({
         from: getMailFrom(),
-        to: userEmail,
+        to: recipients.join(","),
         subject: `Invoice ${invoiceNumber} - GrandLink`,
         html: invoiceHtml,
       });

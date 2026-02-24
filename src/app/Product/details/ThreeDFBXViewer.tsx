@@ -13,6 +13,7 @@ function getUrlExtension(url: string): string {
 //For weather
 type Props = {
   modelUrls: string[];
+  houseModelUrl?: string | null;
   weather: "sunny" | "rainy" | "night" | "foggy";
   frameFinish?: FrameFinish;
   skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
@@ -107,7 +108,7 @@ function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | 
   return num * mmPerUnit(units);
 }
 
-export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
+export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -135,6 +136,11 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
   // Ensure we have valid model URLs and current index
   const validFbxUrls = Array.isArray(modelUrls) ? modelUrls.filter(url => url && url.trim() !== '') : [];
   const currentFbx = validFbxUrls[currentFbxIndex] || validFbxUrls[0];
+  const resolvedHouseModelUrl = useMemo(() => {
+    if (!houseModelUrl || typeof houseModelUrl !== "string") return null;
+    const trimmed = houseModelUrl.trim();
+    return trimmed ? trimmed : null;
+  }, [houseModelUrl]);
 
   const productDimsMm = useMemo(() => {
     const defaultUnits = (productDimensions?.units ?? "mm") as ModelUnits;
@@ -1650,6 +1656,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     };
 
     let objectURLToRevoke: string | null = null;
+    let houseObjectURLToRevoke: string | null = null;
 
     const manager = new THREE.LoadingManager();
     manager.onError = (url) => console.warn("Failed to load asset:", url);
@@ -1659,7 +1666,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
     const gltfLoader = new GLTFLoader(manager);
     (gltfLoader as any).setCrossOrigin?.("anonymous");
 
-    const tryFetchAsObjectUrl = async (url: string): Promise<string | null> => {
+    const tryFetchAsObjectUrl = async (url: string, kind: "main" | "house"): Promise<string | null> => {
       const tryUrls: string[] = [url];
       if (url.includes(" ")) tryUrls.push(encodeURI(url));
       for (const u of tryUrls) {
@@ -1667,8 +1674,10 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
           const res = await fetch(u, { mode: "cors" });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const blob = await res.blob();
-          objectURLToRevoke = URL.createObjectURL(blob);
-          return objectURLToRevoke;
+          const objUrl = URL.createObjectURL(blob);
+          if (kind === "main") objectURLToRevoke = objUrl;
+          if (kind === "house") houseObjectURLToRevoke = objUrl;
+          return objUrl;
         } catch {
           // try next
         }
@@ -1676,68 +1685,143 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
       return null;
     };
 
-    const loadModel = async () => {
-      const ext = modelExt;
+    const loadObjectFromUrl = async (url: string, kind: "main" | "house"): Promise<THREE.Object3D> => {
+      const ext = getUrlExtension(url);
 
-      // For .gltf, load directly so relative .bin/textures resolve.
       if (ext === "gltf") {
-        try {
-          const base = new URL(currentFbx, window.location.href);
-          base.search = "";
-          base.hash = "";
-          base.pathname = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1);
-          manager.setURLModifier((requested) => {
-            if (!requested) return requested;
-            const lower = requested.toLowerCase();
-            if (lower.startsWith("data:") || lower.startsWith("blob:") || lower.startsWith("http://") || lower.startsWith("https://")) return requested;
-            try {
-              return new URL(requested, base).toString();
-            } catch {
-              return requested;
-            }
-          });
-        } catch {}
+        return await new Promise<THREE.Object3D>((resolve, reject) => {
+          try {
+            const base = new URL(url, window.location.href);
+            base.search = "";
+            base.hash = "";
+            base.pathname = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1);
+            manager.setURLModifier((requested) => {
+              if (!requested) return requested;
+              const lower = requested.toLowerCase();
+              if (lower.startsWith("data:") || lower.startsWith("blob:") || lower.startsWith("http://") || lower.startsWith("https://")) return requested;
+              try {
+                return new URL(requested, base).toString();
+              } catch {
+                return requested;
+              }
+            });
+          } catch {}
 
-        gltfLoader.load(
-          currentFbx,
-          (gltf: any) => {
-            const object = gltf?.scene as THREE.Object3D | undefined;
-            if (!object) return handleError(new Error("Missing gltf.scene"));
-            handleLoaded(object);
-          },
-          handleProgress,
-          handleError
-        );
-        return;
+          gltfLoader.load(
+            url,
+            (gltf: any) => {
+              const object = gltf?.scene as THREE.Object3D | undefined;
+              if (!object) return reject(new Error("Missing gltf.scene"));
+              resolve(object);
+            },
+            handleProgress,
+            reject
+          );
+        });
       }
 
-      // For .fbx and .glb, prefer blob-load (matches UpdateProducts viewer; avoids content-type/CORS quirks).
-      let loadUrl = currentFbx;
+      let loadUrl = url;
       if (ext === "fbx" || ext === "glb") {
-        const objUrl = await tryFetchAsObjectUrl(currentFbx);
+        const objUrl = await tryFetchAsObjectUrl(url, kind);
         if (objUrl) loadUrl = objUrl;
       }
 
       if (ext === "fbx") {
-        fbxLoader.load(loadUrl, (object) => handleLoaded(object), handleProgress, handleError);
-        return;
+        return await new Promise<THREE.Object3D>((resolve, reject) => {
+          fbxLoader.load(loadUrl, resolve, handleProgress, reject);
+        });
       }
 
       if (ext === "glb") {
-        gltfLoader.load(
-          loadUrl,
-          (gltf: any) => {
-            const object = gltf?.scene as THREE.Object3D | undefined;
-            if (!object) return handleError(new Error("Missing gltf.scene"));
-            handleLoaded(object);
-          },
-          handleProgress,
-          handleError
-        );
-        return;
+        return await new Promise<THREE.Object3D>((resolve, reject) => {
+          gltfLoader.load(
+            loadUrl,
+            (gltf: any) => {
+              const object = gltf?.scene as THREE.Object3D | undefined;
+              if (!object) return reject(new Error("Missing gltf.scene"));
+              resolve(object);
+            },
+            handleProgress,
+            reject
+          );
+        });
       }
 
-      handleError(new Error(`Unsupported 3D model type: .${ext || "?"}`));
+      throw new Error(`Unsupported 3D model type: .${ext || "?"}`);
+    };
+
+    const addHouseContextModel = async () => {
+      if (!resolvedHouseModelUrl) return;
+      try {
+        const houseObject = await loadObjectFromUrl(resolvedHouseModelUrl, "house");
+
+        houseObject.traverse((child: any) => {
+          if (!child?.isMesh) return;
+          child.castShadow = false;
+          child.receiveShadow = true;
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach((mat: any) => {
+            if (!mat) return;
+            try {
+              mat.side = THREE.DoubleSide;
+            } catch {}
+            try {
+              mat.needsUpdate = true;
+            } catch {}
+          });
+        });
+
+        const rawBox = new THREE.Box3().setFromObject(houseObject);
+        const rawSize = rawBox.getSize(new THREE.Vector3());
+        const rawCenter = rawBox.getCenter(new THREE.Vector3());
+        const maxDimension = Math.max(rawSize.x, rawSize.y, rawSize.z);
+        if (!Number.isFinite(maxDimension) || maxDimension <= 0) return;
+
+        const houseGroup = new THREE.Group();
+        houseObject.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
+        houseGroup.add(houseObject);
+
+        const targetSize = 260;
+        const scale = targetSize / maxDimension;
+        houseGroup.scale.setScalar(scale);
+        houseGroup.position.set(0, 0, 0);
+        scene.add(houseGroup);
+
+        const houseBounds = new THREE.Box3().setFromObject(houseGroup);
+        const combined = modelBounds ? modelBounds.clone().union(houseBounds) : houseBounds.clone();
+        const size = combined.getSize(new THREE.Vector3());
+        const center = combined.getCenter(new THREE.Vector3());
+        const span = Math.max(size.x, size.z);
+
+        const floorSize = Math.max(180, span * 2.4);
+        groundPlane.scale.set(floorSize, floorSize, 1);
+        groundPlane.position.y = combined.min.y - Math.max(0.02, size.y * 0.002);
+        updateGround();
+
+        const biggest = Math.max(size.x, size.y, size.z);
+        const distance = biggest * 1.4;
+        camera.position.set(distance * 0.5, distance * 0.35, distance * 0.8);
+        camera.lookAt(center);
+        controls.target.copy(center);
+        controls.minDistance = distance * 0.28;
+        controls.maxDistance = distance * 4.2;
+        controls.update();
+      } catch (err) {
+        console.error("House context model load error:", err);
+      }
+    };
+
+    const loadModel = async () => {
+      const ext = modelExt;
+
+      // For .gltf, load directly so relative .bin/textures resolve.
+      try {
+        const object = await loadObjectFromUrl(currentFbx, "main");
+        handleLoaded(object);
+        await addHouseContextModel();
+      } catch (err) {
+        handleError(err);
+      }
     };
 
     void loadModel();
@@ -1953,6 +2037,9 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
       if (objectURLToRevoke) {
         try { URL.revokeObjectURL(objectURLToRevoke); } catch {}
       }
+      if (houseObjectURLToRevoke) {
+        try { URL.revokeObjectURL(houseObjectURLToRevoke); } catch {}
+      }
       try { skyboxTex?.dispose(); } catch(e) {}
       try { rainTexture.dispose(); } catch(e) {}
       try { windTexture.dispose(); } catch(e) {}
@@ -1985,7 +2072,7 @@ export default function ThreeDFBXViewer({ modelUrls, weather, frameFinish = "def
       }
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
-  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions]);
+  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions, resolvedHouseModelUrl]);
 
   // Update frame finish without reloading the 3D scene.
   useEffect(() => {

@@ -1,7 +1,39 @@
+"use client";
+
 import { FaFacebookF } from "react-icons/fa";
 import { FiPhone } from "react-icons/fi";
+import { useEffect, useState } from "react";
 
 export default function Footer() {
+  const [chromeSettings, setChromeSettings] = useState({
+    footerFacebookUrl: "https://facebook.com/grandlink",
+    footerPhoneText: "Smart || 09082810586 Globe (Viber) || 09277640475",
+    footerInquireLabel: "INQUIRE NOW",
+    footerInquireLink: "/Inquire",
+  });
+
+  useEffect(() => {
+    const loadChromeSettings = async () => {
+      try {
+        const res = await fetch("/api/home", { cache: "no-store" });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const content = (payload?.content ?? payload ?? {}) as Record<string, any>;
+        setChromeSettings((prev) => ({
+          ...prev,
+          footerFacebookUrl: String(content.footerFacebookUrl || prev.footerFacebookUrl),
+          footerPhoneText: String(content.footerPhoneText || prev.footerPhoneText),
+          footerInquireLabel: String(content.footerInquireLabel || prev.footerInquireLabel),
+          footerInquireLink: String(content.footerInquireLink || prev.footerInquireLink),
+        }));
+      } catch {
+        // keep defaults
+      }
+    };
+
+    loadChromeSettings();
+  }, []);
+
   return (
     <footer className="bg-[#f5f5f5] pt-8">
       <div className="max-w-6xl mx-auto px-4">
@@ -164,19 +196,24 @@ export default function Footer() {
       <div className="bg-[#232d3b] py-4 px-4 flex flex-col md:flex-row items-center justify-between">
         <div className="flex-1 flex justify-center">
           <div className="flex items-center gap-6">
-            <FaFacebookF className="text-white text-2xl bg-[#4267B2] rounded p-1 w-8 h-8 flex items-center justify-center" />
+            <a href={chromeSettings.footerFacebookUrl || "https://facebook.com/grandlink"} target="_blank" rel="noopener noreferrer" aria-label="Facebook page">
+              <FaFacebookF className="text-white text-2xl bg-[#4267B2] rounded p-1 w-8 h-8 flex items-center justify-center" />
+            </a>
             <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white">
               <FiPhone className="text-[#232d3b] text-2xl" />
             </span>
             <span className="text-white text-lg">
-              Smart || 09082810586 Globe (Viber) || 09277640475
+              {chromeSettings.footerPhoneText}
             </span>
           </div>
         </div>
         <div className="mt-4 md:mt-0">
-          <button className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm">
-            INQUIRE NOW
-          </button>
+          <a
+            href={chromeSettings.footerInquireLink || "/Inquire"}
+            className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm inline-block"
+          >
+            {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
+          </a>
         </div>
       </div>
     </footer>

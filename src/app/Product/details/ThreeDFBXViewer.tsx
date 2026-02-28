@@ -14,6 +14,7 @@ function getUrlExtension(url: string): string {
 type Props = {
   modelUrls: string[];
   houseModelUrl?: string | null;
+  productCategory?: string | null;
   weather: "sunny" | "rainy" | "night" | "foggy";
   frameFinish?: FrameFinish;
   skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
@@ -108,13 +109,33 @@ function parseDimensionToMm(value: unknown, defaultUnits: ModelUnits): number | 
   return num * mmPerUnit(units);
 }
 
-export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
+function normalizeCategoryKey(input: unknown): string {
+  const s = String(input ?? "").trim().toLowerCase();
+  if (!s) return "";
+  const key = s
+    .replace(/\s+/g, " ")
+    .replace(/[-_]/g, " ")
+    .replace(/[^a-z\s]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+
+  if (key.includes("door")) return "doors";
+  if (key.includes("window")) return "windows";
+  if (key.includes("enclosure") || key.includes("enclosures")) return "enclosure";
+  if (key.includes("railing") || key.includes("railings")) return "railings";
+  if (key.includes("canopy")) return "canopy";
+  if (key.includes("curtain") || key.includes("curtainwall") || key.includes("curtainwalls")) return "curtainwall";
+  return key;
+}
+
+export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCategory, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [currentFbxIndex, setCurrentFbxIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [showBaseplate, setShowBaseplate] = useState(true);
   const [showShadows, setShowShadows] = useState(true);
+  const [showHouseContext, setShowHouseContext] = useState(false);
   const [modelUnits, setModelUnits] = useState<ModelUnits>("mm");
   const [dimsMm, setDimsMm] = useState<{ width: number; height: number; thickness: number } | null>(null);
 
@@ -141,6 +162,8 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
     const trimmed = houseModelUrl.trim();
     return trimmed ? trimmed : null;
   }, [houseModelUrl]);
+
+  const categoryKey = useMemo(() => normalizeCategoryKey(productCategory), [productCategory]);
 
   const productDimsMm = useMemo(() => {
     const defaultUnits = (productDimensions?.units ?? "mm") as ModelUnits;
@@ -608,6 +631,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
     };
     const weatherMaterialSnapshots = new WeakMap<THREE.Material, WeatherMaterialSnapshot>();
     let modelBounds: THREE.Box3 | null = null;
+    let modelGroupForPlacement: THREE.Group | null = null;
     let measurementGroup: THREE.Group | null = null;
 
     const disposeMeasurementGroup = () => {
@@ -1398,6 +1422,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
         setDimsMm(displayMm);
 
         const modelGroup = new THREE.Group();
+        modelGroupForPlacement = modelGroup;
 
         
         object.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
@@ -1750,8 +1775,67 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
       throw new Error(`Unsupported 3D model type: .${ext || "?"}`);
     };
 
+    const applyCategoryPlacement = (opts: { houseBounds: THREE.Box3; modelGroup: THREE.Group; modelBounds: THREE.Box3 }) => {
+      const { houseBounds, modelGroup, modelBounds } = opts;
+      const houseSize = houseBounds.getSize(new THREE.Vector3());
+      const modelSize = modelBounds.getSize(new THREE.Vector3());
+
+      if (houseSize.lengthSq() <= 1e-8 || modelSize.lengthSq() <= 1e-8) return;
+
+      // Place the model near the facade and at a reasonable height.
+      const facadeZ = houseBounds.max.z;
+      const embed = Math.min(1.2, Math.max(0.2, modelSize.z * 0.12));
+      const z = facadeZ - embed - modelSize.z * 0.5;
+
+      const yGround = houseBounds.min.y + modelSize.y * 0.5;
+      const yMid = houseBounds.min.y + houseSize.y * 0.5;
+      const yUpper = houseBounds.min.y + houseSize.y * 0.65;
+
+      let x = 0;
+      let y = yMid;
+
+      switch (categoryKey) {
+        case "doors":
+          x = 0;
+          y = yGround;
+          break;
+        case "windows": {
+          const side = currentFbxIndex % 2 === 0 ? -1 : 1;
+          x = side * houseSize.x * 0.22;
+          y = houseBounds.min.y + houseSize.y * 0.42;
+          break;
+        }
+        case "enclosure":
+          x = 0;
+          y = houseBounds.min.y + houseSize.y * 0.35;
+          break;
+        case "railings":
+          x = 0;
+          y = yUpper;
+          break;
+        case "canopy":
+          x = 0;
+          y = houseBounds.min.y + houseSize.y * 0.52;
+          break;
+        case "curtainwall":
+          x = 0;
+          y = yMid;
+          break;
+        default:
+          x = 0;
+          y = yMid;
+          break;
+      }
+
+      const currentCenter = modelBounds.getCenter(new THREE.Vector3());
+      const desiredCenter = new THREE.Vector3(x, y, z);
+      const delta = desiredCenter.sub(currentCenter);
+      modelGroup.position.add(delta);
+    };
+
     const addHouseContextModel = async () => {
       if (!resolvedHouseModelUrl) return;
+      if (!showHouseContext) return;
       try {
         const houseObject = await loadObjectFromUrl(resolvedHouseModelUrl, "house");
 
@@ -1781,13 +1865,20 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
         houseObject.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
         houseGroup.add(houseObject);
 
-        const targetSize = 260;
+        // Make the house significantly larger as context.
+        const targetSize = 520;
         const scale = targetSize / maxDimension;
         houseGroup.scale.setScalar(scale);
         houseGroup.position.set(0, 0, 0);
         scene.add(houseGroup);
 
         const houseBounds = new THREE.Box3().setFromObject(houseGroup);
+
+        if (modelGroupForPlacement && modelBounds) {
+          applyCategoryPlacement({ houseBounds, modelGroup: modelGroupForPlacement, modelBounds });
+          modelBounds = new THREE.Box3().setFromObject(modelGroupForPlacement);
+        }
+
         const combined = modelBounds ? modelBounds.clone().union(houseBounds) : houseBounds.clone();
         const size = combined.getSize(new THREE.Vector3());
         const center = combined.getCenter(new THREE.Vector3());
@@ -2072,7 +2163,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
       }
       while (container && container.firstChild) container.removeChild(container.firstChild);
     };
-  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions, resolvedHouseModelUrl]);
+  }, [currentFbx, weather, skyboxes, productDimsMm, usesProductDimensions, resolvedHouseModelUrl, showHouseContext, categoryKey, currentFbxIndex]);
 
   // Update frame finish without reloading the 3D scene.
   useEffect(() => {
@@ -2223,6 +2314,17 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, weather, fra
           <div className="text-sm font-semibold">Scene</div>
 
           <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-white/90">
+            {resolvedHouseModelUrl && (
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-white/80">House</span>
+                <input
+                  type="checkbox"
+                  checked={showHouseContext}
+                  onChange={(e) => setShowHouseContext(e.target.checked)}
+                  aria-label="Toggle house context"
+                />
+              </label>
+            )}
             <label className="flex items-center justify-between gap-3">
               <span className="text-white/80">Baseplate</span>
               <input

@@ -23,7 +23,6 @@ function ProductDetailsPageContent() {
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [show3D, setShow3D] = useState(false);
   const [weather, setWeather] = useState<"sunny" | "rainy" | "night" | "foggy">("sunny");
-  const [showHouseContext, setShowHouseContext] = useState(true);
   const [frameFinish, setFrameFinish] = useState<"default" | "matteBlack" | "matteGray" | "narra" | "walnut">("default");
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
@@ -554,23 +553,6 @@ function ProductDetailsPageContent() {
                 ))}
               </div>
 
-              {houseModelUrl && (
-                <div className="mt-3 pt-3 border-t border-gray-200">
-                  <div className="text-xs font-semibold text-gray-700 mb-2">Scene</div>
-                  <button
-                    type="button"
-                    onClick={() => setShowHouseContext((prev) => !prev)}
-                    className={
-                      "w-full px-3 py-2 rounded-md text-xs font-medium border transition-all text-left " +
-                      (showHouseContext
-                        ? "border-black bg-white text-black"
-                        : "border-gray-300 bg-white text-gray-700 hover:border-gray-400")
-                    }
-                  >
-                    {showHouseContext ? "House Context: On" : "House Context: Off"}
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="flex-1 w-full min-h-0 relative overflow-hidden">
@@ -578,7 +560,8 @@ function ProductDetailsPageContent() {
                 modelUrls={modelUrls}
                 weather={weather}
                 frameFinish={frameFinish}
-                houseModelUrl={showHouseContext ? houseModelUrl : null}
+                houseModelUrl={houseModelUrl}
+                productCategory={product?.category ?? product?.type ?? null}
                 skyboxes={product?.skyboxes || null}
                 productDimensions={{
                   width: product.width,

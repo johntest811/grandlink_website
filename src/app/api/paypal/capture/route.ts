@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
         const lineAfterDiscount = Number(itemMeta.line_total_after_discount ?? itemMeta.line_total ?? 0);
         const reservationShare = Number(itemMeta.reservation_fee_share ?? 0);
         const fallbackTotal = lineAfterDiscount + reservationShare;
-        const totalAmount = Number((itemMeta.final_total_per_item ?? fallbackTotal || 0).toFixed(2));
+        const totalAmount = Number((((itemMeta.final_total_per_item ?? fallbackTotal) as number) || 0).toFixed(2));
 
         await supabase
           .from('user_items')

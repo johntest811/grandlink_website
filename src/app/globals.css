@@ -103,3 +103,58 @@ body {
 .blog-content-light * {
   color: #ffffff;
 }
+
+/* User profile themes (scoped to profile layout via .user-app) */
+html[data-user-theme="light"] {
+  --user-bg: #f9fafb;
+  --user-surface: #ffffff;
+  --user-text: #111827;
+  --user-muted: #6b7280;
+  --user-border: #e5e7eb;
+}
+
+html[data-user-theme="dark"] {
+  --user-bg: #0f172a;
+  --user-surface: #111827;
+  --user-text: #f8fafc;
+  --user-muted: #cbd5e1;
+  --user-border: #334155;
+}
+
+html[data-user-theme="midnight"] {
+  --user-bg: #050816;
+  --user-surface: #0b122b;
+  --user-text: #eef2ff;
+  --user-muted: #bac3e0;
+  --user-border: #27335a;
+}
+
+.user-app {
+  background: var(--user-bg);
+  color: var(--user-text);
+}
+
+html[data-user-theme] .user-app .bg-white {
+  background-color: var(--user-surface) !important;
+}
+html[data-user-theme] .user-app .bg-gray-50 {
+  background-color: var(--user-bg) !important;
+}
+html[data-user-theme] .user-app .text-black,
+html[data-user-theme] .user-app .text-gray-900,
+html[data-user-theme] .user-app .text-gray-800,
+html[data-user-theme] .user-app .text-gray-700 {
+  color: var(--user-text) !important;
+}
+html[data-user-theme] .user-app .text-gray-600,
+html[data-user-theme] .user-app .text-gray-500,
+html[data-user-theme] .user-app .text-gray-400 {
+  color: var(--user-muted) !important;
+}
+html[data-user-theme] .user-app .border,
+html[data-user-theme] .user-app .border-gray-200,
+html[data-user-theme] .user-app .border-gray-300,
+html[data-user-theme] .user-app .border-r,
+html[data-user-theme] .user-app .border-b {
+  border-color: var(--user-border) !important;
+}

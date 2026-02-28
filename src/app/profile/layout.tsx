@@ -13,8 +13,19 @@ import { useRouter } from "next/navigation";
 export default function ProfileLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [userTheme, setUserTheme] = useState<"light" | "dark" | "midnight">("light");
   const pathname = usePathname() || "";
   const router = useRouter();
+
+  const applyUserTheme = (theme: "light" | "dark" | "midnight") => {
+    setUserTheme(theme);
+    try {
+      document.documentElement.dataset.userTheme = theme;
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     try {
       if (localStorage.getItem("gl_pending_email_verification") === "1") {
@@ -27,9 +38,47 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
 
     const fetchUser = async () => {
       const { data } = await import("@/app/Clients/Supabase/SupabaseClients").then(mod => mod.supabase.auth.getUser());
-      setUser(data?.user || null);
+      const u = data?.user || null;
+      setUser(u);
+
+      const preferred = u?.user_metadata?.preferred_theme;
+      if (preferred === "light" || preferred === "dark" || preferred === "midnight") {
+        applyUserTheme(preferred);
+        try {
+          localStorage.setItem("userTheme", preferred);
+        } catch {}
+      } else {
+        try {
+          const saved = localStorage.getItem("userTheme");
+          if (saved === "light" || saved === "dark" || saved === "midnight") {
+            applyUserTheme(saved);
+          }
+        } catch {
+          // ignore
+        }
+      }
     };
     fetchUser();
+  }, []);
+
+  useEffect(() => {
+    const onThemeChanged = () => {
+      try {
+        const saved = localStorage.getItem("userTheme");
+        if (saved === "light" || saved === "dark" || saved === "midnight") {
+          applyUserTheme(saved);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("user-theme-changed", onThemeChanged);
+    window.addEventListener("storage", onThemeChanged);
+    return () => {
+      window.removeEventListener("user-theme-changed", onThemeChanged);
+      window.removeEventListener("storage", onThemeChanged);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -66,7 +115,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="user-app min-h-screen flex flex-col bg-gray-50">
       <UnifiedTopNavBar />
       <main className="flex-1 flex flex-row">
         {/* Sidebar */}

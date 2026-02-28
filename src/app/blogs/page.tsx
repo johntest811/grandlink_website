@@ -39,6 +39,7 @@ function safeShareUrl(path: string) {
 export default function BlogsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [blogs, setBlogs] = useState<Blog[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [likedByMe, setLikedByMe] = useState<Record<string, boolean>>({});
@@ -141,7 +142,16 @@ export default function BlogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  const newest = useMemo(() => blogs, [blogs]);
+  const filteredBlogs = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return blogs;
+    return blogs.filter((b) => {
+      const title = String(b.title || "").toLowerCase();
+      const excerpt = String(b.excerpt || "").toLowerCase();
+      const author = String(b.author_name || "").toLowerCase();
+      return title.includes(q) || excerpt.includes(q) || author.includes(q);
+    });
+  }, [blogs, searchQuery]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -219,13 +229,24 @@ export default function BlogsPage() {
         </div>
 
         <section className="max-w-6xl mx-auto px-6 py-10">
+          <div className="mb-6">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Search blogs</label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title, excerpt, or author"
+              className="w-full md:w-[420px] border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900"
+            />
+          </div>
+
           {loading ? (
             <div className="text-gray-600">Loading blogs…</div>
-          ) : newest.length === 0 ? (
+          ) : filteredBlogs.length === 0 ? (
             <div className="bg-gray-50 border rounded-lg p-6 text-gray-700">No blogs yet.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {newest.map((b) => {
+              {filteredBlogs.map((b) => {
                 const hearts = likeCounts[b.id] || 0;
                 const isLiked = !!likedByMe[b.id];
                 const views = viewCounts[b.id] || 0;

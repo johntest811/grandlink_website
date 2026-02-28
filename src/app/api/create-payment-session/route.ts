@@ -447,6 +447,9 @@ export async function POST(request: NextRequest) {
       receipt_ref,
     } = await request.json();
 
+    const normalizedPaymentMethod = String(payment_method || 'payrex').trim().toLowerCase();
+    const checkoutMethod = normalizedPaymentMethod === 'paymongo' ? 'payrex' : normalizedPaymentMethod;
+
     const requestOrigin = getRequestOrigin(request);
     const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);
     const resolvedCancelUrl = toAbsoluteUrl(cancel_url, requestOrigin);
@@ -942,7 +945,7 @@ export async function POST(request: NextRequest) {
     let sessionId: string;
     let checkoutUrl: string;
 
-    if (payment_method === 'paypal') {
+    if (checkoutMethod === 'paypal') {
       const res = await createPayPalOrder({
         amount: totalAmount,
         user_item_ids: createdUserItemIds,
@@ -953,10 +956,7 @@ export async function POST(request: NextRequest) {
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;
     } else {
-      // Backward compatibility: if the client still sends "paymongo", treat it as PayRex.
-      // The project no longer uses PayMongo for checkout session creation.
-      const normalizedMethod = payment_method === 'paymongo' ? 'payrex' : payment_method;
-      if (normalizedMethod !== 'payrex') {
+      if (checkoutMethod !== 'payrex') {
         return NextResponse.json({ error: 'Unsupported payment method' }, { status: 400 });
       }
 

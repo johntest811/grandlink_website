@@ -87,6 +87,20 @@ export default function ChatWidget() {
       });
   }, []);
 
+  useEffect(() => {
+    const handleOpenChat = (event: Event) => {
+      setOpen(true);
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      const initialMessage = customEvent.detail?.message;
+      if (typeof initialMessage === "string" && initialMessage.trim()) {
+        setText(initialMessage.trim());
+      }
+    };
+
+    window.addEventListener("gl:open-chat", handleOpenChat as EventListener);
+    return () => window.removeEventListener("gl:open-chat", handleOpenChat as EventListener);
+  }, []);
+
   const ensureThread = async () => {
     if (token) return token;
 

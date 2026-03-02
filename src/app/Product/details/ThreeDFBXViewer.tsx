@@ -2247,7 +2247,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
           <div className="bg-white rounded-lg p-6 shadow-lg">
             <div className="flex items-center space-x-3">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <span className="text-lg font-medium">Loading 3D model...</span>
+              <span className="text-lg font-medium text-black">Loading 3D model...</span>
             </div>
           </div>
         </div>

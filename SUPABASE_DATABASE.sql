@@ -357,6 +357,7 @@ CREATE TABLE public.products (
   stock_notification_sent boolean DEFAULT false,
   updated_at timestamp with time zone DEFAULT now(),
   skyboxes jsonb,
+  house_model_url text,
   CONSTRAINT products_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.products_archive (
@@ -438,23 +439,6 @@ CREATE TABLE public.sales_inventory_data (
   Beginning_Stock integer DEFAULT 0,
   CONSTRAINT sales_inventory_data_pkey PRIMARY KEY (id),
   CONSTRAINT sales_inventory_9months_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
-);
-CREATE TABLE public.sales_reports (
-  id bigint NOT NULL DEFAULT nextval('sales_reports_id_seq'::regclass),
-  report_date date NOT NULL DEFAULT CURRENT_DATE,
-  total_sales numeric DEFAULT 0.00,
-  total_products_sold integer DEFAULT 0,
-  total_orders integer DEFAULT 0,
-  successful_orders integer DEFAULT 0,
-  cancelled_orders integer DEFAULT 0,
-  pending_orders integer DEFAULT 0,
-  report_data jsonb,
-  generated_by uuid,
-  created_at timestamp with time zone DEFAULT now(),
-  products_data jsonb DEFAULT '{}'::jsonb,
-  inventory_summary jsonb DEFAULT '{}'::jsonb,
-  CONSTRAINT sales_reports_pkey PRIMARY KEY (id),
-  CONSTRAINT sales_reports_generated_by_fkey FOREIGN KEY (generated_by) REFERENCES auth.users(id)
 );
 CREATE TABLE public.services (
   id bigint NOT NULL DEFAULT nextval('services_id_seq'::regclass),

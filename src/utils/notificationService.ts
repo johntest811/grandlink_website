@@ -159,7 +159,7 @@ export const notificationService = {
             new_status: newStatus,
             product_id: orderDetails.product_id
           },
-          action_url: `/profile/orders?id=${orderDetails.id}`,
+          action_url: `/profile/order?id=${orderDetails.id}`,
           order_id: orderDetails.id,
           is_read: false,
           created_at: new Date().toISOString()

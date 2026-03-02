@@ -32,6 +32,9 @@ export const revalidate = 0;
 export async function POST(request: NextRequest) {
   try {
     const { type, data, adminName } = await request.json();
+    const productName = data?.productName ?? data?.product_name;
+    const productId = data?.productId ?? data?.product_id;
+    const newStock = data?.newStock ?? data?.new_stock;
 
     console.log("📢 Admin notification request:", { type, data, adminName });
 
@@ -65,15 +68,15 @@ export async function POST(request: NextRequest) {
             .insert({
               user_id: user.id,
               title: 'New Product Available! 🆕',
-              message: `Check out our new product: ${data.productName}`,
+              message: `Check out our new product: ${productName}`,
               type: 'new_product',
               metadata: {
-                product_id: data.productId,
-                product_name: data.productName,
+                product_id: productId,
+                product_name: productName,
                 admin_name: adminName
               },
-              action_url: `/Product/details?id=${data.productId}`,
-              product_id: data.productId,
+              action_url: `/Product/details?id=${productId}`,
+              product_id: productId,
               is_read: false,
               created_at: new Date().toISOString()
             });
@@ -89,8 +92,8 @@ export async function POST(request: NextRequest) {
               from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
               to: user.email,
               subject: 'New Product Available - Grand Link',
-              text: `Hello! We're excited to announce that a new product "${data.productName}" has been added to our catalog. Check it out on our website and place your order today!`,
-              html: `<p>Hello!</p><p>We're excited to announce that a new product <strong>"${data.productName}"</strong> has been added to our catalog.</p><p>Check it out on our website and place your order today!</p>`
+              text: `Hello! We're excited to announce that a new product "${productName}" has been added to our catalog. Check it out on our website and place your order today!`,
+              html: `<p>Hello!</p><p>We're excited to announce that a new product <strong>"${productName}"</strong> has been added to our catalog.</p><p>Check it out on our website and place your order today!</p>`
             });
             emailsSent++;
           } catch (emailError) {
@@ -133,16 +136,16 @@ export async function POST(request: NextRequest) {
             .insert({
               user_id: user.id,
               title: 'Stock Replenished! 📦',
-              message: `${data.productName} is back in stock with ${data.newStock} units available. Order now!`,
+              message: `${productName} is back in stock with ${newStock} units available. Order now!`,
               type: 'stock_update',
               metadata: {
-                product_id: data.productId,
-                product_name: data.productName,
-                new_stock: data.newStock,
+                product_id: productId,
+                product_name: productName,
+                new_stock: newStock,
                 admin_name: adminName
               },
-              action_url: `/Product/details?id=${data.productId}`,
-              product_id: data.productId,
+              action_url: `/Product/details?id=${productId}`,
+              product_id: productId,
               is_read: false,
               created_at: new Date().toISOString()
             });
@@ -158,8 +161,8 @@ export async function POST(request: NextRequest) {
               from: process.env.GMAIL_FROM || process.env.GMAIL_USER,
               to: user.email,
               subject: 'Stock Replenished - Grand Link',
-              text: `Great news! "${data.productName}" is back in stock with ${data.newStock} units available. Order now before it's gone!`,
-              html: `<p>Great news!</p><p><strong>"${data.productName}"</strong> is back in stock with <strong>${data.newStock}</strong> units available.</p><p>Order now before it's gone!</p>`
+              text: `Great news! "${productName}" is back in stock with ${newStock} units available. Order now before it's gone!`,
+              html: `<p>Great news!</p><p><strong>"${productName}"</strong> is back in stock with <strong>${newStock}</strong> units available.</p><p>Order now before it's gone!</p>`
             });
             emailsSent++;
           } catch (emailError) {

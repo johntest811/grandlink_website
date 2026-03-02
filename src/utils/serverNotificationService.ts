@@ -251,7 +251,7 @@ export const serverNotificationService = {
             product_id: orderDetails.product_id,
             admin_name: adminName
           },
-          action_url: `/profile/orders?id=${orderDetails.id}`,
+          action_url: `/profile/order?id=${orderDetails.id}`,
           order_id: orderDetails.id,
           is_read: false,
           created_at: new Date().toISOString()

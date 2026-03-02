@@ -48,13 +48,21 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
           localStorage.setItem("userTheme", preferred);
         } catch {}
       } else {
+        let applied = false;
         try {
           const saved = localStorage.getItem("userTheme");
           if (saved === "light" || saved === "dark" || saved === "midnight") {
             applyUserTheme(saved);
+            applied = true;
           }
         } catch {
           // ignore
+        }
+        if (!applied) {
+          applyUserTheme("light");
+          try {
+            localStorage.setItem("userTheme", "light");
+          } catch {}
         }
       }
     };
@@ -67,6 +75,9 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
         const saved = localStorage.getItem("userTheme");
         if (saved === "light" || saved === "dark" || saved === "midnight") {
           applyUserTheme(saved);
+        } else {
+          applyUserTheme("light");
+          localStorage.setItem("userTheme", "light");
         }
       } catch {
         // ignore

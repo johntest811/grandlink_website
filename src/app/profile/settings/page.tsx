@@ -44,10 +44,14 @@ export default function ProfileSettingsPage() {
         if (saved === "light" || saved === "dark" || saved === "midnight") {
           setTheme(saved);
           applyTheme(saved);
+          return;
         }
       } catch {
         // ignore
       }
+
+      setTheme("light");
+      applyTheme("light");
     };
 
     loadTheme();

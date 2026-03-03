@@ -195,21 +195,13 @@ export default function ProfileCancelledPage() {
   };
 
   const contactSupport = (item: UserItem) => {
-    const subject = `Inquiry about ${item.status === "cancelled" ? "cancelled" : "pending cancellation"} reservation ${item.id}`;
-    const body = `Hello,
+    const supportMessage = `Hi, I need help with my ${item.status === "cancelled" ? "cancelled" : "pending cancellation"} reservation. Reservation ID: ${item.id}, Product: ${productsById[item.product_id]?.name || item.meta?.product_name || "N/A"}, Status: ${getStatusDisplay(item.status).label}.`;
 
-I would like to inquire about my ${item.status === "cancelled" ? "cancelled" : "pending cancellation"} reservation:
-
-Reservation ID: ${item.id}
-Product: ${productsById[item.product_id]?.name || item.meta?.product_name}
-Status: ${getStatusDisplay(item.status).label}
-
-Please provide an update on the status.
-
-Thank you.`;
-
-    const mailto = `mailto:support@grandlink.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailto;
+    window.dispatchEvent(
+      new CustomEvent("gl:open-chat", {
+        detail: { message: supportMessage },
+      })
+    );
   };
 
   const reorder = async (item: UserItem) => {

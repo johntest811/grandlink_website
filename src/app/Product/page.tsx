@@ -383,8 +383,8 @@ function ProductsPageContent() {
           aria-hidden={!showSideFilter}
         >
           <div className="w-52 max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-            <div className="bg-gradient-to-r from-[#8B1C1C] to-[#232d3b] px-4 py-3 text-white">
-              <p className="text-sm font-semibold">Refine Products</p>
+            <div className="bg-gradient-to-r from-[#232d3b] to-[#232d3b] px-4 py-3 text-white">
+              <p className="text-sm font-semibold">Filter Products</p>
             </div>
 
             <div className="p-2.5">

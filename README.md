@@ -65,3 +65,9 @@ Checkout and reservations support Pickup/Delivery. The selected method is persis
 ## Webhook reminder
 
 Payment gateways require a **public webhook URL**. For local testing, use something like ngrok and point PayMongo/PayPal webhooks to your `.../api/webhooks/*` endpoints.
+
+## PayMongo method policy
+
+- PayMongo checkout is intentionally wallet-only in this app (`gcash`, `paymaya`/`maya`).
+- Card-like methods (`card`, `credit`, `debit`, `credit_card`, `debit_card`) are filtered out server-side.
+- If `PAYMONGO_PAYMENT_METHOD_TYPES` includes card-like values, the server ignores them and logs a warning.

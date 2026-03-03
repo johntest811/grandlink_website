@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getMailFrom, getMailTransporter } from "./mailer";
-import { InvoiceData, InvoiceLine, renderInvoiceHtml } from "./invoice";
+import { InvoiceData, InvoiceLine, renderInvoiceHtml, renderInvoicePdf } from "./invoice";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -167,11 +167,20 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
   try {
     const transporter = getMailTransporter();
     if (transporter && recipients.length > 0) {
+      const pdfBuffer = await renderInvoicePdf(invoiceData);
+
       await transporter.sendMail({
         from: getMailFrom(),
         to: recipients.join(","),
         subject: `Invoice ${invoiceNumber} - GrandLink`,
         html: invoiceHtml,
+        attachments: [
+          {
+            filename: `${invoiceNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
       });
 
       await supabaseAdmin

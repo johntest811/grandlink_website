@@ -16,6 +16,7 @@ const supabase = createClient(
 const payrexNode = require('payrex-node');
 
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
+const PAYMONGO_ENVIRONMENT = (process.env.PAYMONGO_ENVIRONMENT || 'sandbox').toLowerCase();
 const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
 const PAYREX_PUBLIC_KEY =
   process.env.NEXT_PUBLIC_PAYREX_PUBLIC_KEY ||
@@ -112,66 +113,95 @@ async function createPayMongoSession(sessionData: any) {
     throw new Error('PAYMONGO_SECRET_KEY is not set on the server');
   }
 
-  const configuredMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
+  if (PAYMONGO_ENVIRONMENT === 'sandbox' && !PAYMONGO_SECRET_KEY.startsWith('sk_test_')) {
+    throw new Error('PAYMONGO_ENVIRONMENT is sandbox but PAYMONGO_SECRET_KEY is not a test key (expected prefix: sk_test_)');
+  }
+
+  const configuredMethodTypesRaw = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  // PayMongo uses the same API host for test and live; mode is determined by the API key.
-  // We default to requesting GCash, Maya, and Card in BOTH modes.
-  // If your PayMongo account doesn't have a method enabled, PayMongo's hosted checkout can
-  // show "No payment methods are available" — in that case, enable the methods in your
-  // PayMongo dashboard or temporarily force method types via PAYMONGO_PAYMENT_METHOD_TYPES.
-  const paymentMethodTypes = configuredMethodTypes.length
-    ? configuredMethodTypes
-    : ['gcash', 'paymaya', 'card'];
-
-  // Ensure we always request at least one known method.
-  if (paymentMethodTypes.length === 0) {
-    paymentMethodTypes.push('card');
+  const removedCardLikeMethods = configuredMethodTypesRaw.filter((m) =>
+    ['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(m)
+  );
+  if (removedCardLikeMethods.length > 0) {
+    console.warn(
+      `[PayMongo] Ignoring unsupported methods in PAYMONGO_PAYMENT_METHOD_TYPES: ${removedCardLikeMethods.join(', ')}`
+    );
   }
+
+  const paymongoMethodTypes = configuredMethodTypesRaw.filter(
+    (m) => !['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(m)
+  );
+
+  const paymentMethodTypeCandidates = paymongoMethodTypes.length
+    ? [paymongoMethodTypes]
+    : [
+        ['gcash', 'paymaya'],
+        ['gcash', 'maya'],
+      ];
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
-  const checkoutData = {
-    data: {
-      attributes: {
-        send_email_receipt: true,
-        show_description: true,
-        show_line_items: true,
-        line_items: lineItems,
-        payment_method_types: paymentMethodTypes,
-        success_url,
-        cancel_url,
-        description: `Payment for ${lineItems.length} item(s)`,
-        metadata: {
-          ...metadata,
-          user_item_ids: idsCsv,
-          payment_type,
+  let lastErrorPayload: unknown = null;
+
+  for (const paymentMethodTypes of paymentMethodTypeCandidates) {
+    const methodTypes = paymentMethodTypes.filter(Boolean);
+    if (methodTypes.length === 0) continue;
+
+    const checkoutData = {
+      data: {
+        attributes: {
+          send_email_receipt: true,
+          show_description: true,
+          show_line_items: true,
+          line_items: lineItems,
+          payment_method_types: methodTypes,
+          success_url,
+          cancel_url,
+          description: `Payment for ${lineItems.length} item(s)`,
+          metadata: {
+            ...metadata,
+            user_item_ids: idsCsv,
+            payment_type,
+            paymongo_environment: PAYMONGO_ENVIRONMENT,
+          },
         },
       },
-    },
-  };
+    };
 
-  const response = await fetch('https://api.paymongo.com/v1/checkout_sessions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${Buffer.from(PAYMONGO_SECRET_KEY + ':').toString('base64')}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(checkoutData)
-  });
+    const response = await fetch('https://api.paymongo.com/v1/checkout_sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(PAYMONGO_SECRET_KEY + ':').toString('base64')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(checkoutData)
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(`PayMongo API error: ${JSON.stringify(errorData)}`);
+    if (response.ok) {
+      const result = await response.json();
+      return {
+        sessionId: result.data.id,
+        checkoutUrl: result.data.attributes.checkout_url
+      };
+    }
+
+    try {
+      lastErrorPayload = await response.json();
+    } catch {
+      lastErrorPayload = await response.text();
+    }
+
+    const serialized = JSON.stringify(lastErrorPayload || {});
+    const looksLikeMethodTypeIssue = /payment_method_types|paymaya|maya/i.test(serialized);
+    if (!looksLikeMethodTypeIssue || configuredMethodTypesRaw.length > 0) {
+      break;
+    }
   }
 
-  const result = await response.json();
-  return {
-    sessionId: result.data.id,
-    checkoutUrl: result.data.attributes.checkout_url
-  };
+  throw new Error(`PayMongo API error: ${JSON.stringify(lastErrorPayload)}`);
 }
 
 async function createPayRexCheckoutSession(sessionData: any) {
@@ -436,7 +466,7 @@ export async function POST(request: NextRequest) {
       user_item_ids,
       cart_ids,
       user_id,
-      payment_method = 'payrex',
+      payment_method = 'paymongo',
       payment_type = 'reservation',
       success_url,
       cancel_url,
@@ -447,8 +477,8 @@ export async function POST(request: NextRequest) {
       receipt_ref,
     } = await request.json();
 
-    const normalizedPaymentMethod = String(payment_method || 'payrex').trim().toLowerCase();
-    const checkoutMethod = normalizedPaymentMethod === 'paymongo' ? 'payrex' : normalizedPaymentMethod;
+    const normalizedPaymentMethod = String(payment_method || 'paymongo').trim().toLowerCase();
+    const checkoutMethod = normalizedPaymentMethod;
 
     const requestOrigin = getRequestOrigin(request);
     const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);
@@ -575,46 +605,21 @@ export async function POST(request: NextRequest) {
       });
     };
 
-    // Reserve inventory immediately for reservations so UI reflects stock change
-    // and avoid double-deduct later by marking inventory_deducted in meta
+    // Validate stock only at session creation time.
+    // Do NOT deduct inventory here because users can cancel/abandon checkout,
+    // which previously caused permanent stock reduction and false "Insufficient inventory" errors.
+    // Actual deduction is done after successful payment in webhook handlers.
     if (payment_type === 'reservation') {
       for (const r of rows) {
         const p = productMap.get(r.product_id);
         const qty = Math.max(1, Number(r.quantity || 1));
-        const meta = r.meta || {};
-        // Skip if already reserved/deducted (idempotency)
-        if (meta.inventory_reserved || meta.inventory_deducted) continue;
         if (!p) {
           return NextResponse.json({ error: `Product not found for reservation` }, { status: 404 });
         }
         const currentInv = Number(p.inventory ?? 0);
-        const nextInv = currentInv - qty;
-        if (nextInv < 0) {
+        if (currentInv - qty < 0) {
           return NextResponse.json({ error: `Insufficient inventory for ${p.name}` }, { status: 409 });
         }
-        // Persist inventory deduction
-        const { error: invErr } = await supabase
-          .from('products')
-          .update({ inventory: nextInv })
-          .eq('id', r.product_id);
-        if (invErr) {
-          return NextResponse.json({ error: `Failed to reserve inventory: ${invErr.message}` }, { status: 500 });
-        }
-        // Mark user_item so webhooks/capture won't deduct again
-        const reservedMeta = {
-          ...meta,
-          inventory_reserved: true,
-          inventory_deducted: true,
-          product_stock_before: currentInv,
-          product_stock_after: nextInv,
-          inventory_reserved_at: new Date().toISOString(),
-        };
-        await supabase
-          .from('user_items')
-          .update({ meta: reservedMeta })
-          .eq('id', r.id);
-        // Update our local productMap to reflect new inventory for subsequent items
-        p.inventory = nextInv;
       }
     }
     let subtotal = 0;
@@ -952,6 +957,19 @@ export async function POST(request: NextRequest) {
         success_url: resolvedSuccessUrl,
         cancel_url: resolvedCancelUrl,
         items: payPalItems,
+      });
+      sessionId = res.sessionId;
+      checkoutUrl = res.checkoutUrl;
+    } else if (checkoutMethod === 'paymongo') {
+      const res = await createPayMongoSession({
+        amount: totalAmount,
+        currency: 'PHP',
+        user_item_ids: createdUserItemIds,
+        success_url: resolvedSuccessUrl,
+        cancel_url: resolvedCancelUrl,
+        payment_type,
+        metadata: baseMetadata,
+        lineItems: payMongoLineItems,
       });
       sessionId = res.sessionId;
       checkoutUrl = res.checkoutUrl;

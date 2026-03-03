@@ -66,10 +66,9 @@ function ReservationPageContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"payrex" | "paypal">(
-    "payrex"
+  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">(
+    "paymongo"
   );
-  const [payrexPhone, setPayrexPhone] = useState("");
 
   const branches = [
     "BALINTAWAK BRANCH",
@@ -130,23 +129,6 @@ function ReservationPageContent() {
     };
     loadData();
   }, [productId, router]);
-
-  useEffect(() => {
-    const loadPaymentSettings = async () => {
-      try {
-        const res = await fetch("/api/home");
-        if (!res.ok) return;
-        const data = await res.json();
-        const content = data?.content ?? data ?? {};
-        const configured = String(content?.payment?.payrex_phone || content?.payment?.payrex_number || "").trim();
-        setPayrexPhone(configured);
-      } catch (err) {
-        console.warn("Failed to load payment settings", err);
-      }
-    };
-
-    loadPaymentSettings();
-  }, []);
 
   const qty = Math.max(1, Number(formData.quantity || 1));
 
@@ -698,18 +680,15 @@ function ReservationPageContent() {
                       <input
                         type="radio"
                         name="pmethod"
-                        checked={paymentMethod === "payrex"}
-                        onChange={() => setPaymentMethod("payrex")}
+                        checked={paymentMethod === "paymongo"}
+                        onChange={() => setPaymentMethod("paymongo")}
                       />
-                      <span className="text-sm">PayRex - GCash, Maya</span>
+                      <span className="text-sm">PayMongo - GCash, Maya</span>
                     </label>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    Contact details (phone/email) will be collected inside the PayRex checkout.
+                    Contact details (phone/email) will be collected inside the PayMongo checkout.
                   </div>
-                  {payrexPhone && (
-                    <div className="text-xs text-[#8B1C1C] mt-1">Admin PayRex Phone: {payrexPhone}</div>
-                  )}
                   <div className="flex gap-4 mt-1">
                     <label className="inline-flex items-center gap-2">
                       <input

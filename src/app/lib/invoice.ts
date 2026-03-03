@@ -1,3 +1,5 @@
+import PDFDocument from "pdfkit";
+
 export type InvoiceLine = {
   description: string;
   quantity: number;
@@ -132,6 +134,94 @@ export function renderInvoiceHtml(data: InvoiceData) {
   </div>
 </body>
 </html>`;
+}
+
+export async function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 48 });
+    const chunks: Buffer[] = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk as Buffer));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const issued = new Date(data.issuedAtIso);
+    const lineHeight = 18;
+
+    doc.fontSize(20).text(data.companyName, { align: "left" });
+    doc.fontSize(10).fillColor("#555").text(data.companyAddress || "");
+    doc.text(data.companyEmail || "");
+
+    doc.moveDown(0.8);
+    doc.fillColor("#111").fontSize(16).text(`Invoice ${data.invoiceNumber}`, { align: "right" });
+    doc.fontSize(10).fillColor("#555").text(`Issued: ${issued.toLocaleString()}`, { align: "right" });
+    doc.text(`Order ID: ${data.orderId}`, { align: "right" });
+    doc.text(`Payment: ${(data.paymentMethod || "").toUpperCase() || "N/A"}`, { align: "right" });
+
+    doc.moveDown(1.2);
+    doc.fillColor("#111").fontSize(12).text("Billed To");
+    doc.fontSize(10).fillColor("#333").text(data.customerName || "");
+    doc.text(data.customerEmail || "");
+    doc.text(data.customerPhone || "");
+    doc.text(data.billingAddress || "");
+
+    doc.moveDown(0.8);
+    doc.fillColor("#111").fontSize(12).text("Fulfillment");
+    doc.fontSize(10).fillColor("#333").text(`Method: ${String(data.deliveryMethod || "").toUpperCase() || "N/A"}`);
+    if (String(data.deliveryMethod || "").toLowerCase() === "pickup") {
+      doc.text(`Pickup branch: ${data.pickupBranch || "(not set)"}`);
+    } else {
+      doc.text(`Delivery: ${data.deliveryAddress || "(not set)"}`);
+    }
+
+    doc.moveDown(1);
+    doc.fillColor("#111").fontSize(12).text("Items");
+    doc.moveDown(0.3);
+
+    const tableStartY = doc.y;
+    doc.fontSize(10).fillColor("#111");
+    doc.text("Description", 48, tableStartY);
+    doc.text("Qty", 300, tableStartY, { width: 40, align: "right" });
+    doc.text("Unit", 350, tableStartY, { width: 90, align: "right" });
+    doc.text("Amount", 450, tableStartY, { width: 100, align: "right" });
+
+    let rowY = tableStartY + 14;
+    doc.moveTo(48, rowY - 4).lineTo(550, rowY - 4).strokeColor("#ddd").stroke();
+
+    for (const line of data.lines) {
+      doc.fillColor("#333").fontSize(10);
+      doc.text(line.description, 48, rowY, { width: 240 });
+      doc.text(String(line.quantity), 300, rowY, { width: 40, align: "right" });
+      doc.text(money(line.unitPrice, data.currency), 350, rowY, { width: 90, align: "right" });
+      doc.text(money(line.amount, data.currency), 450, rowY, { width: 100, align: "right" });
+      rowY += lineHeight;
+    }
+
+    doc.moveTo(48, rowY - 2).lineTo(550, rowY - 2).strokeColor("#eee").stroke();
+    rowY += 8;
+
+    doc.fillColor("#111").fontSize(10);
+    doc.text("Subtotal", 360, rowY, { width: 90, align: "right" });
+    doc.text(money(data.subtotal, data.currency), 450, rowY, { width: 100, align: "right" });
+    rowY += lineHeight;
+    doc.text("Add-ons", 360, rowY, { width: 90, align: "right" });
+    doc.text(money(data.addonsTotal, data.currency), 450, rowY, { width: 100, align: "right" });
+    rowY += lineHeight;
+    doc.text("Discount", 360, rowY, { width: 90, align: "right" });
+    doc.text(`- ${money(data.discountValue, data.currency)}`, 450, rowY, { width: 100, align: "right" });
+    rowY += lineHeight;
+    doc.text("Reservation Fee", 360, rowY, { width: 90, align: "right" });
+    doc.text(money(data.reservationFee, data.currency), 450, rowY, { width: 100, align: "right" });
+    rowY += lineHeight;
+
+    doc.fontSize(12).fillColor("#000").text("Total", 360, rowY, { width: 90, align: "right" });
+    doc.text(money(data.totalAmount, data.currency), 450, rowY, { width: 100, align: "right" });
+
+    doc.moveDown(2);
+    doc.fontSize(9).fillColor("#666").text("This invoice is generated automatically after payment confirmation.");
+
+    doc.end();
+  });
 }
 
 function escapeHtml(s: string) {

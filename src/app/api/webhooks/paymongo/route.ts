@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
+import { getMailFrom, getMailTransporter } from '@/app/lib/mailer';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid webhook data' }, { status: 400 });
       }
 
-      const notifiedItems: { id: string; product_id: string; quantity: number; total_paid: number; user_id?: string }[] = [];
+      const notifiedItems: { id: string; product_id: string; product_name: string; quantity: number; total_paid: number; user_id?: string }[] = [];
       let grandTotalPaid = 0;
       let cartUserId: string | null = null;
 
@@ -103,6 +104,13 @@ export async function POST(request: NextRequest) {
         if (!cartUserId) cartUserId = userItem.user_id;
 
         const itemMeta = userItem.meta || {};
+        const { data: productDetails } = await supabase
+          .from('products')
+          .select('name,price,inventory')
+          .eq('id', userItem.product_id)
+          .maybeSingle();
+        const productName = String(itemMeta.product_name || productDetails?.name || 'Purchased Item');
+        const productUnitPrice = Number(itemMeta.product_price ?? userItem.price ?? productDetails?.price ?? 0);
   const lineAfterDiscount = Number(itemMeta.line_total_after_discount ?? itemMeta.line_total ?? 0);
         const addonsPerItem = Number(itemMeta.addons_total_per_item ?? itemMeta.addons_total ?? 0);
         const storedShare = Number(itemMeta.reservation_fee_share ?? 0);
@@ -133,6 +141,8 @@ export async function POST(request: NextRequest) {
             amount_paid: finalTotalPerItem,
             // Store both the net product line and the final total for transparency
             net_line_after_discount: lineAfterDiscount,
+            product_name: productName,
+            product_price: productUnitPrice,
             total_amount: finalTotalPerItem,
             payment_session_id: sessionId,
             payment_method: 'paymongo',
@@ -170,14 +180,8 @@ export async function POST(request: NextRequest) {
             if (itemMeta?.inventory_deducted) {
               console.log(`ℹ️ Inventory already deducted for item ${id}, skipping.`);
             } else {
-            const { data: product, error: productErr } = await supabase
-              .from('products')
-              .select('inventory')
-              .eq('id', userItem.product_id)
-              .single();
-
-            if (product && !productErr) {
-              const newInventory = Math.max(0, product.inventory - userItem.quantity);
+            if (productDetails && typeof productDetails.inventory === 'number') {
+              const newInventory = Math.max(0, productDetails.inventory - userItem.quantity);
               const { error: inventoryErr } = await supabase
                 .from('products')
                 .update({ inventory: newInventory })
@@ -186,12 +190,12 @@ export async function POST(request: NextRequest) {
               if (inventoryErr) {
                 console.error(`❌ Failed to deduct inventory for product ${userItem.product_id}:`, inventoryErr);
               } else {
-                console.log(`✅ Deducted ${userItem.quantity} from product ${userItem.product_id} inventory (${product.inventory} → ${newInventory})`);
+                console.log(`✅ Deducted ${userItem.quantity} from product ${userItem.product_id} inventory (${productDetails.inventory} → ${newInventory})`);
                 // Mark item meta to avoid double deduction in retries
                 const nextMeta = {
                   ...itemMeta,
                   inventory_deducted: true,
-                  product_stock_before: product.inventory,
+                  product_stock_before: productDetails.inventory,
                   product_stock_after: newInventory,
                 };
                 await supabase
@@ -209,6 +213,7 @@ export async function POST(request: NextRequest) {
         notifiedItems.push({
           id,
           product_id: userItem.product_id,
+          product_name: productName,
           quantity: userItem.quantity,
           total_paid: finalTotalPerItem,
           user_id: userItem.user_id,
@@ -295,6 +300,50 @@ export async function POST(request: NextRequest) {
           console.error('❌ Failed to store admin notification:', adminNotifErr.message);
         } else {
           console.log('✅ Admin notification inserted successfully:', insertedNotif);
+        }
+
+        // Customer payment confirmation email (includes purchased items)
+        try {
+          const transporter = getMailTransporter();
+          if (transporter && cartUserId) {
+            const { data: userWrap } = await supabase.auth.admin.getUserById(cartUserId);
+            const recipientEmail = userWrap?.user?.email;
+
+            if (recipientEmail) {
+              const itemRows = notifiedItems
+                .map(
+                  (item) =>
+                    `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${item.product_name}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`
+                )
+                .join('');
+
+              await transporter.sendMail({
+                from: getMailFrom(),
+                to: recipientEmail,
+                subject: `Payment Confirmed - ${paymentLabel}`,
+                html: `
+                  <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;">
+                    <h2 style="margin-bottom:8px;">Payment Confirmed</h2>
+                    <p style="margin-top:0;color:#444;">Your payment has been received successfully via PayMongo${channelLabel}.</p>
+                    <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:14px;">
+                      <thead>
+                        <tr>
+                          <th style="text-align:left;padding:8px;border-bottom:2px solid #e5e7eb;">Item</th>
+                          <th style="text-align:right;padding:8px;border-bottom:2px solid #e5e7eb;">Qty</th>
+                          <th style="text-align:right;padding:8px;border-bottom:2px solid #e5e7eb;">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>${itemRows}</tbody>
+                    </table>
+                    <p style="margin-top:14px;font-weight:700;">Total Paid: ₱${Number(grandTotalPaid || amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p style="margin-top:6px;color:#666;font-size:12px;">Invoice emails are sent separately for each purchased item.</p>
+                  </div>
+                `,
+              });
+            }
+          }
+        } catch (emailErr) {
+          console.warn('⚠️ Failed to send payment confirmation email:', emailErr);
         }
       }
 

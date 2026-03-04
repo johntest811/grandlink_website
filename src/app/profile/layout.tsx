@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
-import { FaUserCircle, FaMapMarkerAlt, FaBell, FaCog, FaQuestionCircle } from "react-icons/fa";
+import { FaUserCircle, FaMapMarkerAlt, FaBell, FaCog } from "react-icons/fa";
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -14,8 +14,16 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   const [user, setUser] = useState<any>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userTheme, setUserTheme] = useState<"light" | "dark" | "midnight">("light");
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editFullName, setEditFullName] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const pathname = usePathname() || "";
   const router = useRouter();
+  const hideTopMenu =
+    pathname.startsWith("/profile/address") ||
+    pathname.startsWith("/profile/notifications") ||
+    pathname.startsWith("/profile/settings");
 
   const applyUserTheme = (theme: "light" | "dark" | "midnight") => {
     setUserTheme(theme);
@@ -115,6 +123,41 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
     }
   };
 
+  const openEditProfileModal = () => {
+    setProfileMessage(null);
+    setEditFullName(user?.user_metadata?.full_name || user?.user_metadata?.name || "");
+    setShowEditProfile(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingProfile) return;
+
+    setSavingProfile(true);
+    setProfileMessage(null);
+    try {
+      const { supabase } = await import("@/app/Clients/Supabase/SupabaseClients");
+      const trimmedName = editFullName.trim();
+
+      const { data, error } = await supabase.auth.updateUser({
+        data: {
+          ...(user?.user_metadata || {}),
+          full_name: trimmedName,
+        },
+      });
+
+      if (error) throw error;
+
+      setUser(data?.user || user);
+      setProfileMessage("Profile updated successfully.");
+      setShowEditProfile(false);
+    } catch (e: any) {
+      setProfileMessage(e?.message || "Failed to update profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const menuItems = [
     { label: "Overview", href: "/profile" },
     { label: "Cart", href: "/profile/cart" },
@@ -152,12 +195,20 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
             {user?.email && (
               <span className="text-xs text-gray-500 mt-1">{user.email}</span>
             )}
-            <button className="text-xs text-gray-500 hover:underline mt-1">Edit Profile</button>
+            <button
+              onClick={openEditProfileModal}
+              className="text-xs text-gray-500 hover:underline mt-1"
+            >
+              Edit Profile
+            </button>
+            {profileMessage && (
+              <span className="text-xs text-green-700 mt-1 text-center">{profileMessage}</span>
+            )}
           </div>
           {/* Sidebar Links */}
           <nav className="w-full flex flex-col gap-6">
             <Link href="/profile" className="flex items-center gap-2 text-gray-700 hover:text-[#8B1C1C] font-semibold">
-              <FaUserCircle /> Profile
+              <FaUserCircle /> Order Overview
             </Link>
             <Link href="/profile/address" className="flex items-center gap-2 text-gray-700 hover:text-[#8B1C1C] font-semibold">
               <FaMapMarkerAlt /> My Address
@@ -189,27 +240,73 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
         {/* Page Content */}
         <section className="flex-1 flex flex-col">
           {/* Tabs (shared for all profile sub-pages) */}
-          <div className="px-8 py-6 border-b bg-gray-50">
-            <nav className="flex gap-2">
-              {menuItems.map(item => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`block px-4 py-2 rounded ${
-                    pathname === item.href ? "bg-[#8B1C1C] text-white" : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
+          {!hideTopMenu && (
+            <div className="px-8 py-6 border-b bg-gray-50">
+              <nav className="flex gap-2">
+                {menuItems.map(item => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`block px-4 py-2 rounded ${
+                      pathname === item.href ? "bg-[#8B1C1C] text-white" : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+          )}
 
           <div className="flex-1">
             {children}
           </div>
         </section>
       </main>
+      {showEditProfile && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Edit Profile</h3>
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={user?.email || ""}
+                  disabled
+                  className="w-full rounded border border-gray-300 px-3 py-2 bg-gray-100 text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B1C1C]"
+                  placeholder="Enter your full name"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditProfile(false)}
+                  className="px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-4 py-2 rounded bg-[#8B1C1C] text-white hover:bg-[#a83232] disabled:opacity-60"
+                >
+                  {savingProfile ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <Footer />
     </div>
   );

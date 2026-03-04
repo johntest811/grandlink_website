@@ -44,7 +44,9 @@ export default function ChatWidget() {
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   const [userInfo, setUserInfo] = useState<{ id: string; email?: string; name?: string } | null>(null);
 
@@ -129,9 +131,21 @@ export default function ChatWidget() {
     return "";
   };
 
-  const refresh = async (tkn?: string) => {
+  const isNearBottom = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 56;
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    bottomRef.current?.scrollIntoView({ behavior });
+  };
+
+  const refresh = async (tkn?: string, opts?: { forceScrollToBottom?: boolean }) => {
     const t = (tkn ?? token).trim();
     if (!t) return;
+
+    const shouldAutoScroll = opts?.forceScrollToBottom || shouldStickToBottomRef.current || isNearBottom();
 
     const res = await fetch(`/api/chat/messages?token=${encodeURIComponent(t)}`, { cache: "no-store" });
     const json = await res.json().catch(() => ({}));
@@ -140,8 +154,9 @@ export default function ChatWidget() {
     setThread(json.thread as ThreadInfo);
     setMessages((json.messages || []) as ChatMessage[]);
 
-    // Autoscroll when open
-    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    if (shouldAutoScroll) {
+      requestAnimationFrame(() => scrollToBottom("auto"));
+    }
   };
 
   useEffect(() => {
@@ -155,7 +170,7 @@ export default function ChatWidget() {
         setLoading(true);
         const t = await ensureThread();
         if (cancelled) return;
-        if (t) await refresh(t);
+        if (t) await refresh(t, { forceScrollToBottom: true });
       } catch {
         // ignore
       } finally {
@@ -200,7 +215,7 @@ export default function ChatWidget() {
         localStorage.setItem(LS_EMAIL, email);
       } catch {}
 
-      await refresh(t);
+      await refresh(t, { forceScrollToBottom: true });
     } finally {
       setLoading(false);
     }
@@ -232,7 +247,7 @@ export default function ChatWidget() {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to send message");
 
-    await refresh(t);
+    await refresh(t, { forceScrollToBottom: true });
   };
 
   const uploadImage = async (file: File) => {
@@ -269,7 +284,7 @@ export default function ChatWidget() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to send image");
 
-      await refresh(t);
+      await refresh(t, { forceScrollToBottom: true });
     } finally {
       setUploading(false);
     }
@@ -328,7 +343,13 @@ export default function ChatWidget() {
           </div>
 
           {/* Body */}
-          <div className="flex-1 bg-gray-50 p-3 overflow-y-auto">
+          <div
+            ref={messagesContainerRef}
+            className="flex-1 bg-gray-50 p-3 overflow-y-auto"
+            onScroll={() => {
+              shouldStickToBottomRef.current = isNearBottom();
+            }}
+          >
             {loading && !messages.length ? (
               <div className="text-sm text-gray-500">Loading…</div>
             ) : null}
@@ -365,13 +386,9 @@ export default function ChatWidget() {
             ) : (
               <>
                 {thread?.status === "resolved" ? (
-                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-xl p-3 text-sm mb-3">
-                    This conversation is marked as resolved.
-                    <button
-                      type="button"
-                      className="ml-2 underline"
-                      onClick={resetChat}
-                    >
+                  <div className="sticky top-0 z-10 bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-xl p-3 text-sm mb-3 flex items-center justify-between gap-2 shadow-sm">
+                    <span>This conversation is marked as resolved.</span>
+                    <button type="button" className="underline" onClick={resetChat}>
                       Start new chat
                     </button>
                   </div>

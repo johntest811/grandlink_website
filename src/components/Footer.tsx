@@ -55,39 +55,99 @@ export default function Footer() {
             <div>
               <h3 className="font-bold mb-3 text-[#232d3b]">About Us</h3>
               <ul className="space-y-2">
-                <li><a href="/showroom" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Showroom</a></li>
-                <li><a href="/locations" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Locations</a></li>
+                <li>
+                  <a href="/showroom" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Showroom
+                  </a>
+                </li>
+                <li>
+                  <a href="/locations" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Locations
+                  </a>
+                </li>
               </ul>
             </div>
 
             <div>
               <h3 className="font-bold mb-3 text-[#232d3b]">Services</h3>
               <ul className="space-y-2">
-                <li><a href="/services" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">List of Services</a></li>
-                <li><a href="/Featured" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Featured Projects</a></li>
-                <li><a href="/order-process" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Delivery & Order Process</a></li>
+                <li>
+                  <a href="/services" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    List of Services
+                  </a>
+                </li>
+                <li>
+                  <a href="/Featured" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Featured Projects
+                  </a>
+                </li>
+                <li>
+                  <a href="/order-process" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Delivery & Order Process
+                  </a>
+                </li>
               </ul>
             </div>
 
             <div>
               <h3 className="font-bold mb-3 text-[#232d3b]">Products</h3>
               <ul className="space-y-2">
-                <li><a href="/Product" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">All Products</a></li>
-                <li><a href="/Product?category=Doors" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Doors</a></li>
-                <li><a href="/Product?category=Windows" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Windows</a></li>
-                <li><a href="/Product?category=Enclosure" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Enclosure</a></li>
-                <li><a href="/Product?category=Casement" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Casement</a></li>
-                <li><a href="/Product?category=Sliding" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Sliding</a></li>
-                <li><a href="/Product?category=Railings" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Railings</a></li>
-                <li><a href="/Product?category=Canopy" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Canopy</a></li>
-                <li><a href="/Product?category=Curtain Wall" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">Curtain Wall</a></li>
+                <li>
+                  <a href="/Product" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    All Products
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Doors" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Doors
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Windows" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Windows
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Enclosure" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Enclosure
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Casement" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Casement
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Sliding" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Sliding
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Railings" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Railings
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Canopy" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Canopy
+                  </a>
+                </li>
+                <li>
+                  <a href="/Product?category=Curtain Wall" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    Curtain Wall
+                  </a>
+                </li>
               </ul>
             </div>
 
             <div>
               <h3 className="font-bold mb-3 text-[#232d3b]">Help</h3>
               <ul className="space-y-2">
-                <li><a href="/FAQs" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">FAQs</a></li>
+                <li>
+                  <a href="/FAQs" className="text-gray-600 font-medium hover:text-[#232d3b] transition-colors">
+                    FAQs
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
@@ -97,7 +157,12 @@ export default function Footer() {
       <div className="bg-[#232d3b] py-4 px-4">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-4 text-white text-sm">
-            <a href={chromeSettings.footerFacebookUrl || "https://www.facebook.com/grandeast.aluminum/"} target="_blank" rel="noopener noreferrer" aria-label="Facebook page">
+            <a
+              href={chromeSettings.footerFacebookUrl || "https://www.facebook.com/grandeast.aluminum/"}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook page"
+            >
               <FaFacebookF className="text-white text-xl bg-[#4267B2] rounded p-1 w-7 h-7" />
             </a>
             <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white">

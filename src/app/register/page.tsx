@@ -4,7 +4,7 @@ import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
 import { useState } from "react";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import { ReactNode } from "react";
-import SeamlessCaptcha from "@/components/SeamlessCaptcha";
+import CheckboxCaptcha from "@/components/CheckboxCaptcha";
 
 export default function RegisterPage() {
   const [firstName, setFirstName] = useState("");
@@ -153,6 +153,11 @@ export default function RegisterPage() {
   const strengthColorClass =
     strengthLabel === "Strong" ? "text-green-600" : strengthLabel === "Medium" ? "text-yellow-600" : "text-red-600";
 
+  const strengthBarClass =
+    strengthLabel === "Strong" ? "bg-green-600" : strengthLabel === "Medium" ? "bg-yellow-500" : "bg-red-600";
+
+  const strengthPercent = Math.max(0, Math.min(100, Math.round((strengthScore / 5) * 100)));
+
   const meetsMinimumStrength =
     passwordChecks.length && passwordChecks.lower && passwordChecks.upper && passwordChecks.number;
 
@@ -249,6 +254,13 @@ export default function RegisterPage() {
                   <span className={`font-semibold ${strengthColorClass}`}>{strengthLabel}</span>
                 </div>
 
+                <div className="mt-2 h-2 w-full rounded-full bg-gray-200 overflow-hidden" aria-label="Password strength meter">
+                  <div
+                    className={`h-full ${strengthBarClass} transition-all`}
+                    style={{ width: `${strengthPercent}%` }}
+                  />
+                </div>
+
                 <div className="mt-2 grid grid-cols-1 gap-1 text-black">
                   <div className={passwordChecks.length ? "text-green-600" : "text-red-600"}>
                     {passwordChecks.length ? "OK" : "X"} 8+ characters
@@ -289,7 +301,7 @@ export default function RegisterPage() {
                 <div className="mt-2 text-xs text-red-600">Passwords do not match.</div>
               ) : null}
             </div>
-            <SeamlessCaptcha onVerifiedChange={setCaptchaVerified} />
+            <CheckboxCaptcha onVerifiedChange={setCaptchaVerified} />
             <button
               type="submit"
               disabled={!meetsMinimumStrength || !passwordsMatch || !captchaVerified}

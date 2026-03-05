@@ -5,7 +5,7 @@ import { FaEnvelope, FaLock, FaGoogle } from "react-icons/fa";
 import TopNavBar from "@/components/TopNavBar";
 import { useRouter } from "next/navigation";
 import { supabase } from "../Clients/Supabase/SupabaseClients";
-import SeamlessCaptcha from "@/components/SeamlessCaptcha";
+import CheckboxCaptcha from "@/components/CheckboxCaptcha";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -47,7 +47,7 @@ export default function LoginPage() {
       sessionStorage.setItem("login_flow", "password");
 
       router.push("/login/verify");
-    } catch (e: any) {
+    } catch {
       setError("Failed to start login");
       setSending(false);
     }
@@ -121,7 +121,7 @@ export default function LoginPage() {
                 />
               </div>
             </div>
-            <SeamlessCaptcha onVerifiedChange={setCaptchaVerified} />
+            <CheckboxCaptcha onVerifiedChange={setCaptchaVerified} />
             <div className="flex justify-end text-xs">
               <a href="forgotpass" className="text-blue-600 hover:underline">Forgot Password</a>
             </div>

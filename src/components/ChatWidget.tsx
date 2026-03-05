@@ -23,6 +23,52 @@ const LS_TOKEN = "gl_chat_token";
 const LS_NAME = "gl_chat_name";
 const LS_EMAIL = "gl_chat_email";
 
+type FaqItem = {
+  id: string;
+  question: string;
+  answer: string;
+  quickMessage: string;
+};
+
+const CHAT_FAQS: FaqItem[] = [
+  {
+    id: "driver-software",
+    question: "Driver software download",
+    answer: "Please send your unit model and operating system so our team can provide the correct driver link.",
+    quickMessage: "Hi, I need help with driver software download.",
+  },
+  {
+    id: "track-order",
+    question: "Track my order",
+    answer: "Share your order number and full name, then we will check your latest order status for you.",
+    quickMessage: "Hi, can you help me track my order?",
+  },
+  {
+    id: "modify-order",
+    question: "How can I modify my order?",
+    answer: "Order changes depend on processing stage. Send your order number so we can verify if edits are still possible.",
+    quickMessage: "Hi, I want to modify my order details.",
+  },
+  {
+    id: "change-address",
+    question: "How to change my address?",
+    answer: "You can update saved addresses from your profile, then message us with your order number for delivery address changes.",
+    quickMessage: "Hi, I need to change my delivery address.",
+  },
+  {
+    id: "shipping-handling",
+    question: "Shipping & Handling",
+    answer: "Shipping schedule and handling depend on your location and item type. Message us your area to get an estimate.",
+    quickMessage: "Hi, I have a question about shipping and handling.",
+  },
+  {
+    id: "shipping-cost",
+    question: "How much does shipping cost?",
+    answer: "Shipping fees vary by delivery address and order size. Share your location and item list for a quote.",
+    quickMessage: "Hi, how much will shipping cost for my order?",
+  },
+];
+
 function formatTime(iso: string) {
   try {
     return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -43,6 +89,7 @@ export default function ChatWidget() {
 
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [activeFaqId, setActiveFaqId] = useState<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -301,6 +348,13 @@ export default function ChatWidget() {
     } catch {}
   };
 
+  const handleFaqClick = (faq: FaqItem) => {
+    setActiveFaqId((prev) => (prev === faq.id ? null : faq.id));
+    setText(faq.quickMessage);
+  };
+
+  const activeFaq = CHAT_FAQS.find((faq) => faq.id === activeFaqId) || null;
+
   return (
     <>
       {/* Floating Button */}
@@ -487,6 +541,30 @@ export default function ChatWidget() {
               ) : null}
             </div>
           )}
+
+          <div className="bg-gray-100 border-t border-gray-200 p-3">
+            <div className="text-sm font-semibold text-gray-800 text-center">Instant answers</div>
+            <div className="mt-2 space-y-2 max-h-44 overflow-y-auto pr-1">
+              {CHAT_FAQS.map((faq) => (
+                <button
+                  key={faq.id}
+                  type="button"
+                  onClick={() => handleFaqClick(faq)}
+                  className="w-full text-left px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-900"
+                >
+                  {faq.question}
+                </button>
+              ))}
+            </div>
+            {activeFaq ? (
+              <div className="mt-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700">
+                {activeFaq.answer}
+              </div>
+            ) : null}
+            <div className="mt-2 text-[11px] text-gray-600">
+              Tap a question to auto-fill the live chat message.
+            </div>
+          </div>
         </div>
       )}
     </>

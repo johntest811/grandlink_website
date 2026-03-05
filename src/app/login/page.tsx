@@ -2,19 +2,18 @@
 
 import { useState } from "react";
 import { FaEnvelope, FaLock, FaGoogle } from "react-icons/fa";
-import Image from "next/image";
 import TopNavBar from "@/components/TopNavBar";
 import { useRouter } from "next/navigation";
 import { supabase } from "../Clients/Supabase/SupabaseClients";
-import LoadingSuccess from "./LoadingSuccess";
+import SeamlessCaptcha from "@/components/SeamlessCaptcha";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState("");
   const [confirmationSent, setConfirmationSent] = useState(false);
   const [sending, setSending] = useState(false);
+  const [captchaVerified, setCaptchaVerified] = useState(false);
   const router = useRouter();
 
   const baseUrl =
@@ -24,6 +23,10 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (sending) return; // prevent double submit
+    if (!captchaVerified) {
+      setError("Please complete the captcha verification.");
+      return;
+    }
     setSending(true);
     setError("");
     try {
@@ -80,10 +83,6 @@ export default function LoginPage() {
     });
   };
 
-  if (showSuccess) {
-    return <LoadingSuccess />;
-  }
-
   return (
     <div className="relative min-h-screen font-sans bg-cover bg-center flex flex-col" style={{ backgroundImage: 'url("/sevices.avif")' }}>
       <TopNavBar />
@@ -122,10 +121,11 @@ export default function LoginPage() {
                 />
               </div>
             </div>
+            <SeamlessCaptcha onVerifiedChange={setCaptchaVerified} />
             <div className="flex justify-end text-xs">
               <a href="forgotpass" className="text-blue-600 hover:underline">Forgot Password</a>
             </div>
-            <button type="submit" disabled={sending} className={`bg-[#232d3b] text-white font-semibold rounded w-full py-2 mt-2 transition ${sending ? 'opacity-60 cursor-not-allowed' : 'hover:bg-[#1a222e]'}`}>{sending ? 'Sending link…' : 'LOGIN'}</button>
+            <button type="submit" disabled={sending || !captchaVerified} className={`bg-[#232d3b] text-white font-semibold rounded w-full py-2 mt-2 transition ${sending || !captchaVerified ? 'opacity-60 cursor-not-allowed' : 'hover:bg-[#1a222e]'}`}>{sending ? 'Sending link…' : 'LOGIN'}</button>
             {error && (
               <div className="text-red-600 text-xs text-center mt-2">{error}</div>
             )}

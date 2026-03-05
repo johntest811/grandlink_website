@@ -4,6 +4,7 @@ import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
 import { useState } from "react";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import { ReactNode } from "react";
+import SeamlessCaptcha from "@/components/SeamlessCaptcha";
 
 export default function RegisterPage() {
   const [firstName, setFirstName] = useState("");
@@ -11,6 +12,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
   const [popup, setPopup] = useState<{ success: boolean; message: ReactNode } | null>(null);
   const baseUrl =
     process.env.NEXT_PUBLIC_BASE_URL ||
@@ -27,6 +29,11 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!captchaVerified) {
+      setPopup({ success: false, message: "Please complete the captcha verification." });
+      return;
+    }
 
     const cleanFirstName = firstName.trim();
     const cleanLastName = lastName.trim();
@@ -282,11 +289,12 @@ export default function RegisterPage() {
                 <div className="mt-2 text-xs text-red-600">Passwords do not match.</div>
               ) : null}
             </div>
+            <SeamlessCaptcha onVerifiedChange={setCaptchaVerified} />
             <button
               type="submit"
-              disabled={!meetsMinimumStrength || !passwordsMatch}
+              disabled={!meetsMinimumStrength || !passwordsMatch || !captchaVerified}
               className={`bg-[#232d3b] text-white font-semibold rounded w-full py-2 mt-2 transition ${
-                !meetsMinimumStrength || !passwordsMatch ? "opacity-60 cursor-not-allowed" : "hover:bg-[#1a222e]"
+                !meetsMinimumStrength || !passwordsMatch || !captchaVerified ? "opacity-60 cursor-not-allowed" : "hover:bg-[#1a222e]"
               }`}
             >
               REGISTER

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
+import { formatAddressLineFromRecord } from "@/utils/addressFields";
 
 type UserItem = {
   id: string;
@@ -47,10 +48,16 @@ type PaymentSession = {
 };
 
 type Address = {
-  id: string;
-  full_name: string;
-  address: string;
-  phone?: string;
+  id?: string;
+  full_name?: string | null;
+  address?: string | null;
+  full_address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  province?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  label?: string | null;
   is_default?: boolean;
 };
 
@@ -81,6 +88,7 @@ export default function ProfileOrderPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<{ item: UserItem; product: Product } | null>(null);
   const [receiptSessions, setReceiptSessions] = useState<PaymentSession[]>([]);
+  const [receiptAddress, setReceiptAddress] = useState<Address | null>(null);
   const [progressModal, setProgressModal] = useState<{ item: UserItem; product?: Product } | null>(null);
 
   const [imagePreview, setImagePreview] = useState<{ urls: string[]; index: number; title?: string } | null>(null);
@@ -249,6 +257,19 @@ export default function ProfileOrderPage() {
   const openReceipt = async (item: UserItem) => {
     const product = productsById[item.product_id];
     setSelectedOrder({ item, product });
+    setReceiptAddress(null);
+
+    if (item.delivery_address_id) {
+      const { data: addrData } = await supabase
+        .from("addresses")
+        .select("id,full_name,address,phone,email,is_default,full_address,province,city,postal_code,label")
+        .eq("id", item.delivery_address_id)
+        .maybeSingle();
+      if (addrData) setReceiptAddress(addrData as Address);
+    } else if (item.meta?.delivery_address) {
+      setReceiptAddress(item.meta.delivery_address as Address);
+    }
+
     // fetch sessions for this item
     const { data, error } = await supabase
       .from("payment_sessions")
@@ -909,103 +930,188 @@ export default function ProfileOrderPage() {
           </div>
         </div>
       )}
-      {/* Receipt Modal (unchanged structure) */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-xl p-6">
-            <div className="text-center border-b pb-4 mb-4">
-              <h2 className="text-2xl font-extrabold tracking-widest text-black">GRAND LINK</h2>
-              <p className="text-sm text-black">Official Receipt</p>
-            </div>
+        <>
+          <style jsx global>{`
+            @media print {
+              @page {
+                size: A4;
+                margin: 15mm;
+              }
 
-            <div className="space-y-4 text-sm text-black">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-black">Order ID</div>
-                  <div className="font-mono text-xs">{selectedOrder.item.id}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-black">Date</div>
-                  <div>{new Date(selectedOrder.item.created_at).toLocaleString()}</div>
-                </div>
-                <div>
-                  <div className="text-black">Product</div>
-                  <div className="font-medium">{selectedOrder.product.name}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-black">Unit Price</div>
-                  <div>{currency(selectedOrder.product.price || 0)}</div>
+              body * {
+                visibility: hidden;
+              }
+
+              #order-receipt-print-area,
+              #order-receipt-print-area * {
+                visibility: visible;
+              }
+
+              #order-receipt-print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+              }
+
+              .no-print {
+                display: none !important;
+              }
+            }
+          `}</style>
+
+          <div className="fixed inset-0 bg-transparent flex items-center justify-center z-50 p-4">
+            <div className="bg-white bg-opacity-95 backdrop-blur-sm rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+              <div className="no-print flex justify-between items-center p-4 border-b bg-white bg-opacity-80">
+                <h2 className="text-lg font-semibold text-gray-800">Order Receipt</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={() => setSelectedOrder(null)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+                  >
+                    ✕ Close
+                  </button>
                 </div>
               </div>
 
-              <div className="border-t border-black pt-3">
-                <div className="flex justify-between">
-                  <span>Quantity</span>
-                  <span>{selectedOrder.item.quantity}</span>
+              <div
+                id="order-receipt-print-area"
+                className="p-8 bg-white bg-opacity-90"
+                style={{ maxWidth: "210mm", margin: "0 auto" }}
+              >
+                <div className="text-center mb-8 border-b-2 border-gray-300 pb-6">
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">GRAND EAST</h1>
+                  <p className="text-sm text-gray-600">Order Receipt</p>
+                  <p className="text-xs text-gray-500 mt-1">Thank you for ordering with us</p>
                 </div>
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>{currency((selectedOrder.product.price || 0) * selectedOrder.item.quantity)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Reservation Fee</span>
-                  <span>- {currency(500)}</span>
-                </div>
-                <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
-                  <span>Balance Due</span>
-                  <span className="text-black">
-                    {currency((selectedOrder.product.price || 0) * selectedOrder.item.quantity - 500)}
-                  </span>
-                </div>
-              </div>
 
-              {/* NEW: Payment / ship / completed details */}
-              <div className="border-t border-black pt-3 space-y-1">
+                <div className="mb-6">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500 font-medium mb-1">Order ID</p>
+                      <p className="text-gray-900 font-mono text-xs break-all">{selectedOrder.item.id}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 font-medium mb-1">Status</p>
+                      <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white">
+                        {stageLabel(String(selectedOrder.item.order_status || selectedOrder.item.order_progress || selectedOrder.item.status || "pending"))}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 font-medium mb-1">Date Created</p>
+                      <p className="text-gray-900">
+                        {new Date(selectedOrder.item.created_at).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 font-medium mb-1">Quantity</p>
+                      <p className="text-gray-900 font-semibold">{selectedOrder.item.quantity} unit(s)</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6 border-t border-b border-gray-200 py-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Product Details</h3>
+                  <div className="flex items-start gap-4">
+                    <div className="w-20 h-20 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
+                      <Image
+                        src={selectedOrder.product.images?.[0] || selectedOrder.product.image1 || "/no-image.png"}
+                        alt={selectedOrder.product.name || "Product"}
+                        width={80}
+                        height={80}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900 text-lg">{selectedOrder.product.name}</p>
+                      {(selectedOrder.item.meta?.selected_branch || selectedOrder.item.meta?.branch) ? (
+                        <p className="text-sm text-gray-600 mt-1">
+                          <span className="font-medium">Branch:</span> {selectedOrder.item.meta?.selected_branch || selectedOrder.item.meta?.branch}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Payment Summary</h3>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Unit Price</span>
+                      <span className="text-gray-900 font-medium">{currency(Number(selectedOrder.item.meta?.product_price ?? selectedOrder.product.price ?? 0))}</span>
+                    </div>
+                    {selectedOrder.item.meta?.reservation_fee ? (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Reservation Fee</span>
+                        <span className="text-gray-900 font-medium">{currency(Number(selectedOrder.item.meta.reservation_fee))}</span>
+                      </div>
+                    ) : null}
+                    {selectedOrder.item.meta?.discount_value ? (
+                      <div className="flex justify-between text-sm text-green-600">
+                        <span>Discount</span>
+                        <span className="font-medium">-{currency(Number(selectedOrder.item.meta.discount_value))}</span>
+                      </div>
+                    ) : null}
+                    <div className="border-t border-gray-300 pt-2 mt-2">
+                      <div className="flex justify-between">
+                        <span className="text-gray-900 font-bold text-lg">Total Amount</span>
+                        <span className="text-gray-900 font-bold text-xl">
+                          {currency(Number(selectedOrder.item.total_amount ?? selectedOrder.item.total_paid ?? ((selectedOrder.product.price || 0) * selectedOrder.item.quantity)))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {(() => {
-                  const paid = receiptSessions.find((s) => s.status === "completed") || receiptSessions[0];
-                  const payMethod = paid?.payment_provider ? paid.payment_provider.toUpperCase() : "N/A";
-                  const payTime = paid?.completed_at || paid?.created_at;
-                  const shipTime =
-                    findTime(selectedOrder.item, ["out_for_delivery"])?.toISOString() ||
-                    findTime(selectedOrder.item, ["ready_for_delivery"])?.toISOString();
-                const doneTime =
-                    findTime(selectedOrder.item, ["completed"])?.toISOString() ||
-                    selectedOrder.item.updated_at;
-
+                  const addr = receiptAddress || (selectedOrder.item.meta?.delivery_address as Address | undefined);
+                  if (!addr) return null;
                   return (
-                    <>
-                      <div className="flex justify-between">
-                        <span>Payment Method</span>
-                        <span className="font-medium">{payMethod}</span>
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Delivery Information</h3>
+                      <div className="bg-gray-50 rounded-lg p-4 text-sm">
+                        {addr.full_name ? <p className="text-gray-900 font-medium">{addr.full_name}</p> : null}
+                        <p className="text-gray-600 mt-1">{formatAddressLineFromRecord(addr)}</p>
+                        {addr.phone ? <p className="text-gray-600">{addr.phone}</p> : null}
+                        {addr.email ? <p className="text-gray-600">{addr.email}</p> : null}
                       </div>
-                      <div className="flex justify-between">
-                        <span>Payment Time</span>
-                        <span>{payTime ? new Date(payTime).toLocaleString() : "N/A"}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Ship Time</span>
-                        <span>{shipTime ? new Date(shipTime).toLocaleString() : "Pending"}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Completed Time</span>
-                        <span>{doneTime ? new Date(doneTime).toLocaleString() : "Pending"}</span>
-                      </div>
-                    </>
+                    </div>
                   );
                 })()}
+
+                <div className="mt-8 pt-6 border-t border-gray-200 text-center">
+                  <p className="text-xs text-gray-500 mb-2">
+                    This is an official receipt from Grand East. For inquiries, please contact our customer service.
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Generated on {new Date().toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
               </div>
             </div>
-
-            <div className="pt-3 flex gap-2">
-              <button onClick={() => window.print()} className="flex-1 py-2 bg-black text-white rounded hover:opacity-90">
-                Print
-              </button>
-              <button onClick={() => setSelectedOrder(null)} className="flex-1 py-2 bg-black text-white rounded hover:opacity-90">
-                Close
-              </button>
-            </div>
           </div>
-        </div>
+        </>
       )}
     </section>
   );

@@ -10,20 +10,58 @@ const supabaseAdmin = createClient(SUPA_URL, SUPA_SERVICE_ROLE);
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
-    const { id, full_name, phone, address, is_default } = body;
+    const {
+      id,
+      full_name,
+      first_name,
+      last_name,
+      phone,
+      email,
+      address,
+      full_address,
+      province,
+      city,
+      postal_code,
+      label,
+      is_default,
+    } = body;
     if (!id) return NextResponse.json({ error: "missing address id" }, { status: 400 });
 
-    const { data, error } = await supabaseAdmin
+    const corePayload = {
+      full_name,
+      first_name,
+      last_name,
+      phone,
+      email,
+      address,
+      is_default,
+    };
+
+    let { data, error } = await supabaseAdmin
       .from("addresses")
       .update({
-        full_name,
-        phone,
-        address,
-        is_default
+        ...corePayload,
+        full_address,
+        province,
+        city,
+        postal_code,
+        label,
       })
       .eq("id", id)
       .select()
       .single();
+
+    const msg = String(error?.message || "").toLowerCase();
+    if (error && (msg.includes("column") || msg.includes("schema cache") || msg.includes("pgrst"))) {
+      const fallback = await supabaseAdmin
+        .from("addresses")
+        .update(corePayload)
+        .eq("id", id)
+        .select()
+        .single();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

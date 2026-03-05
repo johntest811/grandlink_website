@@ -4,6 +4,14 @@ import { Suspense, useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import { computeMeasurementPricing } from "../../utils/measurementPricing";
+import {
+  buildAddressPayloads,
+  emptyAddressForm,
+  formatAddressLineFromRecord,
+  isAddressColumnError,
+  toAddressFormFromRecord,
+  type AddressFormFields,
+} from "@/utils/addressFields";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,11 +38,17 @@ type Product = {
 
 type Address = {
   id: string;
-  first_name: string;
-  last_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
   full_name: string;
   phone: string;
+  email?: string | null;
   address: string;
+  full_address?: string | null;
+  province?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  label?: string | null;
   is_default: boolean;
 };
 
@@ -48,6 +62,11 @@ function ReservationPageContent() {
   const [product, setProduct] = useState<Product | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
+  const [showAddressPopup, setShowAddressPopup] = useState(false);
+  const [addressFormMode, setAddressFormMode] = useState<"add" | "edit" | null>(null);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [fulfillmentMethod, setFulfillmentMethod] = useState<"delivery" | "pickup">("delivery");
   const [userId, setUserId] = useState<string | null>(null);
@@ -89,6 +108,164 @@ function ReservationPageContent() {
     else router.push("/Product");
   };
 
+  const resetAddressForm = () => {
+    setAddressForm(emptyAddressForm());
+  };
+
+  const fetchAddresses = async (uid: string, preferredAddressId?: string | null) => {
+    const { data: addressData } = await supabase
+      .from("addresses")
+      .select("*")
+      .eq("user_id", uid)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    const list = (addressData || []) as Address[];
+    setAddresses(list);
+
+    setSelectedAddressId((prev) => {
+      if (preferredAddressId && list.some((a) => a.id === preferredAddressId)) {
+        return preferredAddressId;
+      }
+      if (prev && list.some((a) => a.id === prev)) {
+        return prev;
+      }
+      const def = list.find((a) => a.is_default);
+      return def?.id || list[0]?.id || "";
+    });
+  };
+
+  const openAddressListPopup = () => {
+    setAddressFormMode(null);
+    setEditingAddressId(null);
+    resetAddressForm();
+    setShowAddressPopup(true);
+  };
+
+  const openAddAddressForm = () => {
+    setAddressFormMode("add");
+    setEditingAddressId(null);
+    resetAddressForm();
+    setShowAddressPopup(true);
+  };
+
+  const openEditAddressForm = (addr: Address) => {
+    setAddressFormMode("edit");
+    setEditingAddressId(addr.id);
+    setAddressForm(toAddressFormFromRecord(addr));
+    setShowAddressPopup(true);
+  };
+
+  const saveAddressFromPopup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) {
+      alert("Please sign in first.");
+      return;
+    }
+    if (
+      !addressForm.full_name.trim() ||
+      !addressForm.email.trim() ||
+      !addressForm.phone.trim() ||
+      !addressForm.street.trim() ||
+      !addressForm.barangay.trim() ||
+      !addressForm.city.trim() ||
+      !addressForm.province.trim() ||
+      !addressForm.postal_code.trim()
+    ) {
+      alert("Please complete all required address fields.");
+      return;
+    }
+
+    setAddressSaving(true);
+    try {
+      const { basePayload, extendedPayload } = buildAddressPayloads(addressForm);
+      if (!basePayload.address) {
+        alert("Please provide a valid full address.");
+        return;
+      }
+
+      if (editingAddressId) {
+        if (addressForm.is_default) {
+          await supabase
+            .from("addresses")
+            .update({ is_default: false })
+            .eq("user_id", userId)
+            .neq("id", editingAddressId);
+        }
+
+        let { error: updateError } = await supabase
+          .from("addresses")
+          .update({
+            ...extendedPayload,
+            is_default: !!addressForm.is_default,
+          })
+          .match({ id: editingAddressId, user_id: userId });
+
+        if (updateError && isAddressColumnError(updateError.message || "")) {
+          const fallback = await supabase
+            .from("addresses")
+            .update({
+              ...basePayload,
+              is_default: !!addressForm.is_default,
+            })
+            .match({ id: editingAddressId, user_id: userId });
+          updateError = fallback.error;
+        }
+
+        if (updateError) throw updateError;
+        await fetchAddresses(userId, editingAddressId);
+      } else {
+        const wantDefault = addressForm.is_default || addresses.length === 0;
+
+        let insertResult = await supabase
+          .from("addresses")
+          .insert([
+            {
+              user_id: userId,
+              ...extendedPayload,
+              is_default: false,
+            },
+          ])
+          .select("id")
+          .single();
+
+        if (insertResult.error && isAddressColumnError(insertResult.error.message || "")) {
+          insertResult = await supabase
+            .from("addresses")
+            .insert([
+              {
+                user_id: userId,
+                ...basePayload,
+                is_default: false,
+              },
+            ])
+            .select("id")
+            .single();
+        }
+
+        if (insertResult.error) throw insertResult.error;
+
+        if (wantDefault && insertResult.data?.id) {
+          await supabase.from("addresses").update({ is_default: false }).eq("user_id", userId);
+          await supabase
+            .from("addresses")
+            .update({ is_default: true })
+            .match({ id: insertResult.data.id, user_id: userId });
+        }
+
+        await fetchAddresses(userId, insertResult.data?.id || null);
+      }
+
+      setAddressFormMode(null);
+      setEditingAddressId(null);
+      resetAddressForm();
+    } catch (error: any) {
+      alert(error?.message || "Failed to save address.");
+    } finally {
+      setAddressSaving(false);
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -110,17 +287,7 @@ function ReservationPageContent() {
           setProduct(productData as any);
         }
 
-        const { data: addressData } = await supabase
-          .from("addresses")
-          .select("*")
-          .eq("user_id", uid)
-          .order("is_default", { ascending: false });
-
-        if (addressData) {
-          setAddresses(addressData as any);
-          const def = addressData.find((a: any) => a.is_default);
-          if (def) setSelectedAddressId(def.id);
-        }
+        await fetchAddresses(uid);
       } catch (e) {
         console.error(e);
       } finally {
@@ -131,6 +298,7 @@ function ReservationPageContent() {
   }, [productId, router]);
 
   const qty = Math.max(1, Number(formData.quantity || 1));
+  const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
   const measurementPricing = (() => {
     const unitPricePerSqm = Number(product?.price || 0);
@@ -310,7 +478,12 @@ function ReservationPageContent() {
                 last_name: selectedAddress.last_name,
                 full_name: selectedAddress.full_name,
                 phone: selectedAddress.phone,
-                address: selectedAddress.address,
+                email: selectedAddress.email,
+                province: selectedAddress.province,
+                city: selectedAddress.city,
+                barangay: selectedAddress.label,
+                postal_code: selectedAddress.postal_code,
+                address: formatAddressLineFromRecord(selectedAddress),
               }
             : null,
           addons,
@@ -552,10 +725,37 @@ function ReservationPageContent() {
                       <option value="">Select Address</option>
                       {addresses.map((a) => (
                         <option key={a.id} value={a.id}>
-                          {a.full_name} — {a.address}
+                          {a.full_name} — {formatAddressLineFromRecord(a)}
                         </option>
                       ))}
                     </select>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={openAddressListPopup}
+                        className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Manage Addresses
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openAddAddressForm}
+                        className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
+                      >
+                        + Add New Address
+                      </button>
+                    </div>
+                    {selectedAddressPreview ? (
+                      <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+                        <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
+                        <div>{selectedAddressPreview.phone}</div>
+                        <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
+                        {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
+                      </div>
+                    ) : null}
+                    {addresses.length === 0 ? (
+                      <div className="mt-1 text-xs text-gray-600">No saved addresses yet. Add one to continue delivery checkout.</div>
+                    ) : null}
                   </div>
                 ) : (
                   <div>
@@ -757,6 +957,221 @@ function ReservationPageContent() {
           </div>
         </div>
       </div>
+
+      {showAddressPopup && (
+        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-white rounded-xl shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="text-lg font-bold text-gray-900">
+                {addressFormMode ? (addressFormMode === "edit" ? "Edit Address" : "Add New Address") : "Select Delivery Address"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddressPopup(false);
+                  setAddressFormMode(null);
+                  setEditingAddressId(null);
+                  resetAddressForm();
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            {addressFormMode ? (
+              <form onSubmit={saveAddressFromPopup} className="p-5 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                    <input
+                      value={addressForm.full_name}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, full_name: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Gmail *</label>
+                    <input
+                      type="email"
+                      value={addressForm.email}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, email: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+                  <input
+                    value={addressForm.phone}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    className="w-full border rounded px-3 py-2 text-gray-900"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Province / Region *</label>
+                    <input
+                      value={addressForm.province}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, province: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                    <input
+                      value={addressForm.city}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, city: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Barangay *</label>
+                    <input
+                      value={addressForm.barangay}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, barangay: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code *</label>
+                    <input
+                      value={addressForm.postal_code}
+                      onChange={(e) => setAddressForm((prev) => ({ ...prev, postal_code: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-gray-900"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Street *</label>
+                  <textarea
+                    value={addressForm.street}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, street: e.target.value }))}
+                    className="w-full border rounded px-3 py-2 text-gray-900"
+                    rows={3}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Address Preview</label>
+                  <input
+                    value={`${addressForm.street}${addressForm.barangay ? `, ${addressForm.barangay}` : ""}${addressForm.city ? `, ${addressForm.city}` : ""}${addressForm.province ? `, ${addressForm.province}` : ""}${addressForm.postal_code ? `, ${addressForm.postal_code}` : ""}`}
+                    className="w-full border rounded px-3 py-2 text-gray-900"
+                    readOnly
+                  />
+                </div>
+
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={addressForm.is_default}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, is_default: e.target.checked }))}
+                  />
+                  Set as default address
+                </label>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddressFormMode(null);
+                      setEditingAddressId(null);
+                      resetAddressForm();
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-100"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addressSaving}
+                    className="px-4 py-2 bg-[#8B1C1C] text-white rounded hover:bg-[#7a1919] disabled:opacity-60"
+                  >
+                    {addressSaving ? "Saving..." : "Save Address"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="p-5">
+                <div className="flex justify-end mb-3">
+                  <button
+                    type="button"
+                    onClick={openAddAddressForm}
+                    className="px-3 py-2 rounded bg-[#8B1C1C] text-white text-sm hover:bg-[#7a1919]"
+                  >
+                    + Add New Address
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {addresses.map((addr) => {
+                    const isSelected = selectedAddressId === addr.id;
+                    return (
+                      <div
+                        key={addr.id}
+                        className={`rounded-lg border p-3 ${isSelected ? "border-[#8B1C1C] bg-[#fff8f8]" : "border-gray-200 bg-white"}`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div className="font-semibold text-gray-900">
+                              {addr.full_name}
+                              {addr.is_default ? (
+                                <span className="ml-2 text-xs font-medium text-green-700">Default</span>
+                              ) : null}
+                            </div>
+                            <div className="text-sm text-gray-700">{addr.phone}</div>
+                            <div className="text-sm text-gray-700">{formatAddressLineFromRecord(addr)}</div>
+                            {addr.email ? <div className="text-xs text-gray-600">{addr.email}</div> : null}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedAddressId(addr.id);
+                                setShowAddressPopup(false);
+                              }}
+                              className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              Select
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditAddressForm(addr)}
+                              className="px-3 py-1.5 rounded border border-[#8B1C1C] text-sm text-[#8B1C1C] hover:bg-[#fff1f1]"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {addresses.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-600 text-center">
+                      No saved addresses yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

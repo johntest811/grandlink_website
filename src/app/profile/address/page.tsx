@@ -2,16 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../Clients/Supabase/SupabaseClients";
+import {
+  buildAddressPayloads,
+  emptyAddressForm,
+  formatAddressLineFromRecord,
+  isAddressColumnError,
+  toAddressFormFromRecord,
+  type AddressFormFields,
+} from "@/utils/addressFields";
 
 type Address = {
   id: string;
   user_id?: string;
-  first_name: string;
-  last_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
   full_name: string;
   phone: string;
-  email?: string; // NEW
+  email?: string | null;
   address: string;
+  full_address?: string | null;
+  province?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  label?: string | null;
   is_default: boolean;
   created_at?: string;
 };
@@ -20,17 +33,8 @@ export default function AddressManager() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [defaultId, setDefaultId] = useState<string | null>(null);
-
-  // editing state
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // Form states (shared for add/edit) - REMOVED BRANCH
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [email, setEmail] = useState(""); // NEW
-  const [isDefaultChecked, setIsDefaultChecked] = useState(false);
+  const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
 
   useEffect(() => {
     fetchAddresses();
@@ -51,15 +55,17 @@ export default function AddressManager() {
       .from("addresses")
       .select("*")
       .eq("user_id", user.id)
+      .order("is_default", { ascending: false })
       .order("created_at", { ascending: false });
 
     if (error) {
       console.error("fetch addresses error", error);
       return;
     }
-    setAddresses(data ?? []);
-    const def = data?.find((a) => a.is_default)?.id ?? null;
-    setDefaultId(def);
+
+    const list = (data ?? []) as Address[];
+    setAddresses(list);
+    setDefaultId(list.find((a) => a.is_default)?.id ?? null);
   }
 
   async function notifyServersAddressUpdated(
@@ -83,36 +89,32 @@ export default function AddressManager() {
     }
   }
 
-  // open modal for adding a new address
   function openAddForm() {
     setEditingId(null);
-    setFirstName("");
-    setLastName("");
-    setPhone("");
-    setAddress("");
-    setEmail(""); // NEW
-    setIsDefaultChecked(false);
+    setAddressForm(emptyAddressForm());
     setShowForm(true);
   }
 
-  // open modal to edit existing address
-  function openEditForm(a: Address) {
-    setEditingId(a.id);
-    setFirstName(a.first_name || "");
-    setLastName(a.last_name || "");
-    setPhone(a.phone || "");
-    setAddress(a.address || "");
-    setIsDefaultChecked(a.is_default);
-    setEmail(a.email || ""); // add a useState for email
+  function openEditForm(address: Address) {
+    setEditingId(address.id);
+    setAddressForm(toAddressFormFromRecord(address));
     setShowForm(true);
   }
 
-  // unified save handler for add & edit - REMOVED BRANCH VALIDATION AND SAVE
   const handleSaveAddress = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!firstName || !lastName || !phone || !address) {
-      alert("All fields are required!");
+    if (
+      !addressForm.full_name.trim() ||
+      !addressForm.email.trim() ||
+      !addressForm.phone.trim() ||
+      !addressForm.street.trim() ||
+      !addressForm.barangay.trim() ||
+      !addressForm.city.trim() ||
+      !addressForm.province.trim() ||
+      !addressForm.postal_code.trim()
+    ) {
+      alert("Please complete all required fields.");
       return;
     }
 
@@ -125,12 +127,15 @@ export default function AddressManager() {
       return;
     }
 
-    const fullName = `${firstName} ${lastName}`;
+    const { basePayload, extendedPayload } = buildAddressPayloads(addressForm);
+
+    if (!basePayload.address) {
+      alert("Please provide a valid full address.");
+      return;
+    }
 
     if (editingId) {
-      // When setting default, clear other defaults first to avoid any uniqueness/trigger constraints,
-      // then update this row with is_default=true alongside other fields.
-      if (isDefaultChecked) {
+      if (addressForm.is_default) {
         const { error: clearErr } = await supabase
           .from("addresses")
           .update({ is_default: false })
@@ -138,22 +143,27 @@ export default function AddressManager() {
           .neq("id", editingId);
         if (clearErr) {
           console.error("clear defaults error", clearErr);
-          // don't bail; attempt to continue updating the current row
         }
       }
 
-      const { error: updErr } = await supabase
+      let { error: updErr } = await supabase
         .from("addresses")
         .update({
-          first_name: firstName,
-          last_name: lastName,
-          full_name: fullName,
-          phone,
-          email, // NEW
-          address,
-          is_default: !!isDefaultChecked,
+          ...extendedPayload,
+          is_default: !!addressForm.is_default,
         })
         .match({ id: editingId, user_id: user.id });
+
+      if (updErr && isAddressColumnError(updErr.message || "")) {
+        const fallback = await supabase
+          .from("addresses")
+          .update({
+            ...basePayload,
+            is_default: !!addressForm.is_default,
+          })
+          .match({ id: editingId, user_id: user.id });
+        updErr = fallback.error;
+      }
 
       if (updErr) {
         console.error("update address error", updErr);
@@ -167,41 +177,46 @@ export default function AddressManager() {
         "An address in your account was updated."
       );
     } else {
-      // insert new address
-      const wantDefault = isDefaultChecked || addresses.length === 0;
+      const wantDefault = addressForm.is_default || addresses.length === 0;
 
-      // Insert first with is_default = false to avoid any "multiple defaults" constraint,
-      // then promote to default if requested.
-      const { data: inserted, error: insErr } = await supabase
+      let insertRes = await supabase
         .from("addresses")
         .insert([
           {
             user_id: user.id,
-            first_name: firstName,
-            last_name: lastName,
-            full_name: fullName,
-            phone,
-            email, // NEW
-            address,
+            ...extendedPayload,
             is_default: false,
           },
         ])
-        .select()
+        .select("id")
         .single();
 
-      if (insErr) {
-        console.error(insErr);
+      if (insertRes.error && isAddressColumnError(insertRes.error.message || "")) {
+        insertRes = await supabase
+          .from("addresses")
+          .insert([
+            {
+              user_id: user.id,
+              ...basePayload,
+              is_default: false,
+            },
+          ])
+          .select("id")
+          .single();
+      }
+
+      if (insertRes.error) {
+        console.error(insertRes.error);
         alert("Could not save address");
         return;
       }
 
-      if (wantDefault && inserted?.id) {
-        // Clear other defaults then set this one as default
+      if (wantDefault && insertRes.data?.id) {
         await supabase.from("addresses").update({ is_default: false }).eq("user_id", user.id);
         await supabase
           .from("addresses")
           .update({ is_default: true })
-          .match({ id: inserted.id, user_id: user.id });
+          .match({ id: insertRes.data.id, user_id: user.id });
       }
 
       await notifyServersAddressUpdated(
@@ -211,21 +226,13 @@ export default function AddressManager() {
       );
     }
 
-    // close modal + refresh
     setShowForm(false);
     setEditingId(null);
-    setFirstName("");
-    setLastName("");
-    setPhone("");
-    setAddress("");
-    setEmail(""); // NEW
-    setIsDefaultChecked(false);
-
+    setAddressForm(emptyAddressForm());
     fetchAddresses();
   };
 
   const handleDelete = async (id: string) => {
-    // Ask for confirmation before deleting
     const ok = window.confirm("Are you sure you want to delete this address?");
     if (!ok) return;
 
@@ -242,17 +249,16 @@ export default function AddressManager() {
       });
 
       if (!res.ok) {
-        const j = await res.json().catch(() => ({} as any));
-        const msg = j?.error || (typeof j === 'string' ? j : '') || "Failed to delete address.";
-        console.warn("delete error", j);
-        alert(msg);
+        const body = await res.json().catch(() => ({} as any));
+        const message =
+          body?.error || (typeof body === "string" ? body : "") || "Failed to delete address.";
+        alert(message);
         return;
       }
 
       if (defaultId === id) setDefaultId(null);
       fetchAddresses();
-    } catch (e) {
-      console.warn("delete error", e);
+    } catch {
       alert("Something went wrong deleting the address. Please try again.");
     }
   };
@@ -263,10 +269,8 @@ export default function AddressManager() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // clear other defaults
     await supabase.from("addresses").update({ is_default: false }).eq("user_id", user.id);
 
-    // set chosen one
     const { error } = await supabase
       .from("addresses")
       .update({ is_default: true })
@@ -277,7 +281,6 @@ export default function AddressManager() {
       return;
     }
 
-    // notify server to create notification + send email (if enabled)
     await notifyServersAddressUpdated(
       user.id,
       "Default address changed",
@@ -288,11 +291,12 @@ export default function AddressManager() {
     fetchAddresses();
   };
 
+  const defaultAddress = addresses.find((item) => item.id === defaultId) ?? null;
+
   return (
-    <div className="max-w-3xl mx-auto mt-10 p-6 bg-white rounded-xl shadow-lg">
+    <div className="max-w-4xl mx-auto mt-10 p-6 bg-white rounded-xl shadow-lg">
       <h2 className="text-2xl font-bold mb-6 text-[#8B1C1C]">My Addresses</h2>
 
-      {/* Add New Button */}
       <button
         onClick={openAddForm}
         className="bg-[#8B1C1C] text-white px-4 py-2 rounded font-semibold hover:bg-[#a83232] transition mb-6"
@@ -300,7 +304,6 @@ export default function AddressManager() {
         + Add New Address
       </button>
 
-      {/* Address List */}
       <div className="space-y-4">
         {addresses.map((addr) => (
           <div
@@ -308,15 +311,17 @@ export default function AddressManager() {
             className="border rounded-lg p-4 flex justify-between items-start shadow-sm"
           >
             <div>
-              <p className="font-bold text-gray-700">
-                {addr.first_name} {addr.last_name}{" "}
+              <p className="font-bold text-gray-800">
+                {addr.full_name}
                 <span className="ml-2 text-gray-600">({addr.phone})</span>
                 {addr.is_default && (
                   <span className="ml-2 text-sm text-green-600">Default</span>
                 )}
               </p>
-              <p className="text-gray-700">{addr.address}</p>
+              <p className="text-gray-700 mt-1">{formatAddressLineFromRecord(addr)}</p>
+              {addr.email ? <p className="text-xs text-gray-600 mt-1">{addr.email}</p> : null}
             </div>
+
             <div className="flex flex-col items-end gap-2 text-sm">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -328,6 +333,7 @@ export default function AddressManager() {
                 />
                 <span className="text-gray-700">Set as Default</span>
               </label>
+
               <div className="flex gap-3">
                 <button
                   className="text-blue-600 hover:underline"
@@ -347,89 +353,108 @@ export default function AddressManager() {
         ))}
       </div>
 
-      {/* Show Default Address */}
-      {defaultId && (
+      {defaultAddress && (
         <div className="mt-6 p-4 bg-gray-100 rounded">
           <p className="font-semibold text-gray-700">
-            Default Address:{" "}
-            <span className="text-gray-700">
-              {addresses.find((a) => a.id === defaultId)?.first_name}{" "}
-              {addresses.find((a) => a.id === defaultId)?.last_name},{" "}
-              {addresses.find((a) => a.id === defaultId)?.address}
-            </span>
+            Default Address: <span className="font-normal">{defaultAddress.full_name}, {formatAddressLineFromRecord(defaultAddress)}</span>
           </p>
         </div>
       )}
 
-      {/* Modal Form (add/edit) - REMOVED BRANCH SECTION */}
       {showForm && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
-          <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50 p-4">
+          <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4 text-[#8B1C1C]">
               {editingId ? "Edit Address" : "Add New Address"}
             </h3>
-            <form className="grid gap-4" onSubmit={handleSaveAddress}>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-black">
-                    First Name *
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded px-3 py-2 text-black"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-black">
-                    Last Name *
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded px-3 py-2 text-black"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
 
+            <form className="grid gap-4" onSubmit={handleSaveAddress}>
               <div>
-                <label className="block font-semibold text-black">
-                  Phone Number *
-                </label>
+                <label className="block font-semibold text-black">Full Name *</label>
                 <input
                   type="text"
                   className="w-full border rounded px-3 py-2 text-black"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  value={addressForm.full_name}
+                  onChange={(e) => setAddressForm((prev) => ({ ...prev, full_name: e.target.value }))}
                   required
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-black">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  className="w-full border rounded px-3 py-2 text-black"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-black">Gmail *</label>
+                  <input
+                    type="email"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.email}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, email: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-black">Phone Number *</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.phone}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-black">Province / Region *</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.province}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, province: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-black">City *</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.city}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, city: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-black">Barangay *</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.barangay}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, barangay: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-black">Postal Code *</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded px-3 py-2 text-black"
+                    value={addressForm.postal_code}
+                    onChange={(e) => setAddressForm((prev) => ({ ...prev, postal_code: e.target.value }))}
+                    required
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-black">
-                  Address *
-                </label>
+                <label className="block font-semibold text-black">Street *</label>
                 <textarea
                   className="w-full border rounded px-3 py-2 text-black"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  value={addressForm.street}
+                  onChange={(e) => setAddressForm((prev) => ({ ...prev, street: e.target.value }))}
                   rows={3}
                   required
                 />
@@ -438,8 +463,8 @@ export default function AddressManager() {
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={isDefaultChecked}
-                  onChange={(e) => setIsDefaultChecked(e.target.checked)}
+                  checked={addressForm.is_default}
+                  onChange={(e) => setAddressForm((prev) => ({ ...prev, is_default: e.target.checked }))}
                   className="accent-[#8B1C1C]"
                 />
                 <span className="text-gray-700">Set as Default</span>
@@ -451,6 +476,7 @@ export default function AddressManager() {
                   onClick={() => {
                     setShowForm(false);
                     setEditingId(null);
+                    setAddressForm(emptyAddressForm());
                   }}
                   className="px-4 py-2 border rounded hover:bg-gray-100 text-gray-700"
                 >

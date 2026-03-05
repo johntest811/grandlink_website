@@ -22,7 +22,8 @@ export default function RegisterPage() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${baseUrl}/home`,
+        // After Google OAuth completes, we still require a verification code.
+        redirectTo: `${baseUrl}/login/confirm`,
       },
     });
   };
@@ -320,6 +321,7 @@ export default function RegisterPage() {
             <FaGoogle className="text-[#4285F4] text-xl" />
             <span className="font-medium text-gray-700">Sign up with Google</span>
           </button>
+
           <div className="text-xs text-center mt-4 text-gray-600">
             Already have an account?{" "}
             <a href="login" className="text-blue-600 hover:underline">

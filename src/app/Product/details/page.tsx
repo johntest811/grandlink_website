@@ -16,6 +16,74 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function stripFeatureMarkup(value: string): string {
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<\/div>/gi, "\n")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<li[^>]*>/gi, "• ")
+      .replace(/<\/ul>/gi, "\n")
+      .replace(/<\/ol>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+  )
+    .replace(/\r/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function extractFeatureItems(value: string): string[] {
+  const seen = new Set<string>();
+  const plainText = stripFeatureMarkup(value);
+  if (!plainText) return [];
+
+  return plainText
+    .split(/\n+/)
+    .map((item) => item.replace(/^[•\-\*\s]+/, "").trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function normalizeAdditionalFeaturesHtml(value: unknown): string {
+  const source = Array.isArray(value)
+    ? value.map((item) => String(item || "")).join("\n")
+    : typeof value === "string"
+    ? value
+    : "";
+
+  const items = extractFeatureItems(source);
+  if (!items.length) return "";
+
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
 function ProductDetailsPageContent() {
   const searchParams = useSearchParams();
   const productId = searchParams.get("id");
@@ -52,9 +120,9 @@ function ProductDetailsPageContent() {
       const res = await fetch(`/api/products?id=${productId}`);
       const data = await res.json();
 
-      const additionalfeatures = Array.isArray(data?.additionalfeatures)
-        ? data.additionalfeatures.join("\n")
-        : (data?.additionalfeatures ?? (data?.features?.length ? data.features.join("\n") : ""));
+      const additionalfeatures = normalizeAdditionalFeaturesHtml(
+        data?.additionalfeatures ?? (data?.features?.length ? data.features : "")
+      );
 
       setProduct({ ...data, additionalfeatures });
     };
@@ -101,19 +169,6 @@ function ProductDetailsPageContent() {
 
     // Dedupe while preserving order
     return Array.from(new Set(urls));
-  })();
-
-  const houseModelUrl: string | null = (() => {
-    const candidates = [
-      (product as any)?.house_model_url,
-      (product as any)?.house_fbx_url,
-      (product as any)?.house_glb_url,
-      (product as any)?.scene_model_url,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-    }
-    return null;
   })();
 
   const handlePrev = () => setCarouselIdx((idx) => (idx === 0 ? images.length - 1 : idx - 1));
@@ -454,9 +509,7 @@ function ProductDetailsPageContent() {
               <div
                 className="blog-content text-lg text-gray-700"
                 dangerouslySetInnerHTML={{
-                  __html:
-                    product.additionalfeatures ||
-                    (product.features?.length ? product.features.join("<br/>") : ""),
+                  __html: product.additionalfeatures || "",
                 }}
               />
             </div>
@@ -560,7 +613,6 @@ function ProductDetailsPageContent() {
                 modelUrls={modelUrls}
                 weather={weather}
                 frameFinish={frameFinish}
-                houseModelUrl={houseModelUrl}
                 productCategory={product?.category ?? product?.type ?? null}
                 skyboxes={product?.skyboxes || null}
                 productDimensions={{

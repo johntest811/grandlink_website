@@ -26,6 +26,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const DELIVERY_FEE = 2599;
+
 type Address = {
   id: string;
   full_name?: string;
@@ -123,9 +125,9 @@ export default function CartPage() {
         : voucherInfo.value;
       discount = Math.min(discount, preDiscount);
     }
-    const reservationFee = selectedItems.length > 0 ? 500 : 0;
-    const total = Math.max(0, preDiscount - discount + reservationFee);
-    return { ...base, discount, reservationFee, total };
+    const deliveryFee = selectedItems.length > 0 ? DELIVERY_FEE : 0;
+    const total = Math.max(0, preDiscount - discount + deliveryFee);
+    return { ...base, discount, deliveryFee, total };
   }, [selectedItems, products, voucherInfo]);
 
   const updateQuantity = async (item: UserItem, delta: number) => {
@@ -362,8 +364,8 @@ export default function CartPage() {
               )}
               
               <div className="flex justify-between text-sm text-black">
-                <span>Reservation Fee</span>
-                <span>₱{totals.reservationFee.toLocaleString()}</span>
+                <span>Delivery Fee</span>
+                <span>₱{totals.deliveryFee.toLocaleString()}</span>
               </div>
               
               <hr className="my-3 border-gray-300" />

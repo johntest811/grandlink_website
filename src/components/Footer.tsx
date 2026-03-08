@@ -193,27 +193,34 @@ export default function Footer() {
           </div>
         </div>
       </div>
-      <div className="bg-[#232d3b] py-4 px-4 flex flex-col md:flex-row items-center justify-between">
-        <div className="flex-1 flex justify-center">
-          <div className="flex items-center gap-6">
+      <div className="bg-[#232d3b] py-4 px-4">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 md:grid md:grid-cols-[auto_1fr_auto] md:items-center">
+          <div className="flex justify-start">
+            <a
+              href={chromeSettings.footerInquireLink || "/Inquire"}
+              className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm inline-block"
+            >
+              {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
+            </a>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-4 text-center md:gap-6">
             <a href={chromeSettings.footerFacebookUrl || "https://www.facebook.com/grandeast.aluminum/"} target="_blank" rel="noopener noreferrer" aria-label="Facebook page">
               <FaFacebookF className="text-white text-2xl bg-[#4267B2] rounded p-1 w-8 h-8 flex items-center justify-center" />
             </a>
             <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white">
               <FiPhone className="text-[#232d3b] text-2xl" />
             </span>
-            <span className="text-white text-lg">
+            <span className="text-white text-lg text-center">
               {chromeSettings.footerPhoneText}
             </span>
           </div>
-        </div>
-        <div className="mt-4 md:mt-0">
-          <a
-            href={chromeSettings.footerInquireLink || "/Inquire"}
-            className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm inline-block"
-          >
-            {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
-          </a>
+
+          <div className="hidden md:flex md:justify-end" aria-hidden="true">
+            <span className="invisible bg-[#8B1C1C] px-8 py-2 rounded font-semibold text-sm inline-block">
+              {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
+            </span>
+          </div>
         </div>
       </div>
         <div className="bg-[#1b2230] py-2 px-4 text-center text-xs text-gray-300">

@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       const addonsTotal = Number(meta?.addons_total || 0);
       const discountValue = Number(meta?.discount_value || 0);
       const paymentType = meta?.payment_type || 'order';
-      const reservationFee = Number(meta?.reservation_fee || (paymentType === 'reservation' ? 500 : 0));
+      const reservationFee = Number(meta?.reservation_fee || (paymentType === 'reservation' ? 2599 : 0));
       const totalAmount = Number(meta?.total_amount || amountPaid);
 
       console.log('🔍 Processing payment for items:', ids);

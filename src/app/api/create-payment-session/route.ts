@@ -721,27 +721,27 @@ export async function POST(request: NextRequest) {
       });
     });
 
-    // Reservation Fee is ALWAYS ₱500 (fixed, no adjustments)
-    const reservationFeeBase = 500;
-    const reservationFeeCents = 50000; // ₱500.00 in centavos
+    // Delivery Fee is ALWAYS ₱2,599 (fixed, no adjustments)
+    const reservationFeeBase = 2599;
+    const reservationFeeCents = 259900; // ₱2,599.00 in centavos
 
     const reservationWeights = netLineCents.some((c) => c > 0) ? netLineCents : lineTotalsCents;
     const reservationAllocations = allocateCents(reservationFeeCents, reservationWeights);
 
     const reservationLineItem = {
-      name: 'Reservation Fee',
+      name: 'Delivery Fee',
       quantity: 1,
       amount: reservationFeeCents,
       currency: 'PHP',
-      description: 'One-time reservation fee (non-discountable)'
+      description: 'One-time delivery fee (non-discountable)'
     };
     payMongoLineItems.push(reservationLineItem);
     displayLineItems.push({
       type: 'reservation_fee',
-      name: 'Reservation Fee',
+      name: 'Delivery Fee',
       quantity: 1,
-      unit_price: 500,
-      line_total: 500
+      unit_price: 2599,
+      line_total: 2599
     });
 
     // Final total = products (after discount) + reservation fee
@@ -779,7 +779,7 @@ export async function POST(request: NextRequest) {
 
     const reservationFeeUsd = Number((reservationFeeCharged / 50).toFixed(2));
     payPalItems.push({
-      name: 'Reservation Fee',
+      name: 'Delivery Fee',
       quantity: 1,
       unit_amount: reservationFeeUsd.toFixed(2)
     });

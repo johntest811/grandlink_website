@@ -19,6 +19,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const DELIVERY_FEE = 2599;
+
 type UserItem = {
   id: string;
   product_id: string;
@@ -425,9 +427,9 @@ function CartCheckoutContent() {
         : voucherInfo.value;
       discount = Math.min(discount, preDiscount);
     }
-    const reservationFee = items.length > 0 ? 500 : 0;
-    const total = Math.max(0, preDiscount - discount + reservationFee);
-    return { ...base, discount, reservationFee, total };
+    const deliveryFee = items.length > 0 ? DELIVERY_FEE : 0;
+    const total = Math.max(0, preDiscount - discount + deliveryFee);
+    return { ...base, discount, deliveryFee, total };
   }, [items, products, voucherInfo]);
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
@@ -837,8 +839,8 @@ function CartCheckoutContent() {
                   </div>
                 )}
                 <div className="flex justify-between text-sm text-gray-700">
-                  <span>Reservation Fee</span>
-                  <span>₱{totals.reservationFee.toLocaleString()}</span>
+                  <span>Delivery Fee</span>
+                  <span>₱{totals.deliveryFee.toLocaleString()}</span>
                 </div>
                 <hr className="my-3" />
                 <div className="flex justify-between text-lg font-bold text-gray-900">

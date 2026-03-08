@@ -4,6 +4,8 @@ import { Suspense, useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+
+const DELIVERY_FEE = 2599;
 import { FaCheckCircle, FaShoppingCart, FaArrowRight } from "react-icons/fa";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -178,7 +180,7 @@ function CartSuccessPageContent() {
         discount = Number(meta.discount_value || 0);
       }
       if (reservationFee === 0 && (meta.reservation_fee || meta.reservation_fee_share)) {
-        reservationFee = Number(meta.reservation_fee || 500);
+        reservationFee = Number(meta.reservation_fee || DELIVERY_FEE);
       }
     });
 
@@ -353,7 +355,7 @@ function CartSuccessPageContent() {
                 )}
                 
                 <div className="flex justify-between text-gray-700">
-                  <span>Reservation Fee</span>
+                  <span>Delivery Fee</span>
                   <span className="font-semibold">₱{totals.reservationFee.toLocaleString()}</span>
                 </div>
                 

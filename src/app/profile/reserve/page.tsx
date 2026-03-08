@@ -318,7 +318,7 @@ function ProfileReservePageContent() {
 
     <div class="summary">
       <div class="row"><span>Unit Price</span><span>₱${unitPrice.toLocaleString()}</span></div>
-      <div class="row"><span>Reservation Fee</span><span>₱${reservationFee.toLocaleString()}</span></div>
+      <div class="row"><span>Delivery Fee</span><span>₱${reservationFee.toLocaleString()}</span></div>
       <div class="row"><span>Add-ons</span><span>₱${addonsTotal.toLocaleString()}</span></div>
       <div class="row"><span>Discount</span><span>-₱${discountValue.toLocaleString()}</span></div>
       <div class="row total"><span>Total Amount</span><span>₱${totalAmount.toLocaleString()}</span></div>
@@ -914,7 +914,7 @@ function ProfileReservePageContent() {
                   <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                     {showFullReceipt.item.meta?.reservation_fee && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Reservation Fee</span>
+                        <span className="text-gray-600">Delivery Fee</span>
                         <span className="text-gray-900 font-medium">₱{Number(showFullReceipt.item.meta.reservation_fee).toLocaleString()}</span>
                       </div>
                     )}

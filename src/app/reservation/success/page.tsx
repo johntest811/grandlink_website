@@ -9,6 +9,8 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+const DELIVERY_FEE = 2599;
+
 function ReservationSuccessPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -83,7 +85,7 @@ function ReservationSuccessPageContent() {
                   Number(reservation?.meta?.discount_value ?? reservation?.meta?.voucher_discount ?? 0);
                 const subtotal = Number(reservation?.meta?.subtotal ?? price * qty);
                 const total = Number(reservation?.meta?.total_amount ?? Math.max(0, subtotal + addonsTotal - discountValue));
-                const reservationFee = Number(reservation?.meta?.reservation_fee ?? 500);
+                const reservationFee = Number(reservation?.meta?.reservation_fee ?? DELIVERY_FEE);
                 const stockBefore = reservation?.meta?.product_stock_before ?? reservation?.meta?.product_inventory;
                 const stockAfter = reservation?.meta?.product_stock_after;
                 const dims = reservation?.meta?.custom_dimensions;
@@ -160,7 +162,7 @@ function ReservationSuccessPageContent() {
                     </div>
 
                     <div className="flex justify-between text-sm">
-                      <span className="text-black font-medium">Reservation Fee (Paid Now):</span>
+                      <span className="text-black font-medium">Delivery Fee (Paid Now):</span>
                       <span className="text-black">₱{reservationFee.toLocaleString()}</span>
                     </div>
 

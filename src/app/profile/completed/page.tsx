@@ -306,8 +306,8 @@ export default function ProfileCompletedPage() {
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span>Reservation Fee</span>
-                      <span>{currency(selectedReceipt.item.meta?.reservation_fee || 500)}</span>
+                      <span>Delivery Fee</span>
+                      <span>{currency(selectedReceipt.item.meta?.reservation_fee || 2599)}</span>
                     </div>
                     <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
                       <span>Total Paid</span>

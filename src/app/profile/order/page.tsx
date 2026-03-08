@@ -1057,7 +1057,7 @@ export default function ProfileOrderPage() {
                     </div>
                     {selectedOrder.item.meta?.reservation_fee ? (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Reservation Fee</span>
+                        <span className="text-gray-600">Delivery Fee</span>
                         <span className="text-gray-900 font-medium">{currency(Number(selectedOrder.item.meta.reservation_fee))}</span>
                       </div>
                     ) : null}

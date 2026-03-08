@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
              if (!cartUserId) cartUserId = userItem.user_id;
 
              const itemMeta = userItem.meta || {};
-        const reservationFee = Number(itemMeta.reservation_fee ?? userItem.reservation_fee ?? 500);
+        const reservationFee = Number(itemMeta.reservation_fee ?? userItem.reservation_fee ?? 2599);
         const subtotal = Number(itemMeta.subtotal ?? 0);
         const addonsTotal = Number(itemMeta.addons_total ?? 0);
         const discountValue = Number(itemMeta.discount_value ?? 0);

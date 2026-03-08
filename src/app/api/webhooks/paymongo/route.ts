@@ -8,6 +8,51 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://grandlnik-website.vercel.app';
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/')) return `${BASE_URL}${trimmed}`;
+  return null;
+}
+
+function getProductImage(itemMeta: Record<string, any>, productDetails?: Record<string, any> | null): string | null {
+  const metaImages = Array.isArray(itemMeta?.images) ? itemMeta.images : [];
+  const productImages = Array.isArray(productDetails?.images) ? productDetails.images : [];
+
+  const candidates = [
+    itemMeta?.product_image,
+    itemMeta?.image,
+    itemMeta?.image1,
+    metaImages[0],
+    productDetails?.image1,
+    productDetails?.image2,
+    productDetails?.image3,
+    productDetails?.image4,
+    productDetails?.image5,
+    productImages[0],
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeImageUrl(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function detectPayMongoChannel(payload: any): string | null {
   const data = payload?.data;
   const session = data?.attributes?.data;
@@ -59,7 +104,7 @@ export async function POST(request: NextRequest) {
       const addonsTotal = Number(meta?.addons_total || 0);
       const discountValue = Number(meta?.discount_value || 0);
       const paymentType = meta?.payment_type || 'order';
-      const reservationFee = Number(meta?.reservation_fee || (paymentType === 'reservation' ? 500 : 0));
+      const reservationFee = Number(meta?.reservation_fee || (paymentType === 'reservation' ? 2599 : 0));
       const totalAmount = Number(meta?.total_amount || amountPaid);
 
       console.log('🔍 Processing payment for items:', ids);
@@ -73,7 +118,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid webhook data' }, { status: 400 });
       }
 
-      const notifiedItems: { id: string; product_id: string; product_name: string; quantity: number; total_paid: number; user_id?: string }[] = [];
+      const notifiedItems: { id: string; product_id: string; product_name: string; product_image?: string | null; quantity: number; total_paid: number; user_id?: string }[] = [];
       let grandTotalPaid = 0;
       let cartUserId: string | null = null;
 
@@ -106,12 +151,13 @@ export async function POST(request: NextRequest) {
         const itemMeta = userItem.meta || {};
         const { data: productDetails } = await supabase
           .from('products')
-          .select('name,price,inventory')
+          .select('name,price,inventory,images,image1,image2,image3,image4,image5')
           .eq('id', userItem.product_id)
           .maybeSingle();
         const productName = String(itemMeta.product_name || productDetails?.name || 'Purchased Item');
         const productUnitPrice = Number(itemMeta.product_price ?? userItem.price ?? productDetails?.price ?? 0);
-  const lineAfterDiscount = Number(itemMeta.line_total_after_discount ?? itemMeta.line_total ?? 0);
+        const productImage = getProductImage(itemMeta, productDetails);
+        const lineAfterDiscount = Number(itemMeta.line_total_after_discount ?? itemMeta.line_total ?? 0);
         const addonsPerItem = Number(itemMeta.addons_total_per_item ?? itemMeta.addons_total ?? 0);
         const storedShare = Number(itemMeta.reservation_fee_share ?? 0);
         const fallbackShare = ids.length > 0 ? reservationFee / ids.length : reservationFee;
@@ -214,6 +260,7 @@ export async function POST(request: NextRequest) {
           id,
           product_id: userItem.product_id,
           product_name: productName,
+          product_image: productImage,
           quantity: userItem.quantity,
           total_paid: finalTotalPerItem,
           user_id: userItem.user_id,
@@ -310,10 +357,24 @@ export async function POST(request: NextRequest) {
             const recipientEmail = userWrap?.user?.email;
 
             if (recipientEmail) {
+              const itemCards = notifiedItems
+                .map(
+                  (item) =>
+                    `<div style="display:flex;gap:16px;align-items:flex-start;padding:16px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;margin-top:12px;">
+                      ${item.product_image ? `<img src="${escapeHtml(item.product_image)}" alt="${escapeHtml(item.product_name)}" style="width:96px;height:96px;object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;flex-shrink:0;" />` : ''}
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:16px;font-weight:700;color:#111827;">${escapeHtml(item.product_name)}</div>
+                        <div style="margin-top:6px;font-size:13px;color:#4b5563;">Quantity: ${escapeHtml(item.quantity)}</div>
+                        <div style="margin-top:4px;font-size:13px;color:#4b5563;">Amount: ₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>`
+                )
+                .join('');
+
               const itemRows = notifiedItems
                 .map(
                   (item) =>
-                    `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${item.product_name}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`
+                    `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${escapeHtml(item.product_name)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`
                 )
                 .join('');
 
@@ -322,9 +383,13 @@ export async function POST(request: NextRequest) {
                 to: recipientEmail,
                 subject: `Payment Confirmed - ${paymentLabel}`,
                 html: `
-                  <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;">
-                    <h2 style="margin-bottom:8px;">Payment Confirmed</h2>
+                  <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;background:#f9fafb;padding:24px;border-radius:20px;">
+                    <h2 style="margin-bottom:8px;color:#111827;">Payment Confirmed</h2>
                     <p style="margin-top:0;color:#444;">Your payment has been received successfully via PayMongo${channelLabel}.</p>
+                    <div style="margin-top:18px;">
+                      <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:8px;">Purchased items</div>
+                      ${itemCards}
+                    </div>
                     <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:14px;">
                       <thead>
                         <tr>

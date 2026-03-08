@@ -11,13 +11,16 @@ function getUrlExtension(url: string): string {
   return clean.slice(lastDot + 1).toLowerCase();
 }
 //For weather
+type WeatherKey = "sunny" | "rainy" | "night" | "foggy";
+type SkyboxKey = WeatherKey | "default";
+
 type Props = {
   modelUrls: string[];
   houseModelUrl?: string | null;
   productCategory?: string | null;
-  weather: "sunny" | "rainy" | "night" | "foggy";
+  weather: WeatherKey;
   frameFinish?: FrameFinish;
-  skyboxes?: Partial<Record<"sunny" | "rainy" | "night" | "foggy", string | null>> | null;
+  skyboxes?: Partial<Record<SkyboxKey, string | null>> | null;
   productDimensions?: {
     width?: number | string | null;
     height?: number | string | null;
@@ -126,6 +129,17 @@ function normalizeCategoryKey(input: unknown): string {
   if (key.includes("canopy")) return "canopy";
   if (key.includes("curtain") || key.includes("curtainwall") || key.includes("curtainwalls")) return "curtainwall";
   return key;
+}
+
+function resolveSkyboxUrl(
+  skyboxes: Partial<Record<SkyboxKey, string | null>> | null | undefined,
+  weather: WeatherKey
+): string {
+  if (!skyboxes || typeof skyboxes !== "object") return "";
+  const customSkybox = skyboxes[weather];
+  const defaultSkybox = skyboxes.default;
+  const rawUrl = customSkybox || defaultSkybox;
+  return typeof rawUrl === "string" ? rawUrl.trim() : "";
 }
 
 export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCategory, weather, frameFinish = "default", skyboxes, productDimensions, width = 1200, height = 700 }: Props) {
@@ -297,7 +311,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
     const detailLevel = isLowEnd ? 0.5 : (performanceFactor > 0.8 ? 1.0 : 0.75);
 
     
-    const dpr = Math.min(deviceDpr, isLowEnd ? 1.25 : 2);
+    const dpr = Math.min(deviceDpr, isLowEnd ? 1.25 : 2.5);
 
     // particle budgets (scaled)
     const BASE_RAIN = Math.round(8000 * performanceFactor);
@@ -335,6 +349,9 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
     });
     renderer.setSize(renderWidth, renderHeight);
     renderer.setPixelRatio(dpr);
+    const maxAnisotropy = typeof renderer.capabilities.getMaxAnisotropy === "function"
+      ? renderer.capabilities.getMaxAnisotropy()
+      : 1;
     
     // ENHANCED SHADOW CONFIGURATION
     renderer.shadowMap.enabled = true;
@@ -539,6 +556,16 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
       } else if ("encoding" in tex && anyTHREE.sRGBEncoding !== undefined) {
         tex.encoding = anyTHREE.sRGBEncoding;
       }
+    };
+
+    const enhanceSkyboxTexture = (tex: THREE.Texture) => {
+      setTexColorSpace(tex);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.generateMipmaps = !isLowEnd;
+      tex.minFilter = isLowEnd ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = Math.max(1, Math.min(16, maxAnisotropy));
+      tex.needsUpdate = true;
     };
 
     
@@ -771,8 +798,8 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
       };
     };
 
-    const applyWeather = (type: string) => {
-      activeWeather = (type as Props["weather"]) || "sunny";
+    const applyWeather = (type: WeatherKey) => {
+      activeWeather = type || "sunny";
 
    
       if (rainSystem) {
@@ -826,8 +853,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
       scene.environment = null;
 
       // If a skybox is configured for this weather, load it asynchronously.
-      const skyUrlRaw = (skyboxes && typeof skyboxes === "object") ? (skyboxes as any)[type] : null;
-      const skyUrl = typeof skyUrlRaw === "string" ? skyUrlRaw.trim() : "";
+      const skyUrl = resolveSkyboxUrl(skyboxes, type);
       if (skyUrl) {
         activeSkyboxUrl = skyUrl;
         const loader = new THREE.TextureLoader();
@@ -841,18 +867,17 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
               return;
             }
             skyboxTex = tex;
-            setTexColorSpace(skyboxTex);
-            skyboxTex.mapping = THREE.EquirectangularReflectionMapping;
+            enhanceSkyboxTexture(skyboxTex);
             scene.background = skyboxTex;
 
             // Optional smoothing if supported by current three version
             try {
               const extras = scene as unknown as Record<string, unknown>;
               if ("backgroundBlurriness" in extras) {
-                (scene as unknown as { backgroundBlurriness: number }).backgroundBlurriness = 0.08;
+                (scene as unknown as { backgroundBlurriness: number }).backgroundBlurriness = 0;
               }
               if ("backgroundIntensity" in extras) {
-                (scene as unknown as { backgroundIntensity: number }).backgroundIntensity = 1.0;
+                (scene as unknown as { backgroundIntensity: number }).backgroundIntensity = 1.08;
               }
             } catch {}
           },
@@ -2300,11 +2325,11 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
             </select>
           </div>
 
-          <div className="mt-2 text-[11px] text-white/60 leading-snug">
-            {usesProductDimensions
-              ? "Using product dimensions from Supabase. Use “Units” to convert display."
-              : "Use “Units” to change measurement display."}
-          </div>
+          {/* <div className="mt-1 flex justify-end">
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/45">
+              Display only
+            </span>
+          </div> */}
         </div>
       </div>
 
@@ -2366,9 +2391,9 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
                 <div className="text-white text-sm font-medium">
                   3D Model {currentFbxIndex + 1} of {validFbxUrls.length}
                 </div>
-                <div className="text-gray-300 text-xs">
+                {/* <div className="text-gray-300 text-xs">
                   {validFbxUrls[currentFbxIndex]?.split('/').pop()?.split('.')[0] || `Model ${currentFbxIndex + 1}`}
-                </div>
+                </div> */}
               </div>
 
               {/* Navigation Buttons */}

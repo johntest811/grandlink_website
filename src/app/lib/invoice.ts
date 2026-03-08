@@ -115,7 +115,7 @@ export function renderInvoiceHtml(data: InvoiceData) {
           <div style="display:flex;justify-content:space-between;margin:6px 0;"><span>Subtotal</span><span>${money(data.subtotal, data.currency)}</span></div>
           <div style="display:flex;justify-content:space-between;margin:6px 0;"><span>Add-ons</span><span>${money(data.addonsTotal, data.currency)}</span></div>
           <div style="display:flex;justify-content:space-between;margin:6px 0;"><span>Discount</span><span>- ${money(data.discountValue, data.currency)}</span></div>
-          <div style="display:flex;justify-content:space-between;margin:6px 0;"><span>Reservation Fee</span><span>${money(data.reservationFee, data.currency)}</span></div>
+          <div style="display:flex;justify-content:space-between;margin:6px 0;"><span>Delivery Fee</span><span>${money(data.reservationFee, data.currency)}</span></div>
           <div style="height:1px;background:#eee;margin:10px 0;"></div>
           <div style="display:flex;justify-content:space-between;margin:6px 0;font-weight:800;font-size:14px;"><span>Total</span><span>${money(data.totalAmount, data.currency)}</span></div>
         </div>
@@ -210,7 +210,7 @@ export async function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
     doc.text("Discount", 360, rowY, { width: 90, align: "right" });
     doc.text(`- ${money(data.discountValue, data.currency)}`, 450, rowY, { width: 100, align: "right" });
     rowY += lineHeight;
-    doc.text("Reservation Fee", 360, rowY, { width: 90, align: "right" });
+    doc.text("Delivery Fee", 360, rowY, { width: 90, align: "right" });
     doc.text(money(data.reservationFee, data.currency), 450, rowY, { width: 100, align: "right" });
     rowY += lineHeight;
 

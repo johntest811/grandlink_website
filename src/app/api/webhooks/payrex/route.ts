@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
     const addonsTotal = Number(metadata?.addons_total || 0);
     const discountValue = Number(metadata?.discount_value || 0);
     const paymentType = metadata?.payment_type || 'order';
-    const reservationFee = Number(metadata?.reservation_fee || (paymentType === 'reservation' ? 500 : 0));
+    const reservationFee = Number(metadata?.reservation_fee || (paymentType === 'reservation' ? 2599 : 0));
     const totalAmount = Number(metadata?.total_amount || amountPaid);
 
     console.log('🔍 Processing PayRex payment for items:', ids);

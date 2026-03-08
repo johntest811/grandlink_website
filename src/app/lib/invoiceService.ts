@@ -93,7 +93,7 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
   const subtotal = Number(item.meta?.subtotal ?? unit * qty);
   const addonsTotal = Number(item.meta?.addons_total ?? 0);
   const discountValue = Number(item.meta?.discount_value ?? item.meta?.voucher_discount ?? 0);
-  const reservationFee = Number(item.meta?.reservation_fee ?? item.reservation_fee ?? 500);
+  const reservationFee = Number(item.meta?.reservation_fee ?? item.reservation_fee ?? 2599);
   const totalAmount = Number(item.total_amount ?? item.total_paid ?? Math.max(0, subtotal + addonsTotal - discountValue + reservationFee));
 
   const deliveryMethod = String(item.meta?.delivery_method || item.meta?.fulfillment_method || "delivery");

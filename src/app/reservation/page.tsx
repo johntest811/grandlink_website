@@ -18,6 +18,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const DELIVERY_FEE = 2599;
+
 type Product = {
   id: string;
   name: string;
@@ -330,7 +332,7 @@ function ReservationPageContent() {
       : Math.min(preDiscount, voucherInfo.value)
     : 0;
   const discountedTotal = Math.max(0, preDiscount - discountValue);
-  const reservationFee = 500;
+  const reservationFee = DELIVERY_FEE;
   const balanceDue = Math.max(0, discountedTotal - reservationFee);
 
   const applyVoucher = async () => {
@@ -924,7 +926,7 @@ function ReservationPageContent() {
                       <span>₱{discountedTotal.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="font-medium">Reservation Fee (Pay now)</span>
+                      <span className="font-medium">Delivery Fee (Pay now)</span>
                       <span className="font-medium text-green-600">
                         ₱{reservationFee.toLocaleString()}
                       </span>
@@ -942,7 +944,7 @@ function ReservationPageContent() {
                     disabled={submitting}
                     className="w-full bg-[#8B1C1C] text-white rounded px-4 py-2 disabled:opacity-60"
                   >
-                    {submitting ? "Processing…" : "Pay Reservation Fee & Reserve"}
+                    {submitting ? "Processing…" : "Pay Delivery Fee & Reserve"}
                   </button>
                   <button
                     onClick={addToCartInstead}

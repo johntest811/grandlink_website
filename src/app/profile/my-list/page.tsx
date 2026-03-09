@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -165,7 +164,8 @@ export default function ProfileMyListPage() {
     if (selectedItems.length === 0) return alert("Please select at least one item.");
     setMoving(true);
     try {
-      // Post each selected item to the cart API
+      const movedIds = selectedItems.map((item) => item.id);
+
       await Promise.all(
         selectedItems.map(async (it) => {
           const body = {
@@ -185,7 +185,27 @@ export default function ProfileMyListPage() {
           }
         })
       );
-      // Navigate to cart so they can checkout
+
+      const { error: deleteError } = await supabase
+        .from("user_items")
+        .delete()
+        .eq("user_id", userId)
+        .eq("item_type", "my-list")
+        .in("id", movedIds);
+
+      if (deleteError) {
+        throw new Error("Items were added to cart, but could not be removed from My List.");
+      }
+
+      setItems((prev) => prev.filter((item) => !movedIds.includes(item.id)));
+      setSelected((prev) => {
+        const next = { ...prev };
+        movedIds.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+
       router.push("/profile/cart");
     } catch (e: any) {
       console.error("move to cart error", e);
@@ -237,7 +257,7 @@ export default function ProfileMyListPage() {
                 Moving to Cart...
               </span>
             ) : (
-              <>Add Selected to Cart ({selectedItems.length})</>
+              <>Move Selected to Cart ({selectedItems.length})</>
             )}
           </button>
         </div>

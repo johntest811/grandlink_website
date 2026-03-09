@@ -12,7 +12,12 @@ import {
   toAddressFormFromRecord,
   type AddressFormFields,
 } from "@/utils/addressFields";
-import { getLocationDropdownOptions } from "@/utils/locationSuggestions";
+import {
+  getLocationDropdownOptions,
+  getPhilippineLocationDropdownOptions,
+  mergeLocationDropdownOptions,
+  type LocationDropdownOptions,
+} from "@/utils/locationSuggestions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,6 +43,12 @@ const millimetersInputToMetersString = (value: string) => {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return value;
   return String(numericValue / 1000);
+};
+
+const measurementsMatch = (left?: number, right?: number) => {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  return Math.abs(left - right) < 0.000001;
 };
 
 type Product = {
@@ -89,12 +100,19 @@ function ReservationPageContent() {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
+  const [remoteLocationOptions, setRemoteLocationOptions] = useState<LocationDropdownOptions>({
+    provinceOptions: [],
+    cityOptions: [],
+    barangayOptions: [],
+  });
+  const [barangayOptionsLoading, setBarangayOptionsLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     quantity: 1,
+    measurementEnabled: false,
     customWidth: "",
     customHeight: "",
     customThickness: "",
@@ -118,6 +136,11 @@ function ReservationPageContent() {
         addressForm.barangay
       ),
     [addresses, addressForm.province, addressForm.city, addressForm.barangay]
+  );
+
+  const mergedLocationOptions = useMemo(
+    () => mergeLocationDropdownOptions(locationOptions, remoteLocationOptions),
+    [locationOptions, remoteLocationOptions]
   );
 
   const handleGoBack = () => {
@@ -314,6 +337,30 @@ function ReservationPageContent() {
     loadData();
   }, [productId, router]);
 
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRemoteLocationOptions = async () => {
+      setBarangayOptionsLoading(Boolean(addressForm.city.trim()));
+      const nextOptions = await getPhilippineLocationDropdownOptions(
+        addressForm.province,
+        addressForm.city,
+        addressForm.barangay
+      );
+
+      if (!isActive) return;
+
+      setRemoteLocationOptions(nextOptions);
+      setBarangayOptionsLoading(false);
+    };
+
+    loadRemoteLocationOptions();
+
+    return () => {
+      isActive = false;
+    };
+  }, [addressForm.province, addressForm.city, addressForm.barangay]);
+
   const qty = Math.max(1, Number(formData.quantity || 1));
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
@@ -334,6 +381,28 @@ function ReservationPageContent() {
 
     const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
     const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
+
+    const defaultPricing = computeMeasurementPricing({
+      widthMeters: baseWidthM,
+      heightMeters: baseHeightM,
+      unitPricePerSqm,
+      minSqm: 0,
+      sqmDecimals: 2,
+    });
+
+    const customMeasurementActive =
+      formData.measurementEnabled &&
+      !(
+        measurementsMatch(widthMeters, baseWidthM) &&
+        measurementsMatch(heightMeters, baseHeightM)
+      );
+
+    if (!customMeasurementActive) {
+      return {
+        ...defaultPricing,
+        unit_price: defaultUnitPrice,
+      };
+    }
 
     return computeMeasurementPricing({
       widthMeters,
@@ -406,8 +475,9 @@ function ReservationPageContent() {
           quantity: qty,
           meta: {
             custom_dimensions: {
-              width: measurementPricing.width_m,
-              height: measurementPricing.height_m,
+              enabled: formData.measurementEnabled,
+              width: formData.measurementEnabled ? measurementPricing.width_m : undefined,
+              height: formData.measurementEnabled ? measurementPricing.height_m : undefined,
             },
             addons,
             voucher_code: voucherInfo?.code || null,
@@ -435,8 +505,9 @@ function ReservationPageContent() {
     const parsedWidth = formData.customWidth ? Number(formData.customWidth) : null;
     const parsedHeight = formData.customHeight ? Number(formData.customHeight) : null;
     if (
-      (parsedWidth != null && (!Number.isFinite(parsedWidth) || parsedWidth <= 0)) ||
-      (parsedHeight != null && (!Number.isFinite(parsedHeight) || parsedHeight <= 0))
+      formData.measurementEnabled &&
+      ((parsedWidth != null && (!Number.isFinite(parsedWidth) || parsedWidth <= 0)) ||
+        (parsedHeight != null && (!Number.isFinite(parsedHeight) || parsedHeight <= 0)))
     ) {
       alert("Please enter valid custom width/height in mm (greater than 0).");
       return;
@@ -487,8 +558,9 @@ function ReservationPageContent() {
           delivery_method: "delivery",
           selected_branch: null,
           custom_dimensions: {
-            width: measurementPricing.width_m,
-            height: measurementPricing.height_m,
+            enabled: formData.measurementEnabled,
+            width: formData.measurementEnabled ? measurementPricing.width_m : undefined,
+            height: formData.measurementEnabled ? measurementPricing.height_m : undefined,
           },
           pricing: {
             unit_price: computedUnitPrice,
@@ -700,10 +772,28 @@ function ReservationPageContent() {
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Measurements (mm)</h2>
               <p className="text-sm text-gray-600 mb-4">
-                Set your preferred Width and Height in millimeters. Price updates based on measurement.
+                Keep the default size and price, or turn this on to request custom measurements.
               </p>
               <div className="text-xs text-gray-500 mb-3">
                 Default size: {formatMillimeters(Number(product.width || 0)) || "-"}mm x {formatMillimeters(Number(product.height || 0)) || "-"}mm
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={formData.measurementEnabled}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      measurementEnabled: e.target.checked,
+                    })
+                  }
+                />
+                Change the default measurement
+              </label>
+              <div className="mt-2 text-xs text-gray-500">
+                {formData.measurementEnabled
+                  ? "Custom pricing only applies once you enter a size different from the default measurement."
+                  : "Default size and default price are currently being used."}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -713,8 +803,13 @@ function ReservationPageContent() {
                     min="0"
                     step="1"
                     placeholder="e.g. 2400"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    value={metersToMillimetersDisplay(formData.customWidth)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 disabled:bg-gray-100 disabled:text-gray-500"
+                    disabled={!formData.measurementEnabled}
+                    value={
+                      formData.measurementEnabled
+                        ? metersToMillimetersDisplay(formData.customWidth)
+                        : formatMillimeters(Number(product.width || 0))
+                    }
                     onChange={(e) =>
                       setFormData({ ...formData, customWidth: millimetersInputToMetersString(e.target.value) })
                     }
@@ -727,8 +822,13 @@ function ReservationPageContent() {
                     min="0"
                     step="1"
                     placeholder="e.g. 1800"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    value={metersToMillimetersDisplay(formData.customHeight)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 disabled:bg-gray-100 disabled:text-gray-500"
+                    disabled={!formData.measurementEnabled}
+                    value={
+                      formData.measurementEnabled
+                        ? metersToMillimetersDisplay(formData.customHeight)
+                        : formatMillimeters(Number(product.height || 0))
+                    }
                     onChange={(e) =>
                       setFormData({ ...formData, customHeight: millimetersInputToMetersString(e.target.value) })
                     }
@@ -973,12 +1073,12 @@ function ReservationPageContent() {
                 </div>
 
                 <datalist id="reservation-province-options">
-                  {locationOptions.provinceOptions.map((option) => (
+                  {mergedLocationOptions.provinceOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
                 <datalist id="reservation-city-options">
-                  {locationOptions.cityOptions.map((option) => (
+                  {mergedLocationOptions.cityOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
@@ -1007,10 +1107,16 @@ function ReservationPageContent() {
                 </div>
 
                 <datalist id="reservation-barangay-options">
-                  {locationOptions.barangayOptions.map((option) => (
+                  {mergedLocationOptions.barangayOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
+
+                <p className="text-xs text-gray-500 -mt-1">
+                  {barangayOptionsLoading && addressForm.city.trim()
+                    ? "Loading PSGC barangay suggestions for the selected city..."
+                    : "Type your barangay or choose from the suggestions for the selected city."}
+                </p>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Street *</label>

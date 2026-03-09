@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useMemo } from "react";
+import { Suspense, useCallback, useEffect, useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FaArrowLeft, FaShoppingCart } from "react-icons/fa";
@@ -13,7 +13,12 @@ import {
   toAddressFormFromRecord,
   type AddressFormFields,
 } from "@/utils/addressFields";
-import { getLocationDropdownOptions } from "@/utils/locationSuggestions";
+import {
+  getLocationDropdownOptions,
+  getPhilippineLocationDropdownOptions,
+  mergeLocationDropdownOptions,
+  type LocationDropdownOptions,
+} from "@/utils/locationSuggestions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,6 +44,12 @@ const millimetersInputToMetersString = (value: string) => {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return value;
   return String(numericValue / 1000);
+};
+
+const measurementsMatch = (left?: number, right?: number) => {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  return Math.abs(left - right) < 0.000001;
 };
 
 type UserItem = {
@@ -93,6 +104,12 @@ function CartCheckoutContent() {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
+  const [remoteLocationOptions, setRemoteLocationOptions] = useState<LocationDropdownOptions>({
+    provinceOptions: [],
+    cityOptions: [],
+    barangayOptions: [],
+  });
+  const [barangayOptionsLoading, setBarangayOptionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -110,6 +127,11 @@ function CartCheckoutContent() {
         addressForm.barangay
       ),
     [addresses, addressForm.province, addressForm.city, addressForm.barangay]
+  );
+
+  const mergedLocationOptions = useMemo(
+    () => mergeLocationDropdownOptions(locationOptions, remoteLocationOptions),
+    [locationOptions, remoteLocationOptions]
   );
 
   const resetAddressForm = () => {
@@ -327,7 +349,69 @@ function CartCheckoutContent() {
     loadData();
   }, [itemIdsParam, router]);
 
-  const computeUnitPrice = (item: UserItem) => {
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRemoteLocationOptions = async () => {
+      setBarangayOptionsLoading(Boolean(addressForm.city.trim()));
+      const nextOptions = await getPhilippineLocationDropdownOptions(
+        addressForm.province,
+        addressForm.city,
+        addressForm.barangay
+      );
+
+      if (!isActive) return;
+
+      setRemoteLocationOptions(nextOptions);
+      setBarangayOptionsLoading(false);
+    };
+
+    loadRemoteLocationOptions();
+
+    return () => {
+      isActive = false;
+    };
+  }, [addressForm.province, addressForm.city, addressForm.barangay]);
+
+  const isMeasurementCustomizationEnabled = useCallback((item: UserItem, productOverride?: Product) => {
+    const product = productOverride ?? products[item.product_id];
+    const explicitEnabled = item.meta?.custom_dimensions?.enabled;
+    if (explicitEnabled === true) return true;
+    if (explicitEnabled === false) return false;
+
+    const baseWidthRaw = Number(product?.width ?? 0);
+    const baseHeightRaw = Number(product?.height ?? 0);
+    const baseWidthM = Number.isFinite(baseWidthRaw) && baseWidthRaw > 0 ? baseWidthRaw / 1000 : undefined;
+    const baseHeightM = Number.isFinite(baseHeightRaw) && baseHeightRaw > 0 ? baseHeightRaw / 1000 : undefined;
+    const customWidth = item.meta?.custom_dimensions?.width;
+    const customHeight = item.meta?.custom_dimensions?.height;
+
+    if (customWidth == null && customHeight == null) return false;
+
+    return !(
+      measurementsMatch(Number(customWidth), baseWidthM) &&
+      measurementsMatch(Number(customHeight), baseHeightM)
+    );
+  }, [products]);
+
+  const persistItemMeta = async (itemId: string, nextMeta: any, errorMessage: string) => {
+    setItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, meta: nextMeta } : it)));
+
+    try {
+      const res = await fetch("/api/cart", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: itemId, meta: nextMeta }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || errorMessage);
+      setItems((prev) => prev.map((it) => (it.id === itemId ? (json.item as any) : it)));
+    } catch (e: any) {
+      alert(e?.message || errorMessage);
+    }
+  };
+
+  const computeUnitPrice = useCallback((item: UserItem) => {
     const product = products[item.product_id];
     const defaultUnitPrice = Math.max(0, Number(product?.price ?? 0));
 
@@ -346,6 +430,16 @@ function CartCheckoutContent() {
     const customWidth = item.meta?.custom_dimensions?.width;
     const customHeight = item.meta?.custom_dimensions?.height;
 
+    const measurementEnabled = isMeasurementCustomizationEnabled(item, product);
+
+    if (
+      !measurementEnabled ||
+      (measurementsMatch(Number(customWidth ?? baseWidthM), baseWidthM) &&
+        measurementsMatch(Number(customHeight ?? baseHeightM), baseHeightM))
+    ) {
+      return defaultUnitPrice;
+    }
+
     const widthMeters = customWidth ?? baseWidthM;
     const heightMeters = customHeight ?? baseHeightM;
 
@@ -363,7 +457,7 @@ function CartCheckoutContent() {
     });
 
     return pricing.unit_price;
-  };
+  }, [isMeasurementCustomizationEnabled, products]);
 
   const setItemMeasurementLocal = (itemId: string, width: string, height: string) => {
     setItems((prev) =>
@@ -388,6 +482,8 @@ function CartCheckoutContent() {
     const item = items.find((it) => it.id === itemId);
     if (!item) return;
 
+    if (!isMeasurementCustomizationEnabled(item)) return;
+
     const rawW = item.meta?.custom_dimensions?.width;
     const rawH = item.meta?.custom_dimensions?.height;
     const w = rawW === "" || rawW == null ? null : Number(rawW);
@@ -404,30 +500,130 @@ function CartCheckoutContent() {
       ...(item.meta || {}),
       custom_dimensions: {
         ...(item.meta?.custom_dimensions || {}),
+        enabled: true,
         width: w ?? undefined,
         height: h ?? undefined,
       },
     };
 
-    try {
-      const res = await fetch("/api/cart", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: itemId, meta: nextMeta }),
+    await persistItemMeta(itemId, nextMeta, "Failed to update measurement");
+  };
+
+  const setItemMeasurementEnabled = async (itemId: string, enabled: boolean) => {
+    const item = items.find((it) => it.id === itemId);
+    if (!item) return;
+
+    const nextMeta = {
+      ...(item.meta || {}),
+      custom_dimensions: {
+        ...(item.meta?.custom_dimensions || {}),
+        enabled,
+      },
+    };
+
+    await persistItemMeta(itemId, nextMeta, "Failed to update measurement preference");
+  };
+
+  const setItemColorCustomizationLocal = (itemId: string, checked: boolean) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+
+        const addons = Array.isArray(it.meta?.addons) ? [...it.meta.addons] : [];
+        const existingIndex = addons.findIndex((addon: any) => addon?.key === "color_customization");
+
+        if (checked && existingIndex === -1) {
+          addons.push({
+            key: "color_customization",
+            label: "Color Customization",
+            fee: 2500,
+            value: "",
+          });
+        }
+
+        if (!checked && existingIndex !== -1) {
+          addons.splice(existingIndex, 1);
+        }
+
+        return {
+          ...it,
+          meta: {
+            ...(it.meta || {}),
+            addons,
+          },
+        };
+      })
+    );
+  };
+
+  const setItemColorTextLocal = (itemId: string, value: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+
+        const addons = Array.isArray(it.meta?.addons) ? [...it.meta.addons] : [];
+        const existingIndex = addons.findIndex((addon: any) => addon?.key === "color_customization");
+
+        if (existingIndex === -1) return it;
+
+        addons[existingIndex] = {
+          ...addons[existingIndex],
+          value,
+        };
+
+        return {
+          ...it,
+          meta: {
+            ...(it.meta || {}),
+            addons,
+          },
+        };
+      })
+    );
+  };
+
+  const persistItemColorCustomization = async (itemId: string) => {
+    const item = items.find((it) => it.id === itemId);
+    if (!item) return;
+
+    const nextMeta = {
+      ...(item.meta || {}),
+      addons: Array.isArray(item.meta?.addons) ? item.meta.addons : [],
+    };
+
+    await persistItemMeta(itemId, nextMeta, "Failed to update color customization");
+  };
+
+  const toggleItemColorCustomization = async (item: UserItem, checked: boolean) => {
+    const addons = Array.isArray(item.meta?.addons) ? [...item.meta.addons] : [];
+    const existingIndex = addons.findIndex((addon: any) => addon?.key === "color_customization");
+
+    if (checked && existingIndex === -1) {
+      addons.push({
+        key: "color_customization",
+        label: "Color Customization",
+        fee: 2500,
+        value: "",
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed to update measurement");
-      // Update local with canonical meta from server.
-      setItems((prev) => prev.map((it) => (it.id === itemId ? (json.item as any) : it)));
-    } catch (e: any) {
-      alert(e?.message || "Failed to update measurement");
     }
+
+    if (!checked && existingIndex !== -1) {
+      addons.splice(existingIndex, 1);
+    }
+
+    await persistItemMeta(
+      item.id,
+      {
+        ...(item.meta || {}),
+        addons,
+      },
+      "Failed to update color customization"
+    );
   };
 
   const totals = useMemo(() => {
     const base = items.reduce(
       (acc, item) => {
-        const product = products[item.product_id];
         const unitPrice = computeUnitPrice(item);
         const quantity = Number(item.quantity || 1);
         const addons = Array.isArray(item.meta?.addons)
@@ -452,7 +648,7 @@ function CartCheckoutContent() {
     const deliveryFee = items.length > 0 ? DELIVERY_FEE : 0;
     const total = Math.max(0, preDiscount - discount + deliveryFee);
     return { ...base, discount, deliveryFee, total };
-  }, [items, products, voucherInfo]);
+  }, [computeUnitPrice, items, voucherInfo]);
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
   const applyVoucher = async () => {
@@ -634,11 +830,18 @@ function CartCheckoutContent() {
                   const baseH = Number((product as any)?.height ?? 0);
                   const baseWidthM = Number.isFinite(baseW) && baseW > 0 ? baseW / 1000 : undefined;
                   const baseHeightM = Number.isFinite(baseH) && baseH > 0 ? baseH / 1000 : undefined;
+                  const measurementEnabled = isMeasurementCustomizationEnabled(item, product);
                   const rawWidthMeters = item.meta?.custom_dimensions?.width;
                   const rawHeightMeters = item.meta?.custom_dimensions?.height;
+                  const addonsArr = Array.isArray(item.meta?.addons) ? item.meta.addons : [];
+                  const colorAddon = addonsArr.find((addon: any) => addon?.key === "color_customization");
 
-                  const w = metersToMillimetersDisplay(rawWidthMeters ?? baseWidthM);
-                  const h = metersToMillimetersDisplay(rawHeightMeters ?? baseHeightM);
+                  const w = metersToMillimetersDisplay(
+                    measurementEnabled ? rawWidthMeters ?? baseWidthM : baseWidthM
+                  );
+                  const h = metersToMillimetersDisplay(
+                    measurementEnabled ? rawHeightMeters ?? baseHeightM : baseHeightM
+                  );
 
                   return (
                     <div key={item.id} className="rounded-lg border border-gray-200 p-4">
@@ -657,6 +860,21 @@ function CartCheckoutContent() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                        <div className="md:col-span-2">
+                          <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={measurementEnabled}
+                              onChange={(e) => setItemMeasurementEnabled(item.id, e.target.checked)}
+                            />
+                            Change the default measurement for this item
+                          </label>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {measurementEnabled
+                              ? "Custom pricing only applies if the new size is different from the default measurement."
+                              : "This item is using its default size and default price."}
+                          </div>
+                        </div>
                         <div>
                           <label className="block text-sm font-semibold text-gray-700 mb-1">Width (mm)</label>
                           <input
@@ -664,10 +882,11 @@ function CartCheckoutContent() {
                             min="0"
                             step="1"
                             value={w}
+                            disabled={!measurementEnabled}
                             onChange={(e) => setItemMeasurementLocal(item.id, millimetersInputToMetersString(e.target.value), rawHeightMeters == null ? "" : String(rawHeightMeters))}
                             onBlur={() => persistItemMeasurement(item.id)}
                             placeholder="e.g. 2400"
-                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
                           />
                         </div>
                         <div>
@@ -677,11 +896,35 @@ function CartCheckoutContent() {
                             min="0"
                             step="1"
                             value={h}
+                            disabled={!measurementEnabled}
                             onChange={(e) => setItemMeasurementLocal(item.id, rawWidthMeters == null ? "" : String(rawWidthMeters), millimetersInputToMetersString(e.target.value))}
                             onBlur={() => persistItemMeasurement(item.id)}
                             placeholder="e.g. 1800"
-                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
                           />
+                        </div>
+                        <div className="md:col-span-2 pt-1">
+                          <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(colorAddon)}
+                              onChange={(e) => {
+                                setItemColorCustomizationLocal(item.id, e.target.checked);
+                                void toggleItemColorCustomization(item, e.target.checked);
+                              }}
+                            />
+                            Color Customization (+₱2,500 per unit)
+                          </label>
+                          {colorAddon ? (
+                            <input
+                              type="text"
+                              value={colorAddon.value || ""}
+                              onChange={(e) => setItemColorTextLocal(item.id, e.target.value)}
+                              onBlur={() => persistItemColorCustomization(item.id)}
+                              placeholder="Enter desired color"
+                              className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                            />
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -922,12 +1165,12 @@ function CartCheckoutContent() {
                 </div>
 
                 <datalist id="cart-province-options">
-                  {locationOptions.provinceOptions.map((option) => (
+                  {mergedLocationOptions.provinceOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
                 <datalist id="cart-city-options">
-                  {locationOptions.cityOptions.map((option) => (
+                  {mergedLocationOptions.cityOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
@@ -956,10 +1199,16 @@ function CartCheckoutContent() {
                 </div>
 
                 <datalist id="cart-barangay-options">
-                  {locationOptions.barangayOptions.map((option) => (
+                  {mergedLocationOptions.barangayOptions.map((option) => (
                     <option key={option} value={option} />
                   ))}
                 </datalist>
+
+                <p className="text-xs text-gray-500 -mt-1">
+                  {barangayOptionsLoading && addressForm.city.trim()
+                    ? "Loading PSGC barangay suggestions for the selected city..."
+                    : "Type your barangay or choose from the suggestions for the selected city."}
+                </p>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Street *</label>

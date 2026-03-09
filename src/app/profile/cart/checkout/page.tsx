@@ -22,9 +22,23 @@ const supabase = createClient(
 
 const DELIVERY_FEE = 2599;
 
-const formatMeters = (value?: number) => {
-  if (!Number.isFinite(value) || !value || value <= 0) return "";
-  return value.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+const formatMillimeters = (valueMm?: number) => {
+  if (!Number.isFinite(valueMm) || !valueMm || valueMm <= 0) return "";
+  return Number(valueMm.toFixed(2)).toString();
+};
+
+const metersToMillimetersDisplay = (value?: number | string | null) => {
+  if (value === "" || value == null) return "";
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return "";
+  return formatMillimeters(numericValue * 1000);
+};
+
+const millimetersInputToMetersString = (value: string) => {
+  if (!value.trim()) return "";
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return value;
+  return String(numericValue / 1000);
 };
 
 type UserItem = {
@@ -382,7 +396,7 @@ function CartCheckoutContent() {
     // Allow empty to mean "use default product measurement".
     // If provided, enforce positive finite meters.
     if ((w != null && (!Number.isFinite(w) || w <= 0)) || (h != null && (!Number.isFinite(h) || h <= 0))) {
-      alert("Please enter valid Width/Height in meters (greater than 0).\nLeave blank to use default size.");
+      alert("Please enter valid Width/Height in mm (greater than 0).\nLeave blank to use default size.");
       return;
     }
 
@@ -607,10 +621,10 @@ function CartCheckoutContent() {
             {/* Measurements */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">
-                Measurements (meters)
+                Measurements (mm)
               </h2>
               <p className="text-sm text-gray-600 mb-4">
-                Set your preferred Width and Height in meters. Price updates based on the measurement.
+                Set your preferred Width and Height in millimeters. Price updates based on the measurement.
               </p>
 
               <div className="space-y-4">
@@ -620,9 +634,11 @@ function CartCheckoutContent() {
                   const baseH = Number((product as any)?.height ?? 0);
                   const baseWidthM = Number.isFinite(baseW) && baseW > 0 ? baseW / 1000 : undefined;
                   const baseHeightM = Number.isFinite(baseH) && baseH > 0 ? baseH / 1000 : undefined;
+                  const rawWidthMeters = item.meta?.custom_dimensions?.width;
+                  const rawHeightMeters = item.meta?.custom_dimensions?.height;
 
-                  const w = item.meta?.custom_dimensions?.width ?? formatMeters(baseWidthM);
-                  const h = item.meta?.custom_dimensions?.height ?? formatMeters(baseHeightM);
+                  const w = metersToMillimetersDisplay(rawWidthMeters ?? baseWidthM);
+                  const h = metersToMillimetersDisplay(rawHeightMeters ?? baseHeightM);
 
                   return (
                     <div key={item.id} className="rounded-lg border border-gray-200 p-4">
@@ -631,7 +647,7 @@ function CartCheckoutContent() {
                           <div className="font-semibold text-gray-900">{product?.name || "Product"}</div>
                           <div className="text-xs text-gray-500">Qty: {item.quantity || 1}</div>
                           {(baseWidthM && baseHeightM) && (
-                            <div className="text-xs text-gray-500 mt-1">Default: {formatMeters(baseWidthM)}m x {formatMeters(baseHeightM)}m</div>
+                            <div className="text-xs text-gray-500 mt-1">Default: {formatMillimeters(baseW)}mm x {formatMillimeters(baseH)}mm</div>
                           )}
                         </div>
                         <div className="text-right">
@@ -642,28 +658,28 @@ function CartCheckoutContent() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
                         <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1">Width (m)</label>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Width (mm)</label>
                           <input
                             type="number"
                             min="0"
-                            step="0.01"
+                            step="1"
                             value={w}
-                            onChange={(e) => setItemMeasurementLocal(item.id, e.target.value, String(h ?? ""))}
+                            onChange={(e) => setItemMeasurementLocal(item.id, millimetersInputToMetersString(e.target.value), rawHeightMeters == null ? "" : String(rawHeightMeters))}
                             onBlur={() => persistItemMeasurement(item.id)}
-                            placeholder="e.g. 2.40"
+                            placeholder="e.g. 2400"
                             className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1">Height (m)</label>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Height (mm)</label>
                           <input
                             type="number"
                             min="0"
-                            step="0.01"
+                            step="1"
                             value={h}
-                            onChange={(e) => setItemMeasurementLocal(item.id, String(w ?? ""), e.target.value)}
+                            onChange={(e) => setItemMeasurementLocal(item.id, rawWidthMeters == null ? "" : String(rawWidthMeters), millimetersInputToMetersString(e.target.value))}
                             onBlur={() => persistItemMeasurement(item.id)}
-                            placeholder="e.g. 1.80"
+                            placeholder="e.g. 1800"
                             className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
                           />
                         </div>

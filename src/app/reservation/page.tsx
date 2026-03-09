@@ -21,9 +21,23 @@ const supabase = createClient(
 
 const DELIVERY_FEE = 2599;
 
-const formatMeters = (value?: number) => {
-  if (!Number.isFinite(value) || !value || value <= 0) return "";
-  return value.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+const formatMillimeters = (valueMm?: number) => {
+  if (!Number.isFinite(valueMm) || !valueMm || valueMm <= 0) return "";
+  return Number(valueMm.toFixed(2)).toString();
+};
+
+const metersToMillimetersDisplay = (value?: number | string | null) => {
+  if (value === "" || value == null) return "";
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return "";
+  return formatMillimeters(numericValue * 1000);
+};
+
+const millimetersInputToMetersString = (value: string) => {
+  if (!value.trim()) return "";
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return value;
+  return String(numericValue / 1000);
 };
 
 type Product = {
@@ -424,7 +438,7 @@ function ReservationPageContent() {
       (parsedWidth != null && (!Number.isFinite(parsedWidth) || parsedWidth <= 0)) ||
       (parsedHeight != null && (!Number.isFinite(parsedHeight) || parsedHeight <= 0))
     ) {
-      alert("Please enter valid custom width/height in meters (greater than 0).");
+      alert("Please enter valid custom width/height in mm (greater than 0).");
       return;
     }
     if (product.inventory < qty) {
@@ -601,76 +615,6 @@ function ReservationPageContent() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-black">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Product Overview</h2>
-              <div className="w-full aspect-[16/9] bg-gray-100 rounded overflow-hidden mb-4">
-                <img
-                  src={
-                    (product?.images && product.images[0]) ||
-                    product?.image1 ||
-                    "/no-orders.png"
-                  }
-                  alt={product?.name || "Product"}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-
-              <h3 className="text-2xl font-bold text-gray-900">{product.name}</h3>
-              <div className="text-gray-600 mt-1">{product.fullproductname || ""}</div>
-
-              <div className="mt-3 flex items-center gap-3">
-                <div className="text-2xl font-extrabold text-green-600">
-                  ₱{Number(product.price).toLocaleString()}
-                </div>
-                <span className="text-xs px-2 py-1 bg-gray-100 rounded">
-                  Stock: {product.inventory}
-                </span>
-              </div>
-
-              <div className="mt-6">
-                <h4 className="font-semibold text-gray-800 mb-2">Description</h4>
-                <p className="text-gray-700 text-sm leading-6">{product.description || "—"}</p>
-              </div>
-
-              <div className="mt-6">
-                <h4 className="font-semibold text-gray-800 mb-2">Product Specifications</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm text-gray-700">
-                  <div>
-                    <span className="text-gray-500">Category:</span> {product.category || "—"}
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Type:</span> {product.type || "—"}
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Material:</span> {product.material || "—"}
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Width:</span> {product.width ?? "—"} cm
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Height:</span> {product.height ?? "—"} cm
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Thickness:</span> {product.thickness ?? "—"} cm
-                  </div>
-                </div>
-              </div>
-
-              {!!product.additionalfeatures && (
-                <div className="mt-6">
-                  <h4 className="font-semibold text-gray-800 mb-2">Additional Features</h4>
-                  <ul className="list-disc ml-6 text-sm text-gray-700 whitespace-pre-line">
-                    {String(product.additionalfeatures)
-                      .split("\n")
-                      .filter(Boolean)
-                      .map((l, i) => (
-                        <li key={i}>{l}</li>
-                      ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Reservation Details</h2>
 
               <div className="space-y-4">
@@ -754,39 +698,39 @@ function ReservationPageContent() {
             </div>
 
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Measurements (meters)</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Measurements (mm)</h2>
               <p className="text-sm text-gray-600 mb-4">
-                Set your preferred Width and Height in meters. Price updates based on measurement.
+                Set your preferred Width and Height in millimeters. Price updates based on measurement.
               </p>
               <div className="text-xs text-gray-500 mb-3">
-                Default size: {formatMeters(Number(product.width || 0) / 1000) || "-"}m x {formatMeters(Number(product.height || 0) / 1000) || "-"}m
+                Default size: {formatMillimeters(Number(product.width || 0)) || "-"}mm x {formatMillimeters(Number(product.height || 0)) || "-"}mm
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Width (m)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Width (mm)</label>
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
-                    placeholder="e.g. 2.40"
+                    step="1"
+                    placeholder="e.g. 2400"
                     className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    value={formData.customWidth}
+                    value={metersToMillimetersDisplay(formData.customWidth)}
                     onChange={(e) =>
-                      setFormData({ ...formData, customWidth: e.target.value })
+                      setFormData({ ...formData, customWidth: millimetersInputToMetersString(e.target.value) })
                     }
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Height (m)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Height (mm)</label>
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
-                    placeholder="e.g. 1.80"
+                    step="1"
+                    placeholder="e.g. 1800"
                     className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    value={formData.customHeight}
+                    value={metersToMillimetersDisplay(formData.customHeight)}
                     onChange={(e) =>
-                      setFormData({ ...formData, customHeight: e.target.value })
+                      setFormData({ ...formData, customHeight: millimetersInputToMetersString(e.target.value) })
                     }
                   />
                 </div>

@@ -144,6 +144,41 @@ async function createPayMongoSession(sessionData: any) {
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
+  const normalizedLineItems = (Array.isArray(lineItems) ? lineItems : [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item: any) => {
+      const amount = Math.round(Number(item.amount));
+      const quantity = Math.max(1, Math.round(Number(item.quantity || 1)));
+      const normalized: any = {
+        name: String(item.name || 'Item').trim().slice(0, 120) || 'Item',
+        quantity,
+        amount,
+        currency: 'PHP',
+      };
+
+      if (typeof item.description === 'string' && item.description.trim()) {
+        normalized.description = item.description.trim().slice(0, 240);
+      }
+      if (Array.isArray(item.images) && item.images.length > 0) {
+        normalized.images = item.images;
+      }
+      return normalized;
+    })
+    .filter((item: any) => Number.isFinite(item.amount) && item.amount > 0);
+
+  if (normalizedLineItems.length === 0) {
+    const fallbackAmount = Math.round(Number(amount || 0) * 100);
+    if (fallbackAmount > 0) {
+      normalizedLineItems.push({
+        name: 'Order Payment',
+        quantity: 1,
+        amount: fallbackAmount,
+        currency: 'PHP',
+        description: 'Fallback order line item',
+      });
+    }
+  }
+
   let lastErrorPayload: unknown = null;
 
   for (const paymentMethodTypes of paymentMethodTypeCandidates) {
@@ -156,11 +191,11 @@ async function createPayMongoSession(sessionData: any) {
           send_email_receipt: true,
           show_description: true,
           show_line_items: true,
-          line_items: lineItems,
+          line_items: normalizedLineItems,
           payment_method_types: methodTypes,
           success_url,
           cancel_url,
-          description: `Payment for ${lineItems.length} item(s)`,
+          description: `Payment for ${normalizedLineItems.length} item(s)`,
           metadata: {
             ...metadata,
             user_item_ids: idsCsv,
@@ -929,6 +964,17 @@ export async function POST(request: NextRequest) {
         .eq('id', r.id);
     }
 
+    const perItemSummary = itemDetails.map((item, idx) => ({
+      id: item.id,
+      quantity: item.qty,
+      gross_total: Number((lineTotalsCents[idx] / 100).toFixed(2)),
+      discount_value: Number((discountAllocations[idx] / 100).toFixed(2)),
+      net_total: Number((netLineCents[idx] / 100).toFixed(2)),
+      reservation_fee_share: Number(((reservationAllocations[idx] || 0) / 100).toFixed(2)),
+      final_total: Number(((netLineCents[idx] + (reservationAllocations[idx] || 0)) / 100).toFixed(2)),
+      addons_total: Number(item.addonTotal.toFixed(2)),
+    }));
+
     const baseMetadata = {
       user_item_ids: createdUserItemIds.join(','),
       cart_ids: cart_ids ? cart_ids.join(',') : undefined,
@@ -941,6 +987,8 @@ export async function POST(request: NextRequest) {
       reservation_fee: reservationFeeCharged,
       reservation_fee_base: reservationFeeBase,
       total_amount: totalAmount,
+      line_items_json: JSON.stringify(displayLineItems),
+      per_item_summary_json: JSON.stringify(perItemSummary),
       ...(customerName ? { customer_name: customerName } : {}),
       ...(customerPhone ? { customer_phone: customerPhone } : {}),
       ...(customerEmail ? { customer_email: customerEmail } : {}),

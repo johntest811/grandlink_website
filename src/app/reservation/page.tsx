@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import { computeMeasurementPricing } from "../../utils/measurementPricing";
@@ -12,6 +12,7 @@ import {
   toAddressFormFromRecord,
   type AddressFormFields,
 } from "@/utils/addressFields";
+import { getLocationDropdownOptions } from "@/utils/locationSuggestions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +20,11 @@ const supabase = createClient(
 );
 
 const DELIVERY_FEE = 2599;
+
+const formatMeters = (value?: number) => {
+  if (!Number.isFinite(value) || !value || value <= 0) return "";
+  return value.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+};
 
 type Product = {
   id: string;
@@ -69,8 +75,6 @@ function ReservationPageContent() {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
-  const [selectedBranch, setSelectedBranch] = useState<string>("");
-  const [fulfillmentMethod, setFulfillmentMethod] = useState<"delivery" | "pickup">("delivery");
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -91,19 +95,16 @@ function ReservationPageContent() {
     "paymongo"
   );
 
-  const branches = [
-    "BALINTAWAK BRANCH",
-    "STA. ROSA BRANCH",
-    "UGONG BRANCH",
-    "ALABANG SHOWROOM",
-    "IMUS BRANCH",
-    "PAMPANGA SHOWROOM",
-    "HIHOME BRANCH",
-    "MC HOME DEPO ORTIGAS",
-    "SAN JUAN CITY",
-    "CW COMMONWEALTH",
-    "MC HOME DEPO BGC",
-  ];
+  const locationOptions = useMemo(
+    () =>
+      getLocationDropdownOptions(
+        addresses,
+        addressForm.province,
+        addressForm.city,
+        addressForm.barangay
+      ),
+    [addresses, addressForm.province, addressForm.city, addressForm.barangay]
+  );
 
   const handleGoBack = () => {
     if (productId) router.push(`/Product/details?id=${productId}`);
@@ -303,12 +304,19 @@ function ReservationPageContent() {
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
   const measurementPricing = (() => {
-    const unitPricePerSqm = Number(product?.price || 0);
+    const defaultUnitPrice = Math.max(0, Number(product?.price || 0));
 
     const baseWmm = Number(product?.width || 0);
     const baseHmm = Number(product?.height || 0);
     const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
     const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+    const baseAreaSqm =
+      baseWidthM && baseHeightM && baseWidthM > 0 && baseHeightM > 0
+        ? baseWidthM * baseHeightM
+        : undefined;
+
+    const unitPricePerSqm =
+      baseAreaSqm && baseAreaSqm > 0 ? defaultUnitPrice / baseAreaSqm : defaultUnitPrice;
 
     const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
     const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
@@ -317,7 +325,7 @@ function ReservationPageContent() {
       widthMeters,
       heightMeters,
       unitPricePerSqm,
-      minSqm: 1,
+      minSqm: 0,
       sqmDecimals: 2,
     });
   })();
@@ -406,12 +414,17 @@ function ReservationPageContent() {
       alert("Please sign in");
       return;
     }
-    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
+    if (!selectedAddressId) {
       alert("Please select a delivery address");
       return;
     }
-    if (fulfillmentMethod === "pickup" && !selectedBranch) {
-      alert("Please select a pickup branch");
+    const parsedWidth = formData.customWidth ? Number(formData.customWidth) : null;
+    const parsedHeight = formData.customHeight ? Number(formData.customHeight) : null;
+    if (
+      (parsedWidth != null && (!Number.isFinite(parsedWidth) || parsedWidth <= 0)) ||
+      (parsedHeight != null && (!Number.isFinite(parsedHeight) || parsedHeight <= 0))
+    ) {
+      alert("Please enter valid custom width/height in meters (greater than 0).");
       return;
     }
     if (product.inventory < qty) {
@@ -420,8 +433,8 @@ function ReservationPageContent() {
     }
     setSubmitting(true);
     try {
-      const selectedAddress = fulfillmentMethod === "delivery" ? addresses.find((a) => a.id === selectedAddressId) : null;
-      if (fulfillmentMethod === "delivery" && !selectedAddress) throw new Error("Selected address not found");
+      const selectedAddress = addresses.find((a) => a.id === selectedAddressId) || null;
+      if (!selectedAddress) throw new Error("Selected address not found");
 
       const addons = formData.colorCustomization
         ? [
@@ -440,7 +453,7 @@ function ReservationPageContent() {
         item_type: "reservation",
         status: "pending_payment",
         quantity: qty,
-        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
+        delivery_address_id: selectedAddressId,
         special_instructions: formData.specialInstructions || null,
         payment_status: "pending",
         reservation_fee: reservationFee,
@@ -457,8 +470,8 @@ function ReservationPageContent() {
           product_description: product.description,
           additional_features: product.additionalfeatures,
           payment_method: paymentMethod,
-          delivery_method: fulfillmentMethod,
-          selected_branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
+          delivery_method: "delivery",
+          selected_branch: null,
           custom_dimensions: {
             width: measurementPricing.width_m,
             height: measurementPricing.height_m,
@@ -514,9 +527,9 @@ function ReservationPageContent() {
         user_item_ids: [userItem.id],
         payment_method: paymentMethod,
         payment_type: "reservation",
-        delivery_method: fulfillmentMethod,
-        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
-        branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
+        delivery_method: "delivery",
+        delivery_address_id: selectedAddressId,
+        branch: null,
         success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
@@ -581,14 +594,14 @@ function ReservationPageContent() {
           <span>←</span> Back to Product
         </button>
 
-        <h1 className="text-2xl md:text-3xl font-bold text-center text-black mb-4">
+        <h1 className="text-2xl md:text-3xl font-bold text-center text-black mb-6">
           Reserve Your Product
         </h1>
 
-        <div className="bg-white rounded-lg shadow-lg p-6 md:p-8 text-black">
-          <div className="flex flex-col md:flex-row gap-8">
-            {/* Left */}
-            <div className="flex-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-black">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Product Overview</h2>
               <div className="w-full aspect-[16/9] bg-gray-100 rounded overflow-hidden mb-4">
                 <img
                   src={
@@ -601,7 +614,7 @@ function ReservationPageContent() {
                 />
               </div>
 
-              <h2 className="text-2xl font-bold">{product.name}</h2>
+              <h3 className="text-2xl font-bold text-gray-900">{product.name}</h3>
               <div className="text-gray-600 mt-1">{product.fullproductname || ""}</div>
 
               <div className="mt-3 flex items-center gap-3">
@@ -614,49 +627,37 @@ function ReservationPageContent() {
               </div>
 
               <div className="mt-6">
-                <h3 className="font-semibold text-gray-800 mb-2">Description</h3>
-                <p className="text-gray-700 text-sm leading-6">
-                  {product.description || "—"}
-                </p>
+                <h4 className="font-semibold text-gray-800 mb-2">Description</h4>
+                <p className="text-gray-700 text-sm leading-6">{product.description || "—"}</p>
               </div>
 
               <div className="mt-6">
-                <h3 className="font-semibold text-gray-800 mb-2">
-                  Product Specifications
-                </h3>
+                <h4 className="font-semibold text-gray-800 mb-2">Product Specifications</h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3 text-sm text-gray-700">
                   <div>
-                    <span className="text-gray-500">Category:</span>{" "}
-                    {product.category || "—"}
+                    <span className="text-gray-500">Category:</span> {product.category || "—"}
                   </div>
                   <div>
-                    <span className="text-gray-500">Type:</span>{" "}
-                    {product.type || "—"}
+                    <span className="text-gray-500">Type:</span> {product.type || "—"}
                   </div>
                   <div>
-                    <span className="text-gray-500">Material:</span>{" "}
-                    {product.material || "—"}
+                    <span className="text-gray-500">Material:</span> {product.material || "—"}
                   </div>
                   <div>
-                    <span className="text-gray-500">Width:</span>{" "}
-                    {product.width ?? "—"} cm
+                    <span className="text-gray-500">Width:</span> {product.width ?? "—"} cm
                   </div>
                   <div>
-                    <span className="text-gray-500">Height:</span>{" "}
-                    {product.height ?? "—"} cm
+                    <span className="text-gray-500">Height:</span> {product.height ?? "—"} cm
                   </div>
                   <div>
-                    <span className="text-gray-500">Thickness:</span>{" "}
-                    {product.thickness ?? "—"} cm
+                    <span className="text-gray-500">Thickness:</span> {product.thickness ?? "—"} cm
                   </div>
                 </div>
               </div>
 
               {!!product.additionalfeatures && (
                 <div className="mt-6">
-                  <h3 className="font-semibold text-gray-800 mb-2">
-                    Additional Features
-                  </h3>
+                  <h4 className="font-semibold text-gray-800 mb-2">Additional Features</h4>
                   <ul className="list-disc ml-6 text-sm text-gray-700 whitespace-pre-line">
                     {String(product.additionalfeatures)
                       .split("\n")
@@ -669,13 +670,14 @@ function ReservationPageContent() {
               )}
             </div>
 
-            {/* Right */}
-            <div className="w-full md:w-80">
-              <h2 className="text-lg font-semibold mb-3">Reservation Details</h2>
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Reservation Details</h2>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-gray-600">Quantity *</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Quantity <span className="text-red-600">*</span>
+                  </label>
                   <input
                     type="number"
                     min={1}
@@ -686,159 +688,61 @@ function ReservationPageContent() {
                         quantity: Math.max(1, Number(e.target.value || 1)),
                       })
                     }
-                    className="w-full border rounded px-3 py-2"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
                   />
                 </div>
 
                 <div>
-                  <label className="text-sm text-gray-600">Fulfillment Method *</label>
-                  <div className="flex gap-4 mt-2">
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="fulfillmentMethod"
-                        value="delivery"
-                        checked={fulfillmentMethod === "delivery"}
-                        onChange={() => setFulfillmentMethod("delivery")}
-                      />
-                      Delivery
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="fulfillmentMethod"
-                        value="pickup"
-                        checked={fulfillmentMethod === "pickup"}
-                        onChange={() => setFulfillmentMethod("pickup")}
-                      />
-                      Pickup
-                    </label>
-                  </div>
-                </div>
-
-                {fulfillmentMethod === "delivery" ? (
-                  <div>
-                    <label className="text-sm text-gray-600">Delivery Address *</label>
-                    <select
-                      className="w-full border rounded px-3 py-2"
-                      value={selectedAddressId}
-                      onChange={(e) => setSelectedAddressId(e.target.value)}
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Delivery Address <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                    value={selectedAddressId}
+                    onChange={(e) => setSelectedAddressId(e.target.value)}
+                  >
+                    <option value="">Select Address</option>
+                    {addresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.full_name} — {formatAddressLineFromRecord(a)}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={openAddressListPopup}
+                      className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
                     >
-                      <option value="">Select Address</option>
-                      {addresses.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.full_name} — {formatAddressLineFromRecord(a)}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={openAddressListPopup}
-                        className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Manage Addresses
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openAddAddressForm}
-                        className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
-                      >
-                        + Add New Address
-                      </button>
+                      Manage Addresses
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openAddAddressForm}
+                      className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
+                    >
+                      + Add New Address
+                    </button>
+                  </div>
+                  {selectedAddressPreview ? (
+                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+                      <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
+                      <div>{selectedAddressPreview.phone}</div>
+                      <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
+                      {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
                     </div>
-                    {selectedAddressPreview ? (
-                      <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
-                        <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
-                        <div>{selectedAddressPreview.phone}</div>
-                        <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
-                        {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
-                      </div>
-                    ) : null}
-                    {addresses.length === 0 ? (
-                      <div className="mt-1 text-xs text-gray-600">No saved addresses yet. Add one to continue delivery checkout.</div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div>
-                    <label className="text-sm text-gray-600">Store Branch *</label>
-                    <select
-                      className="w-full border rounded px-3 py-2"
-                      value={selectedBranch}
-                      onChange={(e) => setSelectedBranch(e.target.value)}
-                    >
-                      <option value="">Select Store Branch</option>
-                      {branches.map((b) => (
-                        <option key={b} value={b}>
-                          {b}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-sm text-gray-600">
-                    Custom Measurements (meters, optional)
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 mt-1">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Width (m)"
-                      className="border rounded px-2 py-2"
-                      value={formData.customWidth}
-                      onChange={(e) =>
-                        setFormData({ ...formData, customWidth: e.target.value })
-                      }
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Height (m)"
-                      className="border rounded px-2 py-2"
-                      value={formData.customHeight}
-                      onChange={(e) =>
-                        setFormData({ ...formData, customHeight: e.target.value })
-                      }
-                    />
-                  </div>
+                  ) : null}
+                  {addresses.length === 0 ? (
+                    <div className="mt-1 text-xs text-gray-600">
+                      No saved addresses yet. Add one to continue delivery checkout.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.colorCustomization}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          colorCustomization: e.target.checked,
-                        })
-                      }
-                    />
-                    <span className="text-sm">
-                      Color Customization (+₱2,500 per unit)
-                    </span>
-                  </label>
-                  {formData.colorCustomization && (
-                    <input
-                      placeholder="Enter desired color"
-                      className="mt-2 w-full border rounded px-3 py-2"
-                      value={formData.colorText}
-                      onChange={(e) =>
-                        setFormData({ ...formData, colorText: e.target.value })
-                      }
-                    />
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-sm text-gray-600">Special Instructions</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Special Instructions</label>
                   <textarea
-                    className="w-full border rounded px-3 py-2"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
                     rows={3}
                     value={formData.specialInstructions}
                     onChange={(e) =>
@@ -846,116 +750,200 @@ function ReservationPageContent() {
                     }
                   />
                 </div>
-
-                <div>
-                  <label className="text-sm text-gray-600">Discount Code</label>
-                  <div className="flex gap-2 mt-1">
-                    <input
-                      className="flex-1 border rounded px-3 py-2"
-                      placeholder="Enter voucher code"
-                      value={voucherCode}
-                      onChange={(e) => setVoucherCode(e.target.value)}
-                    />
-                    <button
-                      onClick={applyVoucher}
-                      disabled={applyingVoucher}
-                      className="px-4 py-2 bg-[#8B1C1C] text-white rounded disabled:opacity-60"
-                    >
-                      {applyingVoucher ? "Applying..." : "Apply"}
-                    </button>
-                  </div>
-                  {voucherInfo && (
-                    <div className="text-xs text-green-700 mt-2">
-                      Applied {voucherInfo.code} (
-                      {voucherInfo.type === "percent"
-                        ? `${voucherInfo.value}%`
-                        : `₱${voucherInfo.value.toLocaleString()}`}
-                      )
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-sm text-gray-600">Payment Method</label>
-                  <div className="flex gap-4 mt-1">
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="pmethod"
-                        checked={paymentMethod === "paymongo"}
-                        onChange={() => setPaymentMethod("paymongo")}
-                      />
-                      <span className="text-sm">PayMongo - GCash, Maya</span>
-                    </label>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Contact details (phone/email) will be collected inside the PayMongo checkout.
-                  </div>
-                  <div className="flex gap-4 mt-1">
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="pmethod"
-                        checked={paymentMethod === "paypal"}
-                        onChange={() => setPaymentMethod("paypal")}
-                      />
-                      <span className="text-sm">PayPal</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <h3 className="font-semibold mb-2">Reservation Summary</h3>
-                  <div className="bg-gray-50 rounded p-4 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Product Subtotal</span>
-                      <span>₱{productSubtotal.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Add-ons</span>
-                      <span>₱{addonsTotal.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Discount</span>
-                      <span className="text-green-700">
-                        -₱{Number(discountValue).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Total Product Value</span>
-                      <span>₱{discountedTotal.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium">Delivery Fee (Pay now)</span>
-                      <span className="font-medium text-green-600">
-                        ₱{reservationFee.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Remaining Balance</span>
-                      <span>₱{balanceDue.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2 pt-2">
-                  <button
-                    onClick={handleReservation}
-                    disabled={submitting}
-                    className="w-full bg-[#8B1C1C] text-white rounded px-4 py-2 disabled:opacity-60"
-                  >
-                    {submitting ? "Processing…" : "Pay Delivery Fee & Reserve"}
-                  </button>
-                  <button
-                    onClick={addToCartInstead}
-                    className="w-full bg-gray-200 text-black rounded px-4 py-2 hover:bg-gray-300"
-                  >
-                    Add to Cart Instead
-                  </button>
-                </div>
               </div>
             </div>
-            {/* Right end */}
+
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Measurements (meters)</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Set your preferred Width and Height in meters. Price updates based on measurement.
+              </p>
+              <div className="text-xs text-gray-500 mb-3">
+                Default size: {formatMeters(Number(product.width || 0) / 1000) || "-"}m x {formatMeters(Number(product.height || 0) / 1000) || "-"}m
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Width (m)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 2.40"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                    value={formData.customWidth}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customWidth: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Height (m)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 1.80"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                    value={formData.customHeight}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customHeight: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.colorCustomization}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        colorCustomization: e.target.checked,
+                      })
+                    }
+                  />
+                  <span className="text-sm">Color Customization (+₱2,500 per unit)</span>
+                </label>
+                {formData.colorCustomization && (
+                  <input
+                    placeholder="Enter desired color"
+                    className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-3"
+                    value={formData.colorText}
+                    onChange={(e) =>
+                      setFormData({ ...formData, colorText: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Payment Method</h2>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
+                  <input
+                    type="radio"
+                    name="pmethod"
+                    checked={paymentMethod === "paymongo"}
+                    onChange={() => setPaymentMethod("paymongo")}
+                    className="w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-900">PayMongo</div>
+                    <div className="text-sm text-gray-500">GCash, Maya</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
+                  <input
+                    type="radio"
+                    name="pmethod"
+                    checked={paymentMethod === "paypal"}
+                    onChange={() => setPaymentMethod("paypal")}
+                    className="w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-900">PayPal</div>
+                    <div className="text-sm text-gray-500">Pay with PayPal account</div>
+                  </div>
+                </label>
+              </div>
+              <div className="text-xs text-gray-500 mt-3">
+                Contact details (phone/email) will be collected inside the selected checkout provider.
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Discount Code</h2>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 border border-gray-300 rounded-lg px-4 py-3"
+                  placeholder="Enter voucher code"
+                  value={voucherCode}
+                  onChange={(e) => setVoucherCode(e.target.value)}
+                />
+                <button
+                  onClick={applyVoucher}
+                  disabled={applyingVoucher}
+                  className="px-6 py-3 bg-[#8B1C1C] text-white rounded-lg font-semibold disabled:opacity-60"
+                >
+                  {applyingVoucher ? "Applying..." : "Apply"}
+                </button>
+              </div>
+              {voucherInfo && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm font-medium">
+                  Applied {voucherInfo.code} ({voucherInfo.type === "percent" ? `${voucherInfo.value}%` : `₱${voucherInfo.value.toLocaleString()}`} off)
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-1">
+            <div className="sticky top-6 bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 border-b pb-3">Reservation Summary</h2>
+
+              <div className="flex gap-3 pb-4 border-b">
+                <img
+                  src={(product?.images && product.images[0]) || product?.image1 || "/no-orders.png"}
+                  alt={product?.name || "Product"}
+                  className="w-16 h-16 object-cover rounded"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900 text-sm">{product?.name || "Product"}</div>
+                  <div className="text-xs text-gray-500">Qty: {qty}</div>
+                  <div className="text-sm font-semibold text-gray-900">₱{(discountedTotal + reservationFee).toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2 my-4">
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Product Subtotal</span>
+                  <span>₱{productSubtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Add-ons</span>
+                  <span>₱{addonsTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-green-700 font-semibold">
+                  <span>Discount</span>
+                  <span>-₱{Number(discountValue).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Total Product Value</span>
+                  <span>₱{discountedTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Delivery Fee (Pay now)</span>
+                  <span>₱{reservationFee.toLocaleString()}</span>
+                </div>
+                <hr className="my-3" />
+                <div className="flex justify-between text-lg font-bold text-gray-900">
+                  <span>Total Amount</span>
+                  <span className="text-[#8B1C1C]">₱{(discountedTotal + reservationFee).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Remaining Balance</span>
+                  <span>₱{balanceDue.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleReservation}
+                disabled={submitting || !selectedAddressId}
+                className="w-full bg-gradient-to-r from-[#8B1C1C] to-[#a83232] text-white rounded-lg px-6 py-4 font-bold text-lg disabled:opacity-50"
+              >
+                {submitting ? "Processing..." : "Pay Delivery Fee & Reserve"}
+              </button>
+
+              <button
+                onClick={addToCartInstead}
+                className="w-full mt-2 bg-gray-200 text-black rounded-lg px-4 py-2 hover:bg-gray-300"
+              >
+                Add to Cart Instead
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1021,6 +1009,8 @@ function ReservationPageContent() {
                     <input
                       value={addressForm.province}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, province: e.target.value }))}
+                      list="reservation-province-options"
+                      placeholder="Type or pick a province/region"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
@@ -1030,11 +1020,24 @@ function ReservationPageContent() {
                     <input
                       value={addressForm.city}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, city: e.target.value }))}
+                      list="reservation-city-options"
+                      placeholder="Type or pick a city"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
                   </div>
                 </div>
+
+                <datalist id="reservation-province-options">
+                  {locationOptions.provinceOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
+                <datalist id="reservation-city-options">
+                  {locationOptions.cityOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -1042,6 +1045,8 @@ function ReservationPageContent() {
                     <input
                       value={addressForm.barangay}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, barangay: e.target.value }))}
+                      list="reservation-barangay-options"
+                      placeholder="Type or pick a barangay"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
@@ -1056,6 +1061,12 @@ function ReservationPageContent() {
                     />
                   </div>
                 </div>
+
+                <datalist id="reservation-barangay-options">
+                  {locationOptions.barangayOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Street *</label>

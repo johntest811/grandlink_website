@@ -492,15 +492,21 @@ function ProductDetailsPageContent() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
               <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
                 <div className="text-sm text-gray-500">Height</div>
-                <div className="text-lg font-semibold text-gray-500">{product.height ?? "—"}</div>
+                <div className="text-lg font-semibold text-gray-500">
+                  {product.height != null ? `${product.height} mm` : "—"}
+                </div>
               </div>
               <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
                 <div className="text-sm text-gray-500">Width</div>
-                <div className="text-lg font-semibold text-gray-500">{product.width ?? "—"}</div>
+                <div className="text-lg font-semibold text-gray-500">
+                  {product.width != null ? `${product.width} mm` : "—"}
+                </div>
               </div>
               <div className="bg-gray-50 p-3 rounded border flex flex-col items-center justify-center text-center">
                 <div className="text-sm text-gray-500">Thickness</div>
-                <div className="text-lg font-semibold text-gray-500">{product.thickness ?? "—"}</div>
+                <div className="text-lg font-semibold text-gray-500">
+                  {product.thickness != null ? `${product.thickness} mm` : "—"}
+                </div>
               </div>
             </div>
 

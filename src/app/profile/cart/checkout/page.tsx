@@ -13,6 +13,7 @@ import {
   toAddressFormFromRecord,
   type AddressFormFields,
 } from "@/utils/addressFields";
+import { getLocationDropdownOptions } from "@/utils/locationSuggestions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,11 @@ const supabase = createClient(
 );
 
 const DELIVERY_FEE = 2599;
+
+const formatMeters = (value?: number) => {
+  if (!Number.isFinite(value) || !value || value <= 0) return "";
+  return value.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+};
 
 type UserItem = {
   id: string;
@@ -73,8 +79,6 @@ function CartCheckoutContent() {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressFormFields>(emptyAddressForm());
-  const [selectedBranch, setSelectedBranch] = useState<string>("");
-  const [fulfillmentMethod, setFulfillmentMethod] = useState<"delivery" | "pickup">("delivery");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -83,19 +87,16 @@ function CartCheckoutContent() {
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
 
-  const branches = [
-    "BALINTAWAK BRANCH",
-    "STA. ROSA BRANCH",
-    "UGONG BRANCH",
-    "ALABANG SHOWROOM",
-    "IMUS BRANCH",
-    "PAMPANGA SHOWROOM",
-    "HIHOME BRANCH",
-    "MC HOME DEPO ORTIGAS",
-    "SAN JUAN CITY",
-    "CW COMMONWEALTH",
-    "MC HOME DEPO BGC",
-  ];
+  const locationOptions = useMemo(
+    () =>
+      getLocationDropdownOptions(
+        addresses,
+        addressForm.province,
+        addressForm.city,
+        addressForm.barangay
+      ),
+    [addresses, addressForm.province, addressForm.city, addressForm.barangay]
+  );
 
   const resetAddressForm = () => {
     setAddressForm(emptyAddressForm());
@@ -314,12 +315,19 @@ function CartCheckoutContent() {
 
   const computeUnitPrice = (item: UserItem) => {
     const product = products[item.product_id];
-    const unitPricePerSqm = Number(product?.price ?? 0);
+    const defaultUnitPrice = Math.max(0, Number(product?.price ?? 0));
 
     const baseWmm = Number((product as any)?.width ?? 0);
     const baseHmm = Number((product as any)?.height ?? 0);
     const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
     const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+    const baseAreaSqm =
+      baseWidthM && baseHeightM && baseWidthM > 0 && baseHeightM > 0
+        ? baseWidthM * baseHeightM
+        : undefined;
+
+    const unitPricePerSqm =
+      baseAreaSqm && baseAreaSqm > 0 ? defaultUnitPrice / baseAreaSqm : defaultUnitPrice;
 
     const customWidth = item.meta?.custom_dimensions?.width;
     const customHeight = item.meta?.custom_dimensions?.height;
@@ -334,7 +342,7 @@ function CartCheckoutContent() {
       widthMeters,
       heightMeters,
       unitPricePerSqm,
-      minSqm: 1,
+      minSqm: 0,
       sqmDecimals: 2,
       perPanelPrice,
       addedPanels,
@@ -460,12 +468,8 @@ function CartCheckoutContent() {
       alert("Please sign in");
       return;
     }
-    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
+    if (!selectedAddressId) {
       alert("Please select a delivery address");
-      return;
-    }
-    if (fulfillmentMethod === "pickup" && !selectedBranch) {
-      alert("Please select a pickup branch");
       return;
     }
     if (items.length === 0) {
@@ -487,9 +491,9 @@ function CartCheckoutContent() {
           user_id: userId,
           payment_method: paymentMethod,
           payment_type: "reservation",
-          delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
-          branch: fulfillmentMethod === "pickup" ? selectedBranch : null,
-          delivery_method: fulfillmentMethod,
+          delivery_address_id: selectedAddressId,
+          branch: null,
+          delivery_method: "delivery",
           // Include the receipt ref in the success URL so we can fetch only these items later
           success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}`,
           cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}`,
@@ -551,35 +555,7 @@ function CartCheckoutContent() {
                 Reservation Details
               </h2>
 
-              {/* Fulfillment Method */}
-              <div className="mb-5">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Fulfillment Method <span className="text-red-600">*</span>
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  <label className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="fulfillment"
-                      checked={fulfillmentMethod === "delivery"}
-                      onChange={() => setFulfillmentMethod("delivery")}
-                    />
-                    <span className="text-gray-900 font-medium">Delivery</span>
-                  </label>
-                  <label className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="fulfillment"
-                      checked={fulfillmentMethod === "pickup"}
-                      onChange={() => setFulfillmentMethod("pickup")}
-                    />
-                    <span className="text-gray-900 font-medium">Pickup</span>
-                  </label>
-                </div>
-              </div>
-
               {/* Delivery Address */}
-              {fulfillmentMethod === "delivery" && (
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Delivery Address <span className="text-red-600">*</span>
@@ -626,29 +602,6 @@ function CartCheckoutContent() {
                   <p className="text-sm text-gray-500 mt-2">No addresses found. Add one to continue delivery checkout.</p>
                 ) : null}
               </div>
-              )}
-
-              {/* Pickup Branch */}
-              {fulfillmentMethod === "pickup" && (
-              <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Branch <span className="text-red-600">*</span>
-                </label>
-                <select
-                  value={selectedBranch}
-                  onChange={(e) => setSelectedBranch(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
-                  required
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map((branch) => (
-                    <option key={branch} value={branch}>
-                      {branch}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              )}
             </div>
 
             {/* Measurements */}
@@ -665,9 +618,11 @@ function CartCheckoutContent() {
                   const product = products[item.product_id];
                   const baseW = Number((product as any)?.width ?? 0);
                   const baseH = Number((product as any)?.height ?? 0);
+                  const baseWidthM = Number.isFinite(baseW) && baseW > 0 ? baseW / 1000 : undefined;
+                  const baseHeightM = Number.isFinite(baseH) && baseH > 0 ? baseH / 1000 : undefined;
 
-                  const w = item.meta?.custom_dimensions?.width ?? (Number.isFinite(baseW) && baseW > 0 ? String(baseW) : "");
-                  const h = item.meta?.custom_dimensions?.height ?? (Number.isFinite(baseH) && baseH > 0 ? String(baseH) : "");
+                  const w = item.meta?.custom_dimensions?.width ?? formatMeters(baseWidthM);
+                  const h = item.meta?.custom_dimensions?.height ?? formatMeters(baseHeightM);
 
                   return (
                     <div key={item.id} className="rounded-lg border border-gray-200 p-4">
@@ -675,8 +630,8 @@ function CartCheckoutContent() {
                         <div>
                           <div className="font-semibold text-gray-900">{product?.name || "Product"}</div>
                           <div className="text-xs text-gray-500">Qty: {item.quantity || 1}</div>
-                          {(Number.isFinite(baseW) && baseW > 0 && Number.isFinite(baseH) && baseH > 0) && (
-                            <div className="text-xs text-gray-500 mt-1">Default: {baseW}m × {baseH}m</div>
+                          {(baseWidthM && baseHeightM) && (
+                            <div className="text-xs text-gray-500 mt-1">Default: {formatMeters(baseWidthM)}m x {formatMeters(baseHeightM)}m</div>
                           )}
                         </div>
                         <div className="text-right">
@@ -855,7 +810,7 @@ function CartCheckoutContent() {
                 disabled={
                   submitting ||
                   items.length === 0 ||
-                  (fulfillmentMethod === "delivery" ? !selectedAddressId : !selectedBranch)
+                  !selectedAddressId
                 }
                 className="w-full bg-gradient-to-r from-[#8B1C1C] to-[#a83232] text-white rounded-lg px-6 py-4 font-bold text-lg hover:from-[#7a1919] hover:to-[#8B1C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] shadow-lg"
               >
@@ -931,6 +886,8 @@ function CartCheckoutContent() {
                     <input
                       value={addressForm.province}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, province: e.target.value }))}
+                      list="cart-province-options"
+                      placeholder="Type or pick a province/region"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
@@ -940,11 +897,24 @@ function CartCheckoutContent() {
                     <input
                       value={addressForm.city}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, city: e.target.value }))}
+                      list="cart-city-options"
+                      placeholder="Type or pick a city"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
                   </div>
                 </div>
+
+                <datalist id="cart-province-options">
+                  {locationOptions.provinceOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
+                <datalist id="cart-city-options">
+                  {locationOptions.cityOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -952,6 +922,8 @@ function CartCheckoutContent() {
                     <input
                       value={addressForm.barangay}
                       onChange={(e) => setAddressForm((prev) => ({ ...prev, barangay: e.target.value }))}
+                      list="cart-barangay-options"
+                      placeholder="Type or pick a barangay"
                       className="w-full border rounded px-3 py-2 text-gray-900"
                       required
                     />
@@ -966,6 +938,12 @@ function CartCheckoutContent() {
                     />
                   </div>
                 </div>
+
+                <datalist id="cart-barangay-options">
+                  {locationOptions.barangayOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Street *</label>

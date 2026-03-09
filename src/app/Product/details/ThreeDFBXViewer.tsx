@@ -1026,39 +1026,6 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         splashSystem.renderOrder = 2;
         scene.add(splashSystem);
 
-        const windCount = Math.max(120, Math.round((isLowEnd ? BASE_WIND : STRONG_WIND) * 0.6));
-        const windPositions = new Float32Array(windCount * 3);
-        windVel = new Float32Array(windCount * 3);
-        windLifetime = new Float32Array(windCount);
-        const center = modelBounds ? modelBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
-        const size = modelBounds ? modelBounds.getSize(new THREE.Vector3()) : new THREE.Vector3(40, 40, 40);
-        const spread = Math.max(size.x, size.z) * 2.2;
-        for (let i = 0; i < windCount; i++) {
-          const base = i * 3;
-          windPositions[base + 0] = center.x - spread + Math.random() * spread * 2;
-          windPositions[base + 1] = center.y - size.y * 0.2 + Math.random() * size.y * 1.3;
-          windPositions[base + 2] = center.z - spread + Math.random() * spread * 2;
-          windVel[base + 0] = 6 + Math.random() * 8;
-          windVel[base + 1] = (Math.random() - 0.5) * 0.6;
-          windVel[base + 2] = (Math.random() - 0.5) * 1.8;
-          windLifetime[i] = Math.random() * 100;
-        }
-        const windGeo = new THREE.BufferGeometry();
-        windGeo.setAttribute("position", new THREE.BufferAttribute(windPositions, 3));
-        const windMat = new THREE.PointsMaterial({
-          map: windTexture,
-          color: 0xd3e5ff,
-          size: isLowEnd ? 6 : 8,
-          transparent: true,
-          opacity: Math.max(0.16, windBaseOpacity * 0.7),
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          sizeAttenuation: true,
-        });
-        windSystem = new THREE.Points(windGeo, windMat);
-        windSystem.frustumCulled = false;
-        windSystem.renderOrder = 1;
-        scene.add(windSystem);
       } else if (type === "night") {
         scene.background = new THREE.Color(0x0b1020);
         renderer.setClearColor(0x0b1020, 1);

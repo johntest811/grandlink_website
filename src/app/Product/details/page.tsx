@@ -620,7 +620,7 @@ function ProductDetailsPageContent() {
                 weather={weather}
                 frameFinish={frameFinish}
                 productCategory={product?.category ?? product?.type ?? null}
-                skyboxes={product?.effective_skyboxes || product?.skyboxes || null}
+                skyboxes={product?.skyboxes || null}
                 productDimensions={{
                   width: product.width,
                   height: product.height,

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import InvoicePreviewModal from "@/components/InvoicePreviewModal";
 
 type Item = {
   id: string;
@@ -47,6 +47,7 @@ export default function ProfileCompletedPage() {
     item: Item;
     sessions: PaymentSession[];
   } | null>(null);
+  const [invoicePreviewId, setInvoicePreviewId] = useState<string | null>(null);
 
   const load = async (uid: string) => {
     setLoading(true);
@@ -229,12 +230,13 @@ export default function ProfileCompletedPage() {
                       View Receipt
                     </button>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Link
-                        href={`/profile/invoice/${it.id}`}
+                      <button
+                        type="button"
+                        onClick={() => setInvoicePreviewId(it.id)}
                         className="inline-flex items-center gap-2 rounded-md border border-black/20 bg-white px-3 py-1 text-sm font-semibold text-black hover:bg-gray-100 transition"
                       >
-                        View Invoice
-                      </Link>
+                        Display Invoice
+                      </button>
                       <button
                         onClick={() => reorder(it)}
                         className="inline-flex items-center gap-2 rounded-md bg-black px-3 py-1 text-sm font-semibold text-white hover:bg-black/90 transition"
@@ -390,6 +392,11 @@ export default function ProfileCompletedPage() {
           </div>
         </div>
       )}
+
+      <InvoicePreviewModal
+        userItemId={invoicePreviewId}
+        onClose={() => setInvoicePreviewId(null)}
+      />
     </section>
   );
 }

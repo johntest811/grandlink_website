@@ -23,6 +23,7 @@
     "react-dom": "^19.1.0",
     "react-icons": "^5.5.0",
     "react-responsive-carousel": "^3.2.23",
+    "sharp": "^0.34.5",
     "stripe": "^19.0.0",
     "three": "^0.180.0",
     "three-stdlib": "^2.36.0",

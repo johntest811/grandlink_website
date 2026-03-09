@@ -1,10 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
+import { ensureProductionWorkflow, PRODUCTION_STAGES } from "@/app/lib/productionWorkflow";
 import { formatAddressLineFromRecord } from "@/utils/addressFields";
+import InvoicePreviewModal from "@/components/InvoicePreviewModal";
 
 type UserItem = {
   id: string;
@@ -90,6 +91,7 @@ export default function ProfileOrderPage() {
   const [receiptSessions, setReceiptSessions] = useState<PaymentSession[]>([]);
   const [receiptAddress, setReceiptAddress] = useState<Address | null>(null);
   const [progressModal, setProgressModal] = useState<{ item: UserItem; product?: Product } | null>(null);
+  const [invoicePreviewId, setInvoicePreviewId] = useState<string | null>(null);
 
   const [imagePreview, setImagePreview] = useState<{ urls: string[]; index: number; title?: string } | null>(null);
   const [imagePreviewZoom, setImagePreviewZoom] = useState(1);
@@ -236,6 +238,10 @@ export default function ProfileOrderPage() {
   const stageLabel = (k: string) =>
     ({
       approved: "Approved",
+      material_preparation: "Material Preparation Stage",
+      frame_fabrication_welding: "Frame Fabrication & Welding",
+      glass_installation: "Glass Installation",
+      sealant_application: "Sealant Application",
       in_production: "In Production",
       quality_check: "Quality Check",
       packaging: "Packaging",
@@ -245,13 +251,13 @@ export default function ProfileOrderPage() {
       completed: "Delivered",
     }[k] || k.replace(/_/g, " "));
 
-  const steps = ["approved", "in_production", "quality_check", "packaging", "ready_for_delivery", "out_for_delivery", "completed"];
+  const logisticsSteps = ["quality_check", "packaging", "ready_for_delivery", "out_for_delivery", "completed"];
 
   const reachedIndex = (it: UserItem) => {
     const cur = it.order_status || it.order_progress || it.status || "approved";
     const normalize = (s: string) => (s === "start_packaging" ? "packaging" : s);
-    const idx = steps.indexOf(normalize(cur));
-    return idx < 0 ? 0 : idx;
+    const idx = logisticsSteps.indexOf(normalize(cur));
+    return idx;
   };
 
   const openReceipt = async (item: UserItem) => {
@@ -464,12 +470,13 @@ export default function ProfileOrderPage() {
                       >
                         View Receipt
                       </button>
-                      <Link
-                        href={`/profile/invoice/${item.id}`}
+                      <button
+                        type="button"
+                        onClick={() => setInvoicePreviewId(item.id)}
                         className="px-4 py-2 bg-[#8B1C1C] text-white rounded hover:bg-[#701313] text-sm inline-flex items-center"
                       >
-                        View Invoice
-                      </Link>
+                        Display Invoice
+                      </button>
                       {canChangeOrder(item) && (
                         <button
                           onClick={() => openChange(item)}
@@ -631,20 +638,26 @@ export default function ProfileOrderPage() {
                 ? (progressModal.item.meta.production_updates as any[])
                 : [];
               const finalQc = progressModal.item?.meta?.final_qc;
+              const workflow = ensureProductionWorkflow(progressModal.item?.meta?.production_workflow);
               const status = String(
                 progressModal.item?.order_status || progressModal.item?.order_progress || progressModal.item?.status || ""
               );
-              const isInQualityCheck = status === "quality_check";
-              const hasReachedQualityCheck = reachedIndex(progressModal.item) >= steps.indexOf("quality_check");
-
+              const estimatedCompletionDate =
+                workflow.estimated_completion_date || progressModal.item?.meta?.production_estimated_completion_date || null;
+              const finalProductImages =
+                workflow.final_product_images.length > 0
+                  ? workflow.final_product_images
+                  : Array.isArray(progressModal.item?.meta?.production_final_images)
+                    ? (progressModal.item.meta.production_final_images as string[])
+                    : [];
+              const finalProductNote =
+                workflow.final_product_note || progressModal.item?.meta?.production_final_note || null;
               const normalizedUpdates = updates
                 .slice()
                 .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
-
               const qcFromUpdates = normalizedUpdates.find((u) => !!u?.is_final_qc);
               const qcPayload = finalQc && typeof finalQc === "object" ? finalQc : qcFromUpdates;
-
-              const productionUpdates = normalizedUpdates.filter((u) => !u?.is_final_qc);
+              const logisticsDoneIdx = reachedIndex(progressModal.item);
 
               const openPreview = (urls: string[], index: number, title?: string) => {
                 if (!urls.length) return;
@@ -654,19 +667,13 @@ export default function ProfileOrderPage() {
 
               return (
                 <>
-                  {/* Product snapshot */}
                   {progressModal.product && (
                     <div className="mb-6 flex items-center gap-3 rounded border p-3">
-                      <div className="h-16 w-16 overflow-hidden rounded border bg-white flex items-center justify-center">
+                      <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded border bg-white">
                         {(() => {
                           const p = progressModal.product;
-                          const img =
-                            (Array.isArray(p.images) && p.images[0]) ||
-                            p.image1 ||
-                            p.image2 ||
-                            "";
+                          const img = (Array.isArray(p.images) && p.images[0]) || p.image1 || p.image2 || "";
                           return img ? (
-                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={img} alt={p.name || "Product"} className="h-full w-full object-cover" />
                           ) : (
                             <div className="text-xs text-black/60">No image</div>
@@ -674,158 +681,179 @@ export default function ProfileOrderPage() {
                         })()}
                       </div>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-black truncate">{progressModal.product.name || "Product"}</div>
+                        <div className="truncate text-sm font-semibold text-black">{progressModal.product.name || "Product"}</div>
                         <div className="text-xs text-black/70">Status: {stageLabel(status || "approved")}</div>
                       </div>
                     </div>
                   )}
 
-                  {/* Production progress bar */}
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-black">Production Progress</div>
+                  <div className="mb-6 rounded-xl border border-black/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-black">Production Progress</div>
+                        <div className="mt-1 text-xs text-black/70">Approved stage evidence is reflected here.</div>
+                      </div>
                       <div className="text-sm font-semibold text-black">{pct}%</div>
                     </div>
-                    <div className="mt-2 h-3 w-full rounded bg-gray-200 overflow-hidden">
+                    <div className="mt-3 h-3 w-full overflow-hidden rounded bg-gray-200">
                       <div className="h-3 bg-[#8B1C1C]" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="mt-1 text-xs text-black/70">Only team-leader approved updates appear here.</div>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-black/70">
+                      <span>Estimated completion: {estimatedCompletionDate ? new Date(estimatedCompletionDate).toLocaleDateString() : "Not set"}</span>
+                      <span>Team members: {workflow.team_members.length}</span>
+                    </div>
                   </div>
 
-                  {/* Final QC snapshot (optional) */}
-                  {hasReachedQualityCheck &&
-                  qcPayload &&
-                  (qcPayload.description || (Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length)) ? (
-                    <div className="mb-8">
-                      <div className="text-sm font-semibold text-black mb-2">Quality Check</div>
-                      {qcPayload.description && (
-                        <div className="text-sm text-black whitespace-pre-wrap">{qcPayload.description}</div>
-                      )}
-                      {Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0 && (
-                        <div className="mt-2 grid grid-cols-3 gap-2">
-                          {qcPayload.image_urls.map((url: string, idx: number) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              className="group relative h-24 w-full overflow-hidden rounded border"
-                              onClick={() => openPreview(qcPayload.image_urls, idx, "Final QC")}
-                              aria-label="View final QC image"
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt="" className="h-full w-full object-cover" />
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : isInQualityCheck ? (
-                    <div className="mb-8 rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
-                      Quality Check has started, but the final QC photo/description has not been published yet.
-                    </div>
-                  ) : null}
-                </>
-              );
-            })()}
-
-            {(() => {
-              const doneIdx = reachedIndex(progressModal.item);
-              const updates = Array.isArray(progressModal.item?.meta?.production_updates)
-                ? (progressModal.item.meta.production_updates as any[])
-                : [];
-              const productionUpdates = updates
-                .filter((u) => !u?.is_final_qc)
-                .slice()
-                .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
-
-              const openPreview = (urls: string[], index: number, title?: string) => {
-                if (!urls.length) return;
-                setImagePreviewZoom(1);
-                setImagePreview({ urls, index, title });
-              };
-
-              return (
-                <div className="pl-8">
-                  <div className="relative space-y-6">
-                    {/* Vertical guide line */}
-                    <div className="absolute left-3 top-0 bottom-0 w-px bg-gray-200" />
-                    {steps.map((s, i) => {
-                      const done = i <= doneIdx;
-                      const dt =
-                        findTime(progressModal.item, [s]) ||
-                        (s === "packaging" ? findTime(progressModal.item, ["start_packaging"]) : undefined);
+                  <div className="mb-8 grid gap-4 md:grid-cols-2">
+                    {PRODUCTION_STAGES.map((stage, index) => {
+                      const stagePlan = workflow.stage_plans.find((entry) => entry.key === stage.key);
+                      const stageUpdates = normalizedUpdates.filter((update) => {
+                        const updateStageKey = String(update?.stage_key || "");
+                        if (updateStageKey) return updateStageKey === stage.key;
+                        return index === 0 && !update?.is_final_qc;
+                      });
+                      const done = stagePlan?.status === "approved";
+                      const inProgress = stagePlan?.status === "in_progress";
 
                       return (
-                        <div key={s} className="relative">
-                          {/* Connector to next node */}
-                          {i < steps.length - 1 && (
+                        <div key={stage.key} className="rounded-xl border border-black/10 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-black">{stage.label}</div>
+                              <div className="mt-1 text-xs text-black/70">
+                                {done
+                                  ? `Approved ${stagePlan?.approved_at ? `• ${new Date(stagePlan.approved_at).toLocaleString()}` : ""}`
+                                  : inProgress
+                                    ? "Waiting for final approval"
+                                    : "Pending"}
+                              </div>
+                            </div>
                             <div
-                              className={`absolute left-3 top-7 h-10 w-px ${i < doneIdx ? "bg-[#8B1C1C]" : "bg-gray-200"}`}
-                            />
-                          )}
-
-                          <div className="flex items-start gap-3">
-                            <div
-                              className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold border-2 ${
+                              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold ${
                                 done
-                                  ? "bg-[#8B1C1C] text-white border-[#8B1C1C]"
-                                  : "bg-white text-gray-600 border-gray-300"
+                                  ? "border-[#8B1C1C] bg-[#8B1C1C] text-white"
+                                  : inProgress
+                                    ? "border-amber-300 bg-amber-100 text-amber-800"
+                                    : "border-gray-300 bg-white text-gray-500"
                               }`}
                             >
-                              {done ? "✓" : i + 1}
+                              {done ? "✓" : index + 1}
                             </div>
-                            <div className="flex-1">
-                              <div className="font-semibold text-black">{stageLabel(s)}</div>
-                              <div className="text-sm text-black/80">{dt ? dt.toLocaleString() : "Pending"}</div>
+                          </div>
 
-                              {s === "in_production" && (
-                                <div className="mt-3">
-                                  <div className="text-sm font-semibold text-black mb-2">Production Updates</div>
-                                  {productionUpdates.length === 0 ? (
-                                    <div className="text-sm text-black/70">No approved updates yet.</div>
-                                  ) : (
-                                    <div className="space-y-3">
-                                      {productionUpdates.map((u, idx) => {
-                                        const imgs = Array.isArray(u.image_urls) ? u.image_urls : [];
-                                        const by = String(u.submitted_by_name || u.employee_name || "").trim();
-                                        return (
-                                          <div key={String(u.task_update_id || u.id || u.approved_at || idx)} className="border rounded-lg p-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <div className="text-xs text-black/70">UPDATE{by ? ` • by ${by}` : ""}</div>
-                                              <div className="text-xs text-black/60">{u.approved_at ? new Date(u.approved_at).toLocaleString() : ""}</div>
-                                            </div>
-                                            {u.description && <div className="mt-2 text-sm text-black whitespace-pre-wrap">{u.description}</div>}
-                                            {imgs.length > 0 && (
-                                              <div className="mt-2 grid grid-cols-3 gap-2">
-                                                {imgs.map((url: string, imgIdx: number) => (
-                                                  <button
-                                                    key={imgIdx}
-                                                    type="button"
-                                                    className="group relative h-24 w-full overflow-hidden rounded border"
-                                                    onClick={() => openPreview(imgs, imgIdx, "Production Update")}
-                                                    aria-label="View image"
-                                                  >
-                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img src={url} alt="" className="h-full w-full object-cover" />
-                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
-                                                  </button>
-                                                ))}
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(workflow.team_members || [])
+                              .filter((member) =>
+                                member.role_keys.some((roleKey) => stage.roleKeys.some((allowedRole) => allowedRole === roleKey))
+                              )
+                              .map((member) => (
+                                <span key={`${stage.key}-${member.admin_id}`} className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-medium text-black/70">
+                                  {member.admin_name}
+                                </span>
+                              ))}
+                          </div>
+
+                          <div className="mt-4 space-y-3">
+                            {stageUpdates.length === 0 ? (
+                              <div className="text-sm text-black/60">No approved evidence yet.</div>
+                            ) : (
+                              stageUpdates.slice(0, 2).map((update, updateIndex) => {
+                                const imgs = Array.isArray(update.image_urls) ? update.image_urls : [];
+                                return (
+                                  <div key={String(update.task_update_id || update.id || updateIndex)} className="rounded-lg border p-3">
+                                    <div className="flex items-center justify-between gap-3 text-xs text-black/60">
+                                      <span>{update.submitted_by_name || update.employee_name || "Production team"}</span>
+                                      <span>{update.approved_at ? new Date(update.approved_at).toLocaleString() : ""}</span>
                                     </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                                    {update.description ? <div className="mt-2 text-sm text-black whitespace-pre-wrap">{update.description}</div> : null}
+                                    {imgs.length > 0 ? (
+                                      <div className="mt-3 grid grid-cols-3 gap-2">
+                                        {imgs.map((url: string, imgIndex: number) => (
+                                          <button key={url + imgIndex} type="button" onClick={() => openPreview(imgs, imgIndex, stage.label)}>
+                                            <img src={url} alt="Stage evidence" className="h-20 w-full rounded border object-cover" />
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })
+                            )}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
+
+                  {finalProductImages.length > 0 ? (
+                    <div className="mb-8 rounded-xl border border-black/10 p-4">
+                      <div className="text-sm font-semibold text-black">Final Product Preview</div>
+                      {finalProductNote ? <div className="mt-2 text-sm text-black whitespace-pre-wrap">{finalProductNote}</div> : null}
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {finalProductImages.map((url, idx) => (
+                          <button key={url + idx} type="button" onClick={() => openPreview(finalProductImages, idx, "Final Product")}> 
+                            <img src={url} alt="Final product" className="h-24 w-full rounded border object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="pl-8">
+                    <div className="relative space-y-6">
+                      <div className="absolute bottom-0 left-3 top-0 w-px bg-gray-200" />
+                      {["approved", ...logisticsSteps].map((step, index, all) => {
+                        const done =
+                          step === "approved"
+                            ? true
+                            : logisticsDoneIdx >= logisticsSteps.indexOf(step);
+                        const dt =
+                          step === "approved"
+                            ? findTime(progressModal.item, ["approved"]) || findTime(progressModal.item, ["accepted"])
+                            : findTime(progressModal.item, [step]) ||
+                              (step === "packaging" ? findTime(progressModal.item, ["start_packaging"]) : undefined);
+
+                        return (
+                          <div key={step} className="relative">
+                            {index < all.length - 1 ? (
+                              <div className={`absolute left-3 top-7 h-10 w-px ${done ? "bg-[#8B1C1C]" : "bg-gray-200"}`} />
+                            ) : null}
+                            <div className="flex items-start gap-3">
+                              <div
+                                className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-semibold ${
+                                  done
+                                    ? "border-[#8B1C1C] bg-[#8B1C1C] text-white"
+                                    : "border-gray-300 bg-white text-gray-600"
+                                }`}
+                              >
+                                {done ? "✓" : index + 1}
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-semibold text-black">{stageLabel(step)}</div>
+                                <div className="text-sm text-black/80">{dt ? dt.toLocaleString() : "Pending"}</div>
+
+                                {step === "quality_check" && qcPayload && (qcPayload.description || (Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0)) ? (
+                                  <div className="mt-3 rounded-lg border p-3">
+                                    {qcPayload.description ? <div className="text-sm text-black whitespace-pre-wrap">{qcPayload.description}</div> : null}
+                                    {Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0 ? (
+                                      <div className="mt-3 grid grid-cols-3 gap-2">
+                                        {qcPayload.image_urls.map((url: string, idx: number) => (
+                                          <button key={url + idx} type="button" onClick={() => openPreview(qcPayload.image_urls, idx, "Quality Check")}> 
+                                            <img src={url} alt="Quality check" className="h-20 w-full rounded border object-cover" />
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
               );
             })()}
 
@@ -837,6 +865,11 @@ export default function ProfileOrderPage() {
           </div>
         </div>
       )}
+
+      <InvoicePreviewModal
+        userItemId={invoicePreviewId}
+        onClose={() => setInvoicePreviewId(null)}
+      />
 
       {/* Image preview overlay (used from Order Progress) */}
       {imagePreview && (

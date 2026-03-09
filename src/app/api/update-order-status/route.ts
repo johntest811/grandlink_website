@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
+import { resendInvoiceEmailForUserItem } from "@/app/lib/invoiceService";
 
 // CORS headers (makes cross-origin safe if ever called from browser)
 const corsHeaders = {
@@ -179,7 +180,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (shouldSendEmail && mailTransporter && userEmail) {
+    let invoiceEmailSent = false;
+    let invoiceRecipientEmail = userEmail;
+    if (newStatus === "approved") {
+      try {
+        const invoiceResult = await resendInvoiceEmailForUserItem(userItemId);
+        invoiceEmailSent = Boolean(invoiceResult?.emailSent);
+        invoiceRecipientEmail = invoiceResult?.recipientEmails?.join(",") || userEmail;
+      } catch (invoiceErr) {
+        console.error("Invoice email send failed:", invoiceErr);
+      }
+    }
+
+    if (newStatus !== "approved" && shouldSendEmail && mailTransporter && userEmail) {
       try {
         await mailTransporter.sendMail({
           from: process.env.GMAIL_FROM || process.env.GMAIL_USER!,
@@ -193,17 +206,32 @@ export async function POST(request: NextRequest) {
     }
 
     await supabase.from("email_notifications").insert({
-      recipient_email: userEmail,
-      subject: `Order Status: ${statusDisplay}`,
-      message: `${productName} - ${message}`,
+      recipient_email: newStatus === "approved" ? invoiceRecipientEmail : userEmail,
+      subject: newStatus === "approved" ? `Invoice for approved order ${userItemId}` : `Order Status: ${statusDisplay}`,
+      message:
+        newStatus === "approved"
+          ? `${productName} - Invoice email sent after admin approval.`
+          : `${productName} - ${message}`,
       notification_type: "order_status",
       related_entity_type: "user_items",
       related_entity_id: userItemId,
-      status: shouldSendEmail && userEmail ? "sent" : "pending",
+      status:
+        newStatus === "approved"
+          ? invoiceEmailSent
+            ? "sent"
+            : userEmail
+            ? "pending"
+            : "skipped"
+          : shouldSendEmail && userEmail
+          ? "sent"
+          : "pending",
       created_at: now,
     });
 
-    return NextResponse.json({ success: true, message: "Notification processed" }, { headers: corsHeaders });
+    return NextResponse.json(
+      { success: true, message: "Notification processed", invoiceEmailSent },
+      { headers: corsHeaders }
+    );
   } catch (error) {
     console.error("Order status update error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500, headers: corsHeaders });

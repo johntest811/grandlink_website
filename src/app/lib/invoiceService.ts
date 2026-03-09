@@ -9,6 +9,12 @@ const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+type InvoiceRecord = {
+  id: string;
+  invoice_number: string;
+  issued_at?: string | null;
+};
+
 function normalizeEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const email = value.trim().toLowerCase();
@@ -25,17 +31,15 @@ function buildInvoiceNumber(userItemId: string, issuedAt = new Date()) {
   return `GL-${y}${m}${d}-${short}`;
 }
 
-export async function ensureInvoiceForUserItem(userItemId: string) {
-  // 1) If exists, return it.
-  const { data: existing } = await supabaseAdmin
-    .from("invoices")
-    .select("*")
-    .eq("user_item_id", userItemId)
-    .maybeSingle();
+function getCompanyLogoUrl() {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-  if (existing) return existing;
+  return `${baseUrl.replace(/\/$/, "")}/ge-logo.avif`;
+}
 
-  // 2) Load user_item
+async function prepareInvoicePayload(userItemId: string, existingInvoice?: InvoiceRecord | null) {
   const { data: item, error: itemErr } = await supabaseAdmin
     .from("user_items")
     .select("*")
@@ -43,14 +47,12 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     .single();
   if (itemErr || !item) throw new Error(itemErr?.message || "Order not found");
 
-  // 3) Load product
   const { data: product } = await supabaseAdmin
     .from("products")
     .select("id,name,price")
     .eq("id", item.product_id)
     .maybeSingle();
 
-  // 4) Load address if present
   let deliveryAddressText: string | undefined;
   let addressEmail: string | null = null;
   if (item.delivery_address_id) {
@@ -66,7 +68,6 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     }
   }
 
-  // 5) Resolve invoice recipients
   const billingEmail = normalizeEmail(item.meta?.billing_email || item.customer_email || item.meta?.customer_email || null);
   let authEmail: string | null = null;
   try {
@@ -78,16 +79,15 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
 
   const recipients = Array.from(
     new Set([
-      billingEmail,
       addressEmail,
+      billingEmail,
       authEmail,
     ].filter((v): v is string => Boolean(v)))
   );
 
-  const issuedAtIso = new Date().toISOString();
-  const invoiceNumber = buildInvoiceNumber(userItemId);
+  const issuedAtIso = existingInvoice?.issued_at || new Date().toISOString();
+  const invoiceNumber = existingInvoice?.invoice_number || buildInvoiceNumber(userItemId, new Date(issuedAtIso));
 
-  // Prefer explicit amounts from DB/meta
   const qty = Number(item.quantity || 1);
   const unit = Number(item.price || item.meta?.unit_price || product?.price || item.meta?.product_price || 0);
   const subtotal = Number(item.meta?.subtotal ?? unit * qty);
@@ -110,12 +110,13 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
     invoiceNumber,
     issuedAtIso,
     companyName: "GrandLink Glass and Aluminium",
+    companyLogoUrl: getCompanyLogoUrl(),
     companyAddress: "Philippines",
     companyEmail: "support@grandlink.com",
     customerName: item.meta?.billing_name || item.customer_name || item.meta?.customer_name || item.meta?.full_name || "",
-    customerEmail: recipients[0] || "",
+    customerEmail: addressEmail || billingEmail || authEmail || "",
     customerPhone: item.meta?.billing_phone || item.customer_phone || item.meta?.customer_phone || "",
-    billingAddress: item.delivery_address || item.meta?.billing_address || "",
+    billingAddress: deliveryAddressText || item.delivery_address || item.meta?.billing_address || "",
     deliveryMethod,
     deliveryAddress: deliveryAddressText || item.delivery_address || item.meta?.delivery_address || "",
     pickupBranch,
@@ -132,27 +133,83 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
 
   const invoiceHtml = renderInvoiceHtml(invoiceData);
 
-  const insertPayload = {
-    user_item_id: userItemId,
-    user_id: item.user_id,
-    invoice_number: invoiceNumber,
-    currency: "PHP",
-    subtotal,
-    addons_total: addonsTotal,
-    discount_value: discountValue,
-    reservation_fee: reservationFee,
-    total_amount: totalAmount,
-    payment_method: invoiceData.paymentMethod || null,
-    issued_at: issuedAtIso,
-    invoice_html: invoiceHtml,
-    meta: {
-      delivery_method: deliveryMethod,
-      pickup_branch: pickupBranch || null,
-      delivery_address: invoiceData.deliveryAddress || null,
-      product_id: item.product_id,
-      product_name: line.description,
-      quantity: qty,
+  return {
+    item,
+    recipients,
+    invoiceData,
+    invoiceHtml,
+    insertPayload: {
+      user_item_id: userItemId,
+      user_id: item.user_id,
+      invoice_number: invoiceNumber,
+      currency: "PHP",
+      subtotal,
+      addons_total: addonsTotal,
+      discount_value: discountValue,
+      reservation_fee: reservationFee,
+      total_amount: totalAmount,
+      payment_method: invoiceData.paymentMethod || null,
+      issued_at: issuedAtIso,
+      invoice_html: invoiceHtml,
+      meta: {
+        delivery_method: deliveryMethod,
+        pickup_branch: pickupBranch || null,
+        delivery_address: invoiceData.deliveryAddress || null,
+        product_id: item.product_id,
+        product_name: line.description,
+        quantity: qty,
+      },
     },
+  };
+}
+
+async function sendInvoiceEmail(options: {
+  invoiceId: string;
+  recipients: string[];
+  invoiceData: InvoiceData;
+  invoiceHtml: string;
+}) {
+  const { invoiceId, recipients, invoiceData, invoiceHtml } = options;
+  const transporter = getMailTransporter();
+  if (!transporter || recipients.length === 0) return false;
+
+  const pdfBuffer = await renderInvoicePdf(invoiceData);
+
+  await transporter.sendMail({
+    from: getMailFrom(),
+    to: recipients.join(","),
+    subject: `Invoice ${invoiceData.invoiceNumber} - GrandLink`,
+    html: invoiceHtml,
+    attachments: [
+      {
+        filename: `${invoiceData.invoiceNumber}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+
+  await supabaseAdmin
+    .from("invoices")
+    .update({ email_sent_at: new Date().toISOString(), invoice_html: invoiceHtml })
+    .eq("id", invoiceId);
+
+  return true;
+}
+
+export async function ensureInvoiceForUserItem(userItemId: string) {
+  // 1) If exists, return it.
+  const { data: existing } = await supabaseAdmin
+    .from("invoices")
+    .select("*")
+    .eq("user_item_id", userItemId)
+    .maybeSingle();
+
+  if (existing) return existing;
+  const prepared = await prepareInvoicePayload(userItemId);
+
+  const insertPayload = {
+    ...prepared.insertPayload,
   };
 
   const { data: created, error: insErr } = await supabaseAdmin
@@ -165,33 +222,59 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
 
   // Send email (best-effort)
   try {
-    const transporter = getMailTransporter();
-    if (transporter && recipients.length > 0) {
-      const pdfBuffer = await renderInvoicePdf(invoiceData);
-
-      await transporter.sendMail({
-        from: getMailFrom(),
-        to: recipients.join(","),
-        subject: `Invoice ${invoiceNumber} - GrandLink`,
-        html: invoiceHtml,
-        attachments: [
-          {
-            filename: `${invoiceNumber}.pdf`,
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
-        ],
-      });
-
-      await supabaseAdmin
-        .from("invoices")
-        .update({ email_sent_at: new Date().toISOString() })
-        .eq("id", created.id);
-    }
+    await sendInvoiceEmail({
+      invoiceId: created.id,
+      recipients: prepared.recipients,
+      invoiceData: prepared.invoiceData,
+      invoiceHtml: prepared.invoiceHtml,
+    });
   } catch (e) {
     // Do not fail invoice creation if email fails
     console.warn("Invoice email send failed", e);
   }
 
   return created;
+}
+
+export async function resendInvoiceEmailForUserItem(userItemId: string) {
+  const { data: existing } = await supabaseAdmin
+    .from("invoices")
+    .select("id,invoice_number,issued_at")
+    .eq("user_item_id", userItemId)
+    .maybeSingle();
+
+  if (!existing) {
+    const prepared = await prepareInvoicePayload(userItemId);
+    const created = await ensureInvoiceForUserItem(userItemId);
+    return {
+      invoice: created,
+      emailSent: Boolean((created as any)?.email_sent_at),
+      recipientEmails: prepared.recipients,
+    };
+  }
+
+  const prepared = await prepareInvoicePayload(userItemId, existing as InvoiceRecord);
+
+  await supabaseAdmin
+    .from("invoices")
+    .update({
+      ...prepared.insertPayload,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id);
+
+  const emailSent = await sendInvoiceEmail({
+    invoiceId: existing.id,
+    recipients: prepared.recipients,
+    invoiceData: prepared.invoiceData,
+    invoiceHtml: prepared.invoiceHtml,
+  });
+
+  const { data: refreshed } = await supabaseAdmin
+    .from("invoices")
+    .select("*")
+    .eq("id", existing.id)
+    .single();
+
+  return { invoice: refreshed, emailSent, recipientEmails: prepared.recipients };
 }

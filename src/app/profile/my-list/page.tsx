@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -39,6 +39,56 @@ export default function ProfileMyListPage() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [moving, setMoving] = useState(false);
 
+  const loadMyList = useCallback(async (uid?: string | null) => {
+    const resolvedUserId = uid ?? userId;
+
+    if (!resolvedUserId) {
+      setUserId(null);
+      setItems([]);
+      setProductsById({});
+      setSelected({});
+      return;
+    }
+
+    const { data: uiData, error: uiErr } = await supabase
+      .from("user_items")
+      .select("*")
+      .eq("user_id", resolvedUserId)
+      .eq("item_type", "my-list")
+      .order("created_at", { ascending: false });
+
+    if (uiErr) throw uiErr;
+
+    const userItems = (uiData ?? []) as UserItem[];
+    setItems(userItems);
+    setSelected((prev) => {
+      const next: Record<string, boolean> = {};
+      userItems.forEach((item) => {
+        if (prev[item.id]) next[item.id] = true;
+      });
+      return next;
+    });
+
+    const productIds = Array.from(new Set(userItems.map((item) => item.product_id).filter(Boolean)));
+    if (productIds.length === 0) {
+      setProductsById({});
+      return;
+    }
+
+    const { data: prodData, error: prodErr } = await supabase
+      .from("products")
+      .select("id, name, images, image1, image2")
+      .in("id", productIds);
+
+    if (prodErr) throw prodErr;
+
+    const nextProducts: Record<string, Product> = {};
+    (prodData ?? []).forEach((product) => {
+      nextProducts[product.id] = product;
+    });
+    setProductsById(nextProducts);
+  }, [userId]);
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -46,48 +96,12 @@ export default function ProfileMyListPage() {
         const { data: userData } = await supabase.auth.getUser();
         const uid = (userData as any)?.user?.id ?? null;
         if (!uid) {
-          setUserId(null);
-          setItems([]);
-          setProductsById({});
+          await loadMyList(null);
           setLoading(false);
           return;
         }
         setUserId(uid);
-
-        // fetch user_items for this user where item_type = 'my-list'
-        const { data: uiData, error: uiErr } = await supabase
-          .from("user_items")
-          .select("*")
-          .eq("user_id", uid)
-          .eq("item_type", "my-list")
-          .order("created_at", { ascending: false });
-
-        if (uiErr) throw uiErr;
-        const userItems = uiData ?? [];
-        setItems(userItems);
-        // reset selections to keep only ids still present
-        setSelected((prev) => {
-          const next: Record<string, boolean> = {};
-          userItems.forEach((u) => { if (prev[u.id]) next[u.id] = true; });
-          return next;
-        });
-
-        // fetch products for product_ids found
-        const productIds = Array.from(new Set(userItems.map((u) => u.product_id).filter(Boolean)));
-        if (productIds.length) {
-          const { data: prodData, error: prodErr } = await supabase
-            .from("products")
-            .select("id, name, images, image1, image2")
-            .in("id", productIds);
-          if (prodErr) throw prodErr;
-          const map: Record<string, Product> = {};
-          (prodData ?? []).forEach((p) => {
-            map[p.id] = p;
-          });
-          setProductsById(map);
-        } else {
-          setProductsById({});
-        }
+        await loadMyList(uid);
       } catch (e) {
         console.error("load wishlist error", e);
         setItems([]);
@@ -99,9 +113,41 @@ export default function ProfileMyListPage() {
 
     load();
 
-    // optional: subscribe to realtime changes if desired
-    // return cleanup if you add subscriptions
-  }, []);
+    return () => {
+      // no-op cleanup kept here to mirror the async loader lifecycle
+    };
+  }, [loadMyList]);
+
+  useEffect(() => {
+    const refreshMyList = async () => {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = (userData as any)?.user?.id ?? null;
+        setUserId(uid);
+        await loadMyList(uid);
+      } catch (e) {
+        console.error("refresh wishlist error", e);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshMyList();
+      }
+    };
+
+    const onFocus = () => {
+      void refreshMyList();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [loadMyList]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -197,14 +243,8 @@ export default function ProfileMyListPage() {
         throw new Error("Items were added to cart, but could not be removed from My List.");
       }
 
-      setItems((prev) => prev.filter((item) => !movedIds.includes(item.id)));
-      setSelected((prev) => {
-        const next = { ...prev };
-        movedIds.forEach((id) => {
-          delete next[id];
-        });
-        return next;
-      });
+      await loadMyList(userId);
+      router.refresh();
 
       router.push("/profile/cart");
     } catch (e: any) {

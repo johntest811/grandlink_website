@@ -419,13 +419,7 @@ function CartCheckoutContent() {
     const baseHmm = Number((product as any)?.height ?? 0);
     const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
     const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
-    const baseAreaSqm =
-      baseWidthM && baseHeightM && baseWidthM > 0 && baseHeightM > 0
-        ? baseWidthM * baseHeightM
-        : undefined;
-
-    const unitPricePerSqm =
-      baseAreaSqm && baseAreaSqm > 0 ? defaultUnitPrice / baseAreaSqm : defaultUnitPrice;
+    const unitPricePerSqm = defaultUnitPrice;
 
     const customWidth = item.meta?.custom_dimensions?.width;
     const customHeight = item.meta?.custom_dimensions?.height;
@@ -437,7 +431,13 @@ function CartCheckoutContent() {
       (measurementsMatch(Number(customWidth ?? baseWidthM), baseWidthM) &&
         measurementsMatch(Number(customHeight ?? baseHeightM), baseHeightM))
     ) {
-      return defaultUnitPrice;
+      return computeMeasurementPricing({
+        widthMeters: baseWidthM,
+        heightMeters: baseHeightM,
+        unitPricePerSqm,
+        minSqm: 0,
+        sqmDecimals: 2,
+      }).unit_price;
     }
 
     const widthMeters = customWidth ?? baseWidthM;

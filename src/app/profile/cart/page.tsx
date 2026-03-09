@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { computeMeasurementPricing } from "@/utils/measurementPricing";
 
 type UserItem = {
   price: number | undefined;
@@ -19,6 +20,8 @@ type Product = {
   price?: number;
   images?: string[];
   image1?: string;
+  width?: number;
+  height?: number;
 };
 
 const supabase = createClient(
@@ -34,6 +37,12 @@ type Address = {
   phone?: string;
   address?: string;
   is_default: boolean;
+};
+
+const measurementsMatch = (left?: number, right?: number) => {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  return Math.abs(left - right) < 0.000001;
 };
 
 export default function CartPage() {
@@ -72,7 +81,7 @@ export default function CartPage() {
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from("products")
-          .select("id, name, price, images, image1")
+          .select("id, name, price, images, image1, width, height")
           .in("id", productIds);
 
         const map: Record<string, Product> = {};
@@ -100,11 +109,36 @@ export default function CartPage() {
     [items, selected]
   );
 
+  const computeUnitPrice = (item: UserItem) => {
+    const product = products[item.product_id];
+    const unitPricePerSqm = Math.max(0, Number(product?.price ?? 0));
+    const baseWidthRaw = Number(product?.width ?? 0);
+    const baseHeightRaw = Number(product?.height ?? 0);
+    const baseWidthM = Number.isFinite(baseWidthRaw) && baseWidthRaw > 0 ? baseWidthRaw / 1000 : undefined;
+    const baseHeightM = Number.isFinite(baseHeightRaw) && baseHeightRaw > 0 ? baseHeightRaw / 1000 : undefined;
+    const explicitEnabled = item.meta?.custom_dimensions?.enabled;
+    const customWidth = item.meta?.custom_dimensions?.width;
+    const customHeight = item.meta?.custom_dimensions?.height;
+    const useCustomMeasurements = explicitEnabled === true || (
+      explicitEnabled !== false && (
+        !measurementsMatch(Number(customWidth), baseWidthM) ||
+        !measurementsMatch(Number(customHeight), baseHeightM)
+      )
+    );
+
+    return computeMeasurementPricing({
+      widthMeters: useCustomMeasurements ? customWidth ?? baseWidthM : baseWidthM,
+      heightMeters: useCustomMeasurements ? customHeight ?? baseHeightM : baseHeightM,
+      unitPricePerSqm,
+      minSqm: 0,
+      sqmDecimals: 2,
+    }).unit_price;
+  };
+
   const totals = useMemo(() => {
     const base = selectedItems.reduce(
       (acc, item) => {
-        const product = products[item.product_id];
-        const unitPrice = Number(item.price ?? product?.price ?? 0);
+        const unitPrice = computeUnitPrice(item);
         const quantity = Number(item.quantity || 1);
         const addons = Array.isArray(item.meta?.addons)
           ? item.meta.addons.reduce((sum: number, addon: any) => sum + Number(addon?.fee || 0), 0)
@@ -230,7 +264,7 @@ export default function CartPage() {
 
           const selectedFlag = !!selected[item.id];
           const qty = item.quantity || 1;
-          const unitPrice = Number(item.price ?? product?.price ?? 0);
+          const unitPrice = computeUnitPrice(item);
           const addonsArr: any[] = Array.isArray(item.meta?.addons) ? item.meta.addons : [];
           const hasColorAddon = addonsArr.some((a: any) => a?.key === 'color_customization');
           const colorValue = (addonsArr.find((a: any) => a?.key === 'color_customization')?.value) || '';

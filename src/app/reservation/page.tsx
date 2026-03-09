@@ -371,13 +371,7 @@ function ReservationPageContent() {
     const baseHmm = Number(product?.height || 0);
     const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
     const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
-    const baseAreaSqm =
-      baseWidthM && baseHeightM && baseWidthM > 0 && baseHeightM > 0
-        ? baseWidthM * baseHeightM
-        : undefined;
-
-    const unitPricePerSqm =
-      baseAreaSqm && baseAreaSqm > 0 ? defaultUnitPrice / baseAreaSqm : defaultUnitPrice;
+    const unitPricePerSqm = defaultUnitPrice;
 
     const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
     const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
@@ -397,12 +391,7 @@ function ReservationPageContent() {
         measurementsMatch(heightMeters, baseHeightM)
       );
 
-    if (!customMeasurementActive) {
-      return {
-        ...defaultPricing,
-        unit_price: defaultUnitPrice,
-      };
-    }
+    if (!customMeasurementActive) return defaultPricing;
 
     return computeMeasurementPricing({
       widthMeters,
@@ -425,6 +414,7 @@ function ReservationPageContent() {
   const discountedTotal = Math.max(0, preDiscount - discountValue);
   const reservationFee = DELIVERY_FEE;
   const balanceDue = Math.max(0, discountedTotal - reservationFee);
+  const originalPrice = Math.max(0, Number(product?.price || 0));
 
   const applyVoucher = async () => {
     if (preDiscount <= 0) {
@@ -943,6 +933,14 @@ function ReservationPageContent() {
 
               <div className="space-y-2 my-4">
                 <div className="flex justify-between text-sm text-gray-700">
+                  <span>Original Price</span>
+                  <span>₱{originalPrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Computed Unit Price</span>
+                  <span>₱{computedUnitPrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
                   <span>Product Subtotal</span>
                   <span>₱{productSubtotal.toLocaleString()}</span>
                 </div>
@@ -966,10 +964,6 @@ function ReservationPageContent() {
                 <div className="flex justify-between text-lg font-bold text-gray-900">
                   <span>Total Amount</span>
                   <span className="text-[#8B1C1C]">₱{(discountedTotal + reservationFee).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm text-gray-700">
-                  <span>Remaining Balance</span>
-                  <span>₱{balanceDue.toLocaleString()}</span>
                 </div>
               </div>
 

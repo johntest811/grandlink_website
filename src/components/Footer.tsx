@@ -194,17 +194,8 @@ export default function Footer() {
         </div>
       </div>
       <div className="bg-[#232d3b] py-4 px-4">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 md:grid md:grid-cols-[auto_1fr_auto] md:items-center">
-          <div className="flex justify-start">
-            <a
-              href={chromeSettings.footerInquireLink || "/Inquire"}
-              className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm inline-block"
-            >
-              {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
-            </a>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-4 text-center md:gap-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 md:grid md:grid-cols-[1fr_auto] md:items-center">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-center md:justify-start md:gap-6">
             <a href={chromeSettings.footerFacebookUrl || "https://www.facebook.com/grandeast.aluminum/"} target="_blank" rel="noopener noreferrer" aria-label="Facebook page">
               <FaFacebookF className="text-white text-2xl bg-[#4267B2] rounded p-1 w-8 h-8 flex items-center justify-center" />
             </a>
@@ -216,10 +207,13 @@ export default function Footer() {
             </span>
           </div>
 
-          <div className="hidden md:flex md:justify-end" aria-hidden="true">
-            <span className="invisible bg-[#8B1C1C] px-8 py-2 rounded font-semibold text-sm inline-block">
+          <div className="flex justify-end">
+            <a
+              href={chromeSettings.footerInquireLink || "/Inquire"}
+              className="bg-[#8B1C1C] text-white px-8 py-2 rounded font-semibold hover:bg-[#a83232] transition text-sm inline-block"
+            >
               {chromeSettings.footerInquireLabel || "INQUIRE NOW"}
-            </span>
+            </a>
           </div>
         </div>
       </div>

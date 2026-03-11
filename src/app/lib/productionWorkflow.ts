@@ -4,7 +4,8 @@ export type ProductionStageKey =
   | "material_preparation"
   | "frame_fabrication_welding"
   | "glass_installation"
-  | "sealant_application";
+  | "sealant_application"
+  | "quality_checking";
 
 export type WorkflowStageMeta = {
   key: ProductionStageKey;
@@ -79,7 +80,15 @@ export const PRODUCTION_STAGES = [
     order: 4,
     roleKeys: ["sealant_applicator"],
   },
+  {
+    key: "quality_checking",
+    label: "Quality Checking",
+    order: 5,
+    roleKeys: ["repair_staff"],
+  },
 ] as const;
+
+export const FINAL_PRODUCTION_STAGE_KEY = PRODUCTION_STAGES[PRODUCTION_STAGES.length - 1]!.key as ProductionStageKey;
 
 export function ensureProductionWorkflow(raw: unknown): ProductionWorkflowMeta {
   const input = raw && typeof raw === "object" ? (raw as Partial<ProductionWorkflowMeta>) : {};

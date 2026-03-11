@@ -37,15 +37,29 @@ export type InvoiceData = {
 
 let companyLogoPdfBufferPromise: Promise<Buffer | null> | null = null;
 
-async function getCompanyLogoPdfBuffer(): Promise<Buffer | null> {
+async function getCompanyLogoPdfBuffer(companyLogoUrl?: string): Promise<Buffer | null> {
   if (!companyLogoPdfBufferPromise) {
     companyLogoPdfBufferPromise = (async () => {
       try {
         const logoPath = path.join(process.cwd(), "public", "ge-logo.avif");
         const raw = await fs.readFile(logoPath);
         return await sharp(raw).png().toBuffer();
-      } catch (error) {
-        console.warn("Failed to prepare invoice logo for PDF", error);
+      }
+
+      catch (fileError) {
+        if (companyLogoUrl) {
+          try {
+            const response = await fetch(companyLogoUrl, { cache: "force-cache" });
+            if (response.ok) {
+              const raw = Buffer.from(await response.arrayBuffer());
+              return await sharp(raw).png().toBuffer();
+            }
+          } catch (urlError) {
+            console.warn("Failed to load invoice logo from URL", urlError);
+          }
+        }
+
+        console.warn("Failed to prepare invoice logo for PDF", fileError);
         return null;
       }
     })();
@@ -175,7 +189,7 @@ export async function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
 
         const issued = new Date(data.issuedAtIso);
         const lineHeight = 18;
-        const logoBuffer = await getCompanyLogoPdfBuffer();
+        const logoBuffer = await getCompanyLogoPdfBuffer(data.companyLogoUrl);
         const headerTop = doc.y;
 
         if (logoBuffer) {

@@ -242,6 +242,7 @@ export default function ProfileOrderPage() {
       frame_fabrication_welding: "Frame Fabrication & Welding",
       glass_installation: "Glass Installation",
       sealant_application: "Sealant Application",
+      quality_checking: "Quality Checking",
       in_production: "In Production",
       quality_check: "Quality Check",
       packaging: "Packaging",
@@ -251,13 +252,19 @@ export default function ProfileOrderPage() {
       completed: "Delivered",
     }[k] || k.replace(/_/g, " "));
 
-  const logisticsSteps = ["quality_check", "packaging", "ready_for_delivery", "out_for_delivery", "completed"];
+  const timelineSteps = ["approved", "in_production", "quality_check", "packaging", "ready_for_delivery", "out_for_delivery", "completed"];
+
+  const normalizeTimelineStatus = (value: string) => {
+    const normalized = String(value || "approved").trim().toLowerCase();
+    if (!normalized || normalized === "accepted" || normalized === "pending_acceptance") return "approved";
+    if (normalized === "start_packaging") return "packaging";
+    return normalized;
+  };
 
   const reachedIndex = (it: UserItem) => {
-    const cur = it.order_status || it.order_progress || it.status || "approved";
-    const normalize = (s: string) => (s === "start_packaging" ? "packaging" : s);
-    const idx = logisticsSteps.indexOf(normalize(cur));
-    return idx;
+    const cur = normalizeTimelineStatus(it.order_status || it.order_progress || it.status || "approved");
+    const idx = timelineSteps.indexOf(cur);
+    return idx >= 0 ? idx : 0;
   };
 
   const openReceipt = async (item: UserItem) => {
@@ -657,7 +664,10 @@ export default function ProfileOrderPage() {
                 .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
               const qcFromUpdates = normalizedUpdates.find((u) => !!u?.is_final_qc);
               const qcPayload = finalQc && typeof finalQc === "object" ? finalQc : qcFromUpdates;
-              const logisticsDoneIdx = reachedIndex(progressModal.item);
+              const timelineDoneIdx = reachedIndex(progressModal.item);
+              const productionStartedAt = workflow.started_at
+                ? new Date(workflow.started_at)
+                : findTime(progressModal.item, ["in_production"]);
 
               const openPreview = (urls: string[], index: number, title?: string) => {
                 if (!urls.length) return;
@@ -704,87 +714,6 @@ export default function ProfileOrderPage() {
                     </div>
                   </div>
 
-                  <div className="mb-8 grid gap-4 md:grid-cols-2">
-                    {PRODUCTION_STAGES.map((stage, index) => {
-                      const stagePlan = workflow.stage_plans.find((entry) => entry.key === stage.key);
-                      const stageUpdates = normalizedUpdates.filter((update) => {
-                        const updateStageKey = String(update?.stage_key || "");
-                        if (updateStageKey) return updateStageKey === stage.key;
-                        return index === 0 && !update?.is_final_qc;
-                      });
-                      const done = stagePlan?.status === "approved";
-                      const inProgress = stagePlan?.status === "in_progress";
-
-                      return (
-                        <div key={stage.key} className="rounded-xl border border-black/10 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-black">{stage.label}</div>
-                              <div className="mt-1 text-xs text-black/70">
-                                {done
-                                  ? `Approved ${stagePlan?.approved_at ? `• ${new Date(stagePlan.approved_at).toLocaleString()}` : ""}`
-                                  : inProgress
-                                    ? "Waiting for final approval"
-                                    : "Pending"}
-                              </div>
-                            </div>
-                            <div
-                              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold ${
-                                done
-                                  ? "border-[#8B1C1C] bg-[#8B1C1C] text-white"
-                                  : inProgress
-                                    ? "border-amber-300 bg-amber-100 text-amber-800"
-                                    : "border-gray-300 bg-white text-gray-500"
-                              }`}
-                            >
-                              {done ? "✓" : index + 1}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {(workflow.team_members || [])
-                              .filter((member) =>
-                                member.role_keys.some((roleKey) => stage.roleKeys.some((allowedRole) => allowedRole === roleKey))
-                              )
-                              .map((member) => (
-                                <span key={`${stage.key}-${member.admin_id}`} className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-medium text-black/70">
-                                  {member.admin_name}
-                                </span>
-                              ))}
-                          </div>
-
-                          <div className="mt-4 space-y-3">
-                            {stageUpdates.length === 0 ? (
-                              <div className="text-sm text-black/60">No approved evidence yet.</div>
-                            ) : (
-                              stageUpdates.slice(0, 2).map((update, updateIndex) => {
-                                const imgs = Array.isArray(update.image_urls) ? update.image_urls : [];
-                                return (
-                                  <div key={String(update.task_update_id || update.id || updateIndex)} className="rounded-lg border p-3">
-                                    <div className="flex items-center justify-between gap-3 text-xs text-black/60">
-                                      <span>{update.submitted_by_name || update.employee_name || "Production team"}</span>
-                                      <span>{update.approved_at ? new Date(update.approved_at).toLocaleString() : ""}</span>
-                                    </div>
-                                    {update.description ? <div className="mt-2 text-sm text-black whitespace-pre-wrap">{update.description}</div> : null}
-                                    {imgs.length > 0 ? (
-                                      <div className="mt-3 grid grid-cols-3 gap-2">
-                                        {imgs.map((url: string, imgIndex: number) => (
-                                          <button key={url + imgIndex} type="button" onClick={() => openPreview(imgs, imgIndex, stage.label)}>
-                                            <img src={url} alt="Stage evidence" className="h-20 w-full rounded border object-cover" />
-                                          </button>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
                   {finalProductImages.length > 0 ? (
                     <div className="mb-8 rounded-xl border border-black/10 p-4">
                       <div className="text-sm font-semibold text-black">Final Product Preview</div>
@@ -802,14 +731,13 @@ export default function ProfileOrderPage() {
                   <div className="pl-8">
                     <div className="relative space-y-6">
                       <div className="absolute bottom-0 left-3 top-0 w-px bg-gray-200" />
-                      {["approved", ...logisticsSteps].map((step, index, all) => {
-                        const done =
-                          step === "approved"
-                            ? true
-                            : logisticsDoneIdx >= logisticsSteps.indexOf(step);
+                      {timelineSteps.map((step, index, all) => {
+                        const done = step === "approved" ? true : timelineDoneIdx >= index;
                         const dt =
                           step === "approved"
                             ? findTime(progressModal.item, ["approved"]) || findTime(progressModal.item, ["accepted"])
+                            : step === "in_production"
+                              ? productionStartedAt || undefined
                             : findTime(progressModal.item, [step]) ||
                               (step === "packaging" ? findTime(progressModal.item, ["start_packaging"]) : undefined);
 
@@ -831,6 +759,123 @@ export default function ProfileOrderPage() {
                               <div className="flex-1">
                                 <div className="font-semibold text-black">{stageLabel(step)}</div>
                                 <div className="text-sm text-black/80">{dt ? dt.toLocaleString() : "Pending"}</div>
+
+                                {step === "in_production" ? (
+                                  <div className="mt-4 rounded-xl border border-black/10 bg-gray-50 p-4">
+                                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
+                                      In Production
+                                    </div>
+                                    <div className="mb-3 text-xs text-black/60">
+                                      Stages of how the product is constructed.
+                                    </div>
+                                    <div className="relative space-y-4">
+                                      <div className="absolute bottom-0 left-3 top-0 w-px bg-gray-200" />
+                                      {PRODUCTION_STAGES.map((stage, stageIndex, stageList) => {
+                                        const stagePlan = workflow.stage_plans.find((entry) => entry.key === stage.key);
+                                        const stageUpdates = normalizedUpdates.filter((update) => {
+                                          const updateStageKey = String(update?.stage_key || "");
+                                          if (updateStageKey) return updateStageKey === stage.key;
+                                          return stageIndex === 0 && !update?.is_final_qc;
+                                        });
+                                        const stageDone = stagePlan?.status === "approved";
+                                        const stageInProgress = stagePlan?.status === "in_progress";
+
+                                        return (
+                                          <div key={stage.key} className="relative">
+                                            {stageIndex < stageList.length - 1 ? (
+                                              <div
+                                                className={`absolute left-3 top-7 h-full w-px ${
+                                                  stageDone ? "bg-[#8B1C1C]" : stageInProgress ? "bg-amber-300" : "bg-gray-200"
+                                                }`}
+                                              />
+                                            ) : null}
+                                            <div className="flex items-start gap-3">
+                                              <div
+                                                className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-semibold ${
+                                                  stageDone
+                                                    ? "border-[#8B1C1C] bg-[#8B1C1C] text-white"
+                                                    : stageInProgress
+                                                      ? "border-amber-300 bg-amber-100 text-amber-800"
+                                                      : "border-gray-300 bg-white text-gray-600"
+                                                }`}
+                                              >
+                                                {stageDone ? "✓" : stageIndex + 1}
+                                              </div>
+                                              <div className="flex-1 pb-2">
+                                                <div className="font-semibold text-black">{stage.label}</div>
+                                                <div className="text-sm text-black/70">
+                                                  {stageDone
+                                                    ? `Approved${stagePlan?.approved_at ? ` • ${new Date(stagePlan.approved_at).toLocaleString()}` : ""}`
+                                                    : stageInProgress
+                                                      ? "Waiting for final approval"
+                                                      : "Pending"}
+                                                </div>
+
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                  {(workflow.team_members || [])
+                                                    .filter((member) =>
+                                                      member.role_keys.some((roleKey) =>
+                                                        stage.roleKeys.some((allowedRole) => allowedRole === roleKey)
+                                                      )
+                                                    )
+                                                    .map((member) => (
+                                                      <span
+                                                        key={`${stage.key}-${member.admin_id}`}
+                                                        className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-black/70"
+                                                      >
+                                                        {member.admin_name}
+                                                      </span>
+                                                    ))}
+                                                </div>
+
+                                                <div className="mt-3 space-y-3">
+                                                  {stageUpdates.length === 0 ? (
+                                                    <div className="text-sm text-black/60">No approved evidence yet.</div>
+                                                  ) : (
+                                                    stageUpdates.slice(0, 2).map((update, updateIndex) => {
+                                                      const imgs = Array.isArray(update.image_urls) ? update.image_urls : [];
+                                                      return (
+                                                        <div
+                                                          key={String(update.task_update_id || update.id || updateIndex)}
+                                                          className="rounded-lg border border-black/10 bg-white p-3"
+                                                        >
+                                                          <div className="flex items-center justify-between gap-3 text-xs text-black/60">
+                                                            <span>{update.submitted_by_name || update.employee_name || "Production team"}</span>
+                                                            <span>{update.approved_at ? new Date(update.approved_at).toLocaleString() : ""}</span>
+                                                          </div>
+                                                          {update.description ? (
+                                                            <div className="mt-2 whitespace-pre-wrap text-sm text-black">{update.description}</div>
+                                                          ) : null}
+                                                          {imgs.length > 0 ? (
+                                                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                                              {imgs.map((url: string, imgIndex: number) => (
+                                                                <button
+                                                                  key={url + imgIndex}
+                                                                  type="button"
+                                                                  onClick={() => openPreview(imgs, imgIndex, stage.label)}
+                                                                >
+                                                                  <img
+                                                                    src={url}
+                                                                    alt="Stage evidence"
+                                                                    className="h-20 w-full rounded border object-cover"
+                                                                  />
+                                                                </button>
+                                                              ))}
+                                                            </div>
+                                                          ) : null}
+                                                        </div>
+                                                      );
+                                                    })
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : null}
 
                                 {step === "quality_check" && qcPayload && (qcPayload.description || (Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0)) ? (
                                   <div className="mt-3 rounded-lg border p-3">

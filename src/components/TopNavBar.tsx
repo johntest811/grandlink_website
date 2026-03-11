@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { FaEnvelope, FaThumbsUp, FaPhone } from "react-icons/fa";
 import { useEffect, useState } from "react";
 
@@ -52,20 +53,20 @@ export default function TopNavBar() {
           >
             <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
-          <a href={chromeSettings.topNavInquireLink || "/Inquire"} className="hidden md:inline-block bg-[#8B1C1C] text-white px-4 py-2 rounded font-semibold hover:bg-[#a83232] transition">
+          <Link href={chromeSettings.topNavInquireLink || "/Inquire"} className="hidden md:inline-block bg-[#8B1C1C] text-white px-4 py-2 rounded font-semibold hover:bg-[#a83232] transition">
             {chromeSettings.topNavInquireLabel || "INQUIRE NOW"}
-          </a>
+          </Link>
         </div>
       </header>
       {/* Mobile menu */}
       {mobileOpen && (
         <nav className="md:hidden bg-white border-t shadow-sm">
           <div className="px-4 py-3 flex flex-col gap-2">
-            <a href="/home" className="py-2">Home</a>
-            <a href="/about-us" className="py-2">About</a>
-            <a href="/services" className="py-2">Services</a>
-            <a href="/Product" className="py-2">Products</a>
-            <a href="/FAQs" className="py-2">FAQs</a>
+            <Link href="/home" className="py-2">Home</Link>
+            <Link href="/about-us" className="py-2">About</Link>
+            <Link href="/services" className="py-2">Services</Link>
+            <Link href="/Product" className="py-2">Products</Link>
+            <Link href="/FAQs" className="py-2">FAQs</Link>
           </div>
         </nav>
       )}

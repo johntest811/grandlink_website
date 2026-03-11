@@ -352,7 +352,7 @@ export default function TopNavBarLoggedIn() {
             </button>
 
             {notifOpen && (
-              <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border z-50 max-h-[500px] overflow-hidden">
+              <div className="absolute right-0 mt-2 w-[calc(100vw-1rem)] max-w-sm sm:w-96 bg-white rounded-lg shadow-xl border z-50 max-h-[min(70vh,500px)] overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-800">Notifications</span>
@@ -500,8 +500,8 @@ export default function TopNavBarLoggedIn() {
 
         {/* Enhanced Toast popup for live notifications */}
         {toast && (
-          <div className="fixed top-20 right-6 z-50 animate-slide-in">
-            <div className="bg-white shadow-xl border-l-4 border-l-blue-500 px-4 py-3 rounded-lg w-80 max-w-sm">
+          <div className="fixed top-20 left-4 right-4 sm:left-auto sm:right-6 z-50 animate-slide-in">
+            <div className="bg-white shadow-xl border-l-4 border-l-blue-500 px-4 py-3 rounded-lg w-full max-w-sm">
               <div className="flex items-start gap-2">
                 <div className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50">🔔</div>
                 <div className="flex-1">

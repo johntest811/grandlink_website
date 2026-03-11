@@ -77,13 +77,8 @@ async function prepareInvoicePayload(userItemId: string, existingInvoice?: Invoi
     authEmail = null;
   }
 
-  const recipients = Array.from(
-    new Set([
-      addressEmail,
-      billingEmail,
-      authEmail,
-    ].filter((v): v is string => Boolean(v)))
-  );
+  const primaryRecipient = addressEmail || billingEmail || authEmail;
+  const recipients = primaryRecipient ? [primaryRecipient] : [];
 
   const issuedAtIso = existingInvoice?.issued_at || new Date().toISOString();
   const invoiceNumber = existingInvoice?.invoice_number || buildInvoiceNumber(userItemId, new Date(issuedAtIso));
@@ -158,6 +153,7 @@ async function prepareInvoicePayload(userItemId: string, existingInvoice?: Invoi
         product_id: item.product_id,
         product_name: line.description,
         quantity: qty,
+        recipient_email: primaryRecipient,
       },
     },
   };

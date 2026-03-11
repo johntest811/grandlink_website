@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FaFacebookF } from "react-icons/fa";
 import { FiPhone } from "react-icons/fi";
 import { useEffect, useState } from "react";
@@ -43,20 +44,20 @@ export default function Footer() {
             <h3 className="font-bold mb-2 text-black">About Us</h3>
             <ul>
               <li>
-                <a
+                <Link
                   href="/showroom"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Showroom
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/locations"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Locations
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
@@ -64,28 +65,28 @@ export default function Footer() {
             <h3 className="font-bold mb-2 text-black">Services We Offer</h3>
             <ul>
               <li>
-                <a
+                <Link
                   href="/services"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   List of Services
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/Featured"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Featured Projects
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/order-process"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Delivery & Order Process
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
@@ -93,28 +94,28 @@ export default function Footer() {
             <h3 className="font-bold mb-2 text-black">Products</h3>
             <ul>
               <li>
-                <a
+                <Link
                   href="/Product"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   All Products
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/Product?category=Doors"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Doors
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/Product?category=Windows"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Windows
-                </a>
+                </Link>
               </li>
               <li>
                 <a

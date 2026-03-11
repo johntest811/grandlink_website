@@ -39,6 +39,44 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+function normalizeEmail(value: unknown) {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (!email) return null;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailPattern.test(email) ? email : null;
+}
+
+async function resolveOrderRecipientEmail(orderData: any) {
+  let addressEmail: string | null = null;
+  if (orderData?.delivery_address_id) {
+    const { data: address } = await supabase
+      .from("addresses")
+      .select("email")
+      .eq("id", orderData.delivery_address_id)
+      .maybeSingle();
+
+    addressEmail = normalizeEmail(address?.email ?? null);
+  }
+
+  const billingEmail = normalizeEmail(
+    orderData?.meta?.billing_email ||
+      orderData?.customer_email ||
+      orderData?.meta?.customer_email ||
+      null
+  );
+
+  const { data: userWrap } = await supabase.auth.admin.getUserById(orderData.user_id);
+  const authEmail = normalizeEmail(userWrap?.user?.email || null);
+
+  return {
+    addressEmail,
+    billingEmail,
+    authEmail,
+    recipientEmail: addressEmail || billingEmail || authEmail,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userItemId, newStatus, adminName, adminNotes, estimatedDeliveryDate, skipUpdate } = await request.json();
@@ -122,9 +160,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get user email (for email sending)
-    const { data: userWrap } = await supabase.auth.admin.getUserById(orderData.user_id);
-    const userEmail = userWrap?.user?.email || null;
+    const recipientInfo = await resolveOrderRecipientEmail(orderData);
+    const userEmail = recipientInfo.recipientEmail;
 
     const { data: preferences } = await supabase
       .from("user_notification_preferences")
@@ -186,7 +223,7 @@ export async function POST(request: NextRequest) {
       try {
         const invoiceResult = await resendInvoiceEmailForUserItem(userItemId);
         invoiceEmailSent = Boolean(invoiceResult?.emailSent);
-        invoiceRecipientEmail = invoiceResult?.recipientEmails?.join(",") || userEmail;
+        invoiceRecipientEmail = invoiceResult?.recipientEmails?.[0] || userEmail;
       } catch (invoiceErr) {
         console.error("Invoice email send failed:", invoiceErr);
       }
@@ -197,8 +234,8 @@ export async function POST(request: NextRequest) {
         await mailTransporter.sendMail({
           from: process.env.GMAIL_FROM || process.env.GMAIL_USER!,
           to: userEmail,
-          subject: `Order Status: ${statusDisplay}`,
-          html: `<p>${message}</p><p>Order ID: ${userItemId}</p>`,
+          subject: `Order Status: ${statusDisplay} - ${productName}`,
+          html: `<p>${message}</p><p>Product: ${productName}</p><p>Order ID: ${userItemId}</p>`,
         });
       } catch (mailErr) {
         console.error("Email send failed:", mailErr);
@@ -219,7 +256,7 @@ export async function POST(request: NextRequest) {
         newStatus === "approved"
           ? invoiceEmailSent
             ? "sent"
-            : userEmail
+            : invoiceRecipientEmail
             ? "pending"
             : "skipped"
           : shouldSendEmail && userEmail

@@ -154,9 +154,7 @@ export default function ShowroomPage() {
                           dangerouslySetInnerHTML={{ __html: normalizedDescription }}
                         />
                       )}
-                      <Expandable open={isOpen} children={undefined}>
-                        {/* You can add more details here if needed */}
-                      </Expandable>
+                      <Expandable open={isOpen}>{null}</Expandable>
                       <button
                         onClick={() => toggle(s.id)}
                         className="mt-2 text-red-600 font-semibold text-sm hover:underline"

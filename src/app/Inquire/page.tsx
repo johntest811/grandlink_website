@@ -197,17 +197,14 @@ export default function InquirePage() {
         </div>
       </section>
 
-      <section className="my-12 h-[700px]">
+      <section className="my-12">
         <iframe
-          title="Google Maps"
-          data-src=""
-          width="100%"
-          height="100%"
-          frameBorder="0"
-          scrolling="no"
-          allowFullScreen
           src="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/media/googleMap.1fabcae9.html?defaultLocation=0&showZoom=true&showStreetView=true&showMapType=true&language=en&id=dataItem-m162bqu2&googleMapsScriptPath=%2Fservices%2Feditor-elements-library%2Fdist%2Fthunderbolt%2Fmedia%2Fgoogle-map.min.5d8ab435.js&origin=https%3A%2F%2Fwww.grandeast.ph&hasFocus=true"
-          className="w-full h-full border-none"
+          width="100%"
+          height="700"
+          allowFullScreen
+          loading="lazy"
+          className="w-full border-none"
         ></iframe>
       </section>
 

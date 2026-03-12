@@ -49,7 +49,7 @@ CREATE TABLE public.admins (
   employee_id integer,
   employee_number character varying,
   full_name text,
-  position text CHECK ("position" = ANY (ARRAY['Sales Manager'::text, 'Site Manager'::text, 'Media Handler'::text, 'Supervisor'::text, 'Employee'::text, 'Manager'::text, 'Admin'::text, 'Superadmin'::text])),
+  position text,
   is_active boolean DEFAULT true,
   password text NOT NULL DEFAULT 'admin123'::text,
   CONSTRAINT admins_pkey PRIMARY KEY (id)

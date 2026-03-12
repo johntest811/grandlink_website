@@ -709,7 +709,7 @@ export default function ProfileOrderPage() {
                       <div className="h-3 bg-[#8B1C1C]" style={{ width: `${pct}%` }} />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-3 text-xs text-black/70">
-                      <span>Estimated completion: {estimatedCompletionDate ? new Date(estimatedCompletionDate).toLocaleDateString() : "Not set"}</span>
+                      <span>Estimated completion: {estimatedCompletionDate ? new Date(estimatedCompletionDate).toLocaleString() : "Not set"}</span>
                       <span>Team members: {workflow.team_members.length}</span>
                     </div>
                   </div>
@@ -805,27 +805,10 @@ export default function ProfileOrderPage() {
                                                 <div className="font-semibold text-black">{stage.label}</div>
                                                 <div className="text-sm text-black/70">
                                                   {stageDone
-                                                    ? `Approved${stagePlan?.approved_at ? ` • ${new Date(stagePlan.approved_at).toLocaleString()}` : ""}`
+                                                    ? `Completed${stagePlan?.approved_at ? ` • ${new Date(stagePlan.approved_at).toLocaleString()}` : ""}`
                                                     : stageInProgress
-                                                      ? "Waiting for final approval"
+                                                      ? "In Progress"
                                                       : "Pending"}
-                                                </div>
-
-                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                  {(workflow.team_members || [])
-                                                    .filter((member) =>
-                                                      member.role_keys.some((roleKey) =>
-                                                        stage.roleKeys.some((allowedRole) => allowedRole === roleKey)
-                                                      )
-                                                    )
-                                                    .map((member) => (
-                                                      <span
-                                                        key={`${stage.key}-${member.admin_id}`}
-                                                        className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-black/70"
-                                                      >
-                                                        {member.admin_name}
-                                                      </span>
-                                                    ))}
                                                 </div>
 
                                                 <div className="mt-3 space-y-3">

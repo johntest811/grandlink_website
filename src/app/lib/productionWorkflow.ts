@@ -72,7 +72,7 @@ export const PRODUCTION_STAGES = [
     key: "glass_installation",
     label: "Glass Installation",
     order: 3,
-    roleKeys: ["lead_welder", "helper_welder", "repair_staff"],
+    roleKeys: ["sealant_applicator"],
   },
   {
     key: "sealant_application",
@@ -138,6 +138,10 @@ export function ensureProductionWorkflow(raw: unknown): ProductionWorkflowMeta {
     stage_plans: PRODUCTION_STAGES.map((stage) => {
       const current = stageMap.get(stage.key)!;
       const approved = current.task_ids.length > 0 && current.approved_task_ids.length >= current.task_ids.length;
+      const stored = (current as any)?.status;
+      if (stored === "pending" || stored === "in_progress" || stored === "approved") {
+        return { ...current, status: stored };
+      }
       return {
         ...current,
         status: approved ? "approved" : current.approved_task_ids.length > 0 || current.last_submission_at ? "in_progress" : "pending",

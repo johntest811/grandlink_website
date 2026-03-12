@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -490,8 +490,8 @@ function allocateCents(totalCents: number, weights: number[]): number[] {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set on the server');
+    if (!process.env.SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error('SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is not set on the server');
     }
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set on the server');
@@ -514,6 +514,13 @@ export async function POST(request: NextRequest) {
 
     const normalizedPaymentMethod = String(payment_method || 'paymongo').trim().toLowerCase();
     const checkoutMethod = normalizedPaymentMethod;
+
+    if (checkoutMethod === 'paypal') {
+      return NextResponse.json(
+        { error: 'PayPal is not available. Please use PayMongo.' },
+        { status: 400 }
+      );
+    }
 
     const requestOrigin = getRequestOrigin(request);
     const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);

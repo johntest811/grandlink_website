@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "nodemailer";
 import { resendInvoiceEmailForUserItem } from "@/app/lib/invoiceService";
+import { getMailFrom, getMailTransporter } from "@/app/lib/mailer";
 
 // CORS headers (makes cross-origin safe if ever called from browser)
 const corsHeaders = {
@@ -22,18 +22,7 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-// Email transporter (Gmail SMTP). Use an App Password for best results.
-let mailTransporter: nodemailer.Transporter | null = null;
-if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
-  mailTransporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_PASS },
-  });
-} else {
-  console.warn("GMAIL_USER / GMAIL_PASS not configured - email sending disabled.");
-}
+// NOTE: email sending is handled via the shared mailer (SendGrid-first, Gmail fallback).
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -229,14 +218,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (newStatus !== "approved" && shouldSendEmail && mailTransporter && userEmail) {
+    let statusEmailSent = false;
+    if (newStatus !== "approved" && shouldSendEmail && userEmail) {
       try {
-        await mailTransporter.sendMail({
-          from: process.env.GMAIL_FROM || process.env.GMAIL_USER!,
-          to: userEmail,
-          subject: `Order Status: ${statusDisplay} - ${productName}`,
-          html: `<p>${message}</p><p>Product: ${productName}</p><p>Order ID: ${userItemId}</p>`,
-        });
+        const transporter = getMailTransporter();
+        if (transporter) {
+          await transporter.sendMail({
+            from: getMailFrom(),
+            to: userEmail,
+            subject: `Order Status: ${statusDisplay} - ${productName}`,
+            html: `<p>${message}</p><p>Product: ${productName}</p><p>Order ID: ${userItemId}</p>`,
+          });
+          statusEmailSent = true;
+        } else {
+          console.warn("No mail transporter configured; skipping status email.");
+        }
       } catch (mailErr) {
         console.error("Email send failed:", mailErr);
       }
@@ -260,13 +256,20 @@ export async function POST(request: NextRequest) {
             ? "pending"
             : "skipped"
           : shouldSendEmail && userEmail
-          ? "sent"
-          : "pending",
+          ? statusEmailSent
+            ? "sent"
+            : "pending"
+          : "skipped",
       created_at: now,
     });
 
     return NextResponse.json(
-      { success: true, message: "Notification processed", invoiceEmailSent },
+      {
+        success: true,
+        message: "Notification processed",
+        invoiceEmailSent,
+        statusEmailSent,
+      },
       { headers: corsHeaders }
     );
   } catch (error) {

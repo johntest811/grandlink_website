@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@sendgrid/mail": "^8.1.5",
+    "@sendgrid/mail": "^8.1.6",
     "@supabase/supabase-js": "^2.57.2",
     "@types/twilio": "^3.19.2",
     "embla-carousel": "^8.6.0",

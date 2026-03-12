@@ -116,7 +116,7 @@ function CartCheckoutContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
+  const [paymentMethod] = useState<"paymongo">("paymongo");
 
   const locationOptions = useMemo(
     () =>
@@ -949,25 +949,12 @@ function CartCheckoutContent() {
                     type="radio"
                     name="paymentMethod"
                     checked={paymentMethod === "paymongo"}
-                    onChange={() => setPaymentMethod("paymongo")}
                     className="w-4 h-4 text-[#8B1C1C]"
+                    readOnly
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayMongo</div>
                     <div className="text-sm text-gray-500">GCash, Maya</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    checked={paymentMethod === "paypal"}
-                    onChange={() => setPaymentMethod("paypal")}
-                    className="w-4 h-4 text-[#8B1C1C]"
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-900">PayPal</div>
-                    <div className="text-sm text-gray-500">Pay with PayPal account</div>
                   </div>
                 </label>
               </div>

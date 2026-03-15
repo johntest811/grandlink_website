@@ -39,10 +39,10 @@ const PAYREX_PUBLIC_KEY =
   process.env.PUBLIC_PAYREX_PUBLIX_KEY ||
   process.env.PAYREX_PUBLIC_KEY;
 const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
+const PAYPAL_CLIENT_ID = normalizeEnvValue(process.env.PAYPAL_CLIENT_ID);
+const PAYPAL_CLIENT_SECRET = normalizeEnvValue(process.env.PAYPAL_CLIENT_SECRET);
 const PAYPAL_ENVIRONMENT =
-  process.env.PAYPAL_ENVIRONMENT ||
+  normalizeEnvValue(process.env.PAYPAL_ENVIRONMENT) ||
   (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox');
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
@@ -146,7 +146,7 @@ async function createPayMongoSession(sessionData: any) {
   }
 
   if (process.env.NODE_ENV === 'production' && payMongoKeyMode !== 'live') {
-    console.warn('[PayMongo] Production is running with a non-live PayMongo key. Update PAYMONGO_SECRET_KEY in Vercel for live checkout.');
+    throw new Error('PayMongo is in test mode on production. Set PAYMONGO_SECRET_KEY to an sk_live_ key in Vercel and redeploy.');
   }
 
   if (PAYMONGO_ENVIRONMENT !== payMongoKeyMode) {
@@ -540,6 +540,7 @@ export async function POST(request: NextRequest) {
       cart_ids,
       user_id,
       payment_method = 'paymongo',
+      payment_provider,
       payment_type = 'reservation',
       success_url,
       cancel_url,
@@ -550,8 +551,24 @@ export async function POST(request: NextRequest) {
       receipt_ref,
     } = await request.json();
 
-    const normalizedPaymentMethod = String(payment_method || 'paymongo').trim().toLowerCase();
-    const checkoutMethod = normalizedPaymentMethod;
+    const normalizedPaymentMethod = String(payment_method || '').trim().toLowerCase();
+    const normalizedPaymentProvider = String(payment_provider || '').trim().toLowerCase();
+    const requestedMethod = normalizedPaymentMethod || normalizedPaymentProvider || 'paymongo';
+
+    let checkoutMethod: 'paymongo' | 'paypal' | 'payrex' =
+      requestedMethod === 'paypal'
+        ? 'paypal'
+        : requestedMethod === 'payrex'
+          ? 'payrex'
+          : 'paymongo';
+
+    const isCartCheckoutRequest = Array.isArray(cart_ids) && cart_ids.length > 0;
+    const isReservationCheckoutRequest = payment_type === 'reservation';
+
+    // Cart and reservation pages should always use PayMongo/PayPal paths.
+    if ((isCartCheckoutRequest || isReservationCheckoutRequest) && checkoutMethod === 'payrex') {
+      checkoutMethod = 'paymongo';
+    }
 
     const requestOrigin = getRequestOrigin(request);
     const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);

@@ -613,37 +613,42 @@ function ProductsPageContent() {
           {loading ? (
             <div className="text-center text-gray-500">Loading products...</div>
           ) : Array.isArray(filteredProducts) && filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 auto-rows-fr">
               {filteredProducts.map((prod) => (
                 <Link
                   key={prod.id}
                   href={`/Product/details?id=${prod.id}`}
-                  className="border p-2 rounded hover:shadow-lg transition block"
+                  className="group h-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm hover:shadow-lg transition flex flex-col"
                 >
-                  {getProductImage(prod) && (
-                    <Image
-                      src={getProductImage(prod)}
-                      alt={prod.name}
-                      width={400}
-                      height={300}
-                      unoptimized
-                      className="w-full h-40 object-cover rounded"
-                    />
-                  )}
-                  <p className="mt-2 text-center text-base md:text-lg font-medium text-black">
-                    {prod.name}
-                  </p>
-                  {/* small underline below product name */}
-                  <div className="w-6 h-0.5 bg-red-600 mx-auto mt-1" aria-hidden="true" />
+                  <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg bg-gray-100 shrink-0">
+                    {getProductImage(prod) && (
+                      <Image
+                        src={getProductImage(prod)}
+                        alt={prod.name}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
+                        unoptimized
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    )}
+                  </div>
 
-                  {/* Price and Inventory */}
-                  <div className="mt-2 flex flex-col items-center text-sm text-gray-700">
-                    <span>
-                      <b>Price:</b> {prod.price !== undefined && prod.price !== null ? `₱${prod.price}` : "—"}
-                    </span>
-                    <span>
-                      <b>Inventory:</b> {prod.inventory !== undefined && prod.inventory !== null ? prod.inventory : "—"}
-                    </span>
+                  <div className="mt-3 flex flex-1 flex-col">
+                    <p className="h-14 text-center text-sm md:text-base font-medium text-black leading-snug overflow-hidden flex items-center justify-center">
+                      {prod.name}
+                    </p>
+                    {/* small underline below product name */}
+                    <div className="w-6 h-0.5 bg-red-600 mx-auto mt-1" aria-hidden="true" />
+
+                    {/* Price and Inventory */}
+                    <div className="mt-auto pt-2 h-12 flex flex-col items-center justify-center text-xs md:text-sm text-gray-700">
+                      <span>
+                        <b>Price:</b> {prod.price !== undefined && prod.price !== null ? `₱${prod.price}` : "—"}
+                      </span>
+                      <span>
+                        <b>Inventory:</b> {prod.inventory !== undefined && prod.inventory !== null ? prod.inventory : "—"}
+                      </span>
+                    </div>
                   </div>
                 </Link>
               ))}

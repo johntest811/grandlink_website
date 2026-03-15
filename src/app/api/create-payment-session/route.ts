@@ -15,9 +15,21 @@ const supabase = createClient(
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const payrexNode = require('payrex-node');
 
-const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
+function normalizeEnvValue(value?: string | null) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const PAYMONGO_SECRET_KEY = normalizeEnvValue(process.env.PAYMONGO_SECRET_KEY);
 const PAYMONGO_ENVIRONMENT = (
-  process.env.PAYMONGO_ENVIRONMENT ||
+  normalizeEnvValue(process.env.PAYMONGO_ENVIRONMENT) ||
   (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
 ).toLowerCase();
 const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
@@ -134,15 +146,13 @@ async function createPayMongoSession(sessionData: any) {
   }
 
   if (process.env.NODE_ENV === 'production' && payMongoKeyMode !== 'live') {
-    throw new Error('Production checkout requires PAYMONGO_SECRET_KEY with sk_live_ prefix in Vercel environment variables');
+    console.warn('[PayMongo] Production is running with a non-live PayMongo key. Update PAYMONGO_SECRET_KEY in Vercel for live checkout.');
   }
 
-  if (PAYMONGO_ENVIRONMENT === 'sandbox' && payMongoKeyMode !== 'sandbox') {
-    throw new Error('PAYMONGO_ENVIRONMENT is sandbox but PAYMONGO_SECRET_KEY is not a test key (expected prefix: sk_test_)');
-  }
-
-  if (PAYMONGO_ENVIRONMENT === 'live' && payMongoKeyMode !== 'live') {
-    throw new Error('PAYMONGO_ENVIRONMENT is live but PAYMONGO_SECRET_KEY is not a live key (expected prefix: sk_live_)');
+  if (PAYMONGO_ENVIRONMENT !== payMongoKeyMode) {
+    console.warn(
+      `[PayMongo] PAYMONGO_ENVIRONMENT (${PAYMONGO_ENVIRONMENT}) does not match key mode (${payMongoKeyMode}). Using key mode.`
+    );
   }
 
   const configuredMethodTypesRaw = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')

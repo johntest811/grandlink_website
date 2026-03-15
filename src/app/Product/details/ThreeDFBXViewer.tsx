@@ -2250,7 +2250,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
 
       {/* Measurements UI */}
       <div className="absolute top-3 left-3 z-[9999] pointer-events-auto">
-        <div className="bg-black/70 backdrop-blur-md rounded-xl px-4 py-3 shadow-lg text-white min-w-[220px]">
+        <div className="bg-black/70 backdrop-blur-md rounded-xl px-4 py-3 shadow-lg text-white w-[220px] max-w-[calc(100vw-1.5rem)]">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-semibold">Measurements</div>
             <label className="flex items-center gap-2 text-xs text-white/90">
@@ -2302,7 +2302,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
 
       {/* Floor + Shadow toggles (fixed position; independent of other top controls) */}
       <div className="absolute bottom-4 left-3 z-[9999] pointer-events-auto">
-        <div className="bg-black/70 backdrop-blur-md rounded-xl px-4 py-3 shadow-lg text-white min-w-[200px]">
+        <div className="bg-black/70 backdrop-blur-md rounded-xl px-4 py-3 shadow-lg text-white w-[200px] max-w-[calc(100vw-1.5rem)]">
           <div className="text-sm font-semibold">Scene</div>
 
           <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-white/90">

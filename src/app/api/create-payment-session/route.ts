@@ -36,6 +36,13 @@ const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox'
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';
 
+function getPayMongoKeyMode(secretKey?: string) {
+  if (!secretKey) return 'unknown';
+  if (secretKey.startsWith('sk_live_')) return 'live';
+  if (secretKey.startsWith('sk_test_')) return 'sandbox';
+  return 'unknown';
+}
+
 let payrexClient: any | null = null;
 function getPayrexClient() {
   const keyToUse = PAYREX_SECRET_KEY || PAYREX_PUBLIC_KEY;
@@ -121,8 +128,21 @@ async function createPayMongoSession(sessionData: any) {
     throw new Error('PAYMONGO_SECRET_KEY is not set on the server');
   }
 
-  if (PAYMONGO_ENVIRONMENT === 'sandbox' && !PAYMONGO_SECRET_KEY.startsWith('sk_test_')) {
+  const payMongoKeyMode = getPayMongoKeyMode(PAYMONGO_SECRET_KEY);
+  if (payMongoKeyMode === 'unknown') {
+    throw new Error('PAYMONGO_SECRET_KEY must start with sk_live_ or sk_test_');
+  }
+
+  if (process.env.NODE_ENV === 'production' && payMongoKeyMode !== 'live') {
+    throw new Error('Production checkout requires PAYMONGO_SECRET_KEY with sk_live_ prefix in Vercel environment variables');
+  }
+
+  if (PAYMONGO_ENVIRONMENT === 'sandbox' && payMongoKeyMode !== 'sandbox') {
     throw new Error('PAYMONGO_ENVIRONMENT is sandbox but PAYMONGO_SECRET_KEY is not a test key (expected prefix: sk_test_)');
+  }
+
+  if (PAYMONGO_ENVIRONMENT === 'live' && payMongoKeyMode !== 'live') {
+    throw new Error('PAYMONGO_ENVIRONMENT is live but PAYMONGO_SECRET_KEY is not a live key (expected prefix: sk_live_)');
   }
 
   const configuredMethodTypesRaw = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
@@ -208,7 +228,7 @@ async function createPayMongoSession(sessionData: any) {
             ...metadata,
             user_item_ids: idsCsv,
             payment_type,
-            paymongo_environment: PAYMONGO_ENVIRONMENT,
+            paymongo_environment: payMongoKeyMode,
           },
         },
       },

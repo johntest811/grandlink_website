@@ -331,7 +331,7 @@ export default function RegisterPage() {
           {/* Popup for success or failure */}
           {popup && (
             <div className={`fixed inset-0 flex items-center justify-center z-50 bg-transparent`}>
-              <div className={`bg-white rounded-lg shadow-lg p-8 min-w-[350px] text-center flex flex-col items-center`}>
+              <div className={`bg-white rounded-lg shadow-lg p-6 sm:p-8 w-[92vw] max-w-md text-center flex flex-col items-center`}>
                 {popup.success ? popup.message : (
                   <>
                     <h2 className="text-xl font-bold mb-2 text-red-600">Error</h2>

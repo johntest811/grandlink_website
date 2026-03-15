@@ -123,7 +123,7 @@ function ReservationPageContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod] = useState<"paymongo">("paymongo");
+  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
 
   const locationOptions = useMemo(
     () =>
@@ -604,7 +604,7 @@ function ReservationPageContent() {
         delivery_method: "delivery",
         delivery_address_id: selectedAddressId,
         branch: null,
-        success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}`,
+        success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}&payment_provider=${paymentMethod}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
       };
@@ -860,11 +860,25 @@ function ReservationPageContent() {
                     name="pmethod"
                     checked={paymentMethod === "paymongo"}
                     className="w-4 h-4"
-                    readOnly
+                    onChange={() => setPaymentMethod("paymongo")}
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayMongo</div>
                     <div className="text-sm text-gray-500">GCash, Maya</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
+                  <input
+                    type="radio"
+                    name="pmethod"
+                    checked={paymentMethod === "paypal"}
+                    className="w-4 h-4"
+                    onChange={() => setPaymentMethod("paypal")}
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-900">PayPal</div>
+                    <div className="text-sm text-gray-500">Pay with your PayPal wallet or linked card</div>
                   </div>
                 </label>
               </div>

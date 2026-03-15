@@ -15,11 +15,56 @@ function ReservationSuccessPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const reservationId = searchParams.get("reservation_id");
+  const paypalOrderId = searchParams.get("token");
+  const paymentProvider = (searchParams.get("payment_provider") || "").toLowerCase();
+  const isPayPalReturn = Boolean(paypalOrderId) && (!paymentProvider || paymentProvider === "paypal");
   
   const [reservation, setReservation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [paypalCaptureState, setPaypalCaptureState] = useState<"capturing" | "done">(
+    isPayPalReturn ? "capturing" : "done"
+  );
 
   useEffect(() => {
+    if (!isPayPalReturn || !paypalOrderId) {
+      setPaypalCaptureState("done");
+      return;
+    }
+
+    let cancelled = false;
+
+    const capturePayPalOrder = async () => {
+      setPaypalCaptureState("capturing");
+      try {
+        const response = await fetch("/api/paypal/capture", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: paypalOrderId }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          console.error("PayPal capture failed on reservation return:", payload);
+        }
+      } catch (error) {
+        console.error("PayPal capture error on reservation return:", error);
+      } finally {
+        if (!cancelled) {
+          setPaypalCaptureState("done");
+        }
+      }
+    };
+
+    capturePayPalOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPayPalReturn, paypalOrderId]);
+
+  useEffect(() => {
+    if (paypalCaptureState === "capturing") return;
+
     const loadReservation = async () => {
       if (!reservationId) {
         router.push("/");
@@ -46,7 +91,7 @@ function ReservationSuccessPageContent() {
     };
 
     loadReservation();
-  }, [reservationId, router]);
+  }, [reservationId, router, paypalCaptureState]);
 
   if (loading) {
     return (

@@ -38,13 +38,57 @@ function CartSuccessPageContent() {
   const router = useRouter();
   const source = searchParams.get("source");
   const ref = searchParams.get("ref");
+  const paypalOrderId = searchParams.get("token");
+  const paymentProvider = (searchParams.get("payment_provider") || "").toLowerCase();
+  const isPayPalReturn = Boolean(paypalOrderId) && (!paymentProvider || paymentProvider === "paypal");
   
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [paypalCaptureState, setPaypalCaptureState] = useState<"capturing" | "done">(
+    isPayPalReturn ? "capturing" : "done"
+  );
 
   useEffect(() => {
+    if (!isPayPalReturn || !paypalOrderId) {
+      setPaypalCaptureState("done");
+      return;
+    }
+
+    let cancelled = false;
+
+    const capturePayPalOrder = async () => {
+      setPaypalCaptureState("capturing");
+      try {
+        const response = await fetch("/api/paypal/capture", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: paypalOrderId }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          console.error("PayPal capture failed on return:", payload);
+        }
+      } catch (error) {
+        console.error("PayPal capture error on return:", error);
+      } finally {
+        if (!cancelled) {
+          setPaypalCaptureState("done");
+        }
+      }
+    };
+
+    capturePayPalOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPayPalReturn, paypalOrderId]);
+
+  useEffect(() => {
+    if (paypalCaptureState === "capturing") return;
+
     const loadOrderDetails = async () => {
       try {
         // Get current user
@@ -55,7 +99,6 @@ function CartSuccessPageContent() {
         }
 
         const uid = userData.user.id;
-        setUserId(uid);
 
         // First try: use receipt_ref to fetch only the items from this transaction
         let scopedItems: any[] = [];
@@ -114,7 +157,7 @@ function CartSuccessPageContent() {
     };
 
     loadOrderDetails();
-  }, [router]);
+  }, [router, ref, source, paypalCaptureState]);
 
   // Fallback cleanup to ensure any cart rows tied to these reservations are removed
   useEffect(() => {

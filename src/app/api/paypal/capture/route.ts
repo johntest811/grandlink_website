@@ -9,7 +9,9 @@ const supabase = createClient(
 
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-const PAYPAL_ENVIRONMENT = process.env.PAYPAL_ENVIRONMENT || 'sandbox';
+const PAYPAL_ENVIRONMENT =
+  process.env.PAYPAL_ENVIRONMENT ||
+  (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox');
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';

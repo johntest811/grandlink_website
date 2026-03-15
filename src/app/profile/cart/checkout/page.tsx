@@ -116,7 +116,7 @@ function CartCheckoutContent() {
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
-  const [paymentMethod] = useState<"paymongo">("paymongo");
+  const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
 
   const locationOptions = useMemo(
     () =>
@@ -705,8 +705,9 @@ function CartCheckoutContent() {
           branch: null,
           delivery_method: "delivery",
           // Include the receipt ref in the success URL so we can fetch only these items later
-          success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}`,
+          success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}&payment_provider=${paymentMethod}`,
           cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}`,
+          payment_provider: paymentMethod,
           voucher: voucherInfo || undefined,
           // Also pass the ref so the server can store it in metadata and on each user_item
           receipt_ref: receiptRef,
@@ -940,7 +941,7 @@ function CartCheckoutContent() {
               </h2>
               <div className="mb-4">
                 <div className="text-xs text-gray-500">
-                  You will be redirected to PayMongo sandbox checkout. GCash and Maya options are shown there based on your PayMongo test account settings.
+                  You will be redirected to a secure hosted checkout. Choose PayMongo for GCash/Maya or PayPal.
                 </div>
               </div>
               <div className="space-y-3">
@@ -949,12 +950,26 @@ function CartCheckoutContent() {
                     type="radio"
                     name="paymentMethod"
                     checked={paymentMethod === "paymongo"}
+                    onChange={() => setPaymentMethod("paymongo")}
                     className="w-4 h-4 text-[#8B1C1C]"
-                    readOnly
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayMongo</div>
                     <div className="text-sm text-gray-500">GCash, Maya</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    checked={paymentMethod === "paypal"}
+                    onChange={() => setPaymentMethod("paypal")}
+                    className="w-4 h-4 text-[#8B1C1C]"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-900">PayPal</div>
+                    <div className="text-sm text-gray-500">Pay with your PayPal wallet or linked card</div>
                   </div>
                 </label>
               </div>

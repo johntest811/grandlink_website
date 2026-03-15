@@ -16,7 +16,10 @@ const supabase = createClient(
 const payrexNode = require('payrex-node');
 
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
-const PAYMONGO_ENVIRONMENT = (process.env.PAYMONGO_ENVIRONMENT || 'sandbox').toLowerCase();
+const PAYMONGO_ENVIRONMENT = (
+  process.env.PAYMONGO_ENVIRONMENT ||
+  (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
+).toLowerCase();
 const PAYREX_SECRET_KEY = process.env.PAYREX_SECRET_KEY;
 const PAYREX_PUBLIC_KEY =
   process.env.NEXT_PUBLIC_PAYREX_PUBLIC_KEY ||
@@ -26,7 +29,9 @@ const PAYREX_PUBLIC_KEY =
 const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-const PAYPAL_ENVIRONMENT = process.env.PAYPAL_ENVIRONMENT || 'sandbox';
+const PAYPAL_ENVIRONMENT =
+  process.env.PAYPAL_ENVIRONMENT ||
+  (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox');
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';
@@ -84,6 +89,10 @@ function sanitizePayRexMetadata(input: Record<string, unknown>) {
 }
 
 async function getPayPalAccessToken() {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error('PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are required for PayPal checkout');
+  }
+
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
     method: 'POST',
@@ -100,7 +109,6 @@ async function getPayPalAccessToken() {
 async function createPayMongoSession(sessionData: any) {
   const {
     amount,
-    currency,
     user_item_ids,
     success_url,
     cancel_url,
@@ -515,13 +523,6 @@ export async function POST(request: NextRequest) {
     const normalizedPaymentMethod = String(payment_method || 'paymongo').trim().toLowerCase();
     const checkoutMethod = normalizedPaymentMethod;
 
-    if (checkoutMethod === 'paypal') {
-      return NextResponse.json(
-        { error: 'PayPal is not available. Please use PayMongo.' },
-        { status: 400 }
-      );
-    }
-
     const requestOrigin = getRequestOrigin(request);
     const resolvedSuccessUrl = toAbsoluteUrl(success_url, requestOrigin);
     const resolvedCancelUrl = toAbsoluteUrl(cancel_url, requestOrigin);
@@ -708,7 +709,6 @@ export async function POST(request: NextRequest) {
     appliedDiscount = Math.min(appliedDiscount, preDiscount);
     
     const lineTotalsCents = itemDetails.map((item) => item.lineSubtotalCents + item.addonTotalCents);
-    const totalLineCents = lineTotalsCents.reduce((acc, cents) => acc + cents, 0);
     const appliedDiscountCents = Math.round(appliedDiscount * 100);
     const discountAllocations = allocateCents(appliedDiscountCents, lineTotalsCents);
     const netLineCents = lineTotalsCents.map((gross, idx) => Math.max(0, gross - (discountAllocations[idx] || 0)));
@@ -909,7 +909,7 @@ export async function POST(request: NextRequest) {
         if (typeof authEmail === 'string' && authEmail.trim()) {
           customerEmail = authEmail.trim();
         }
-      } catch (e) {
+      } catch {
         // ignore; invoices will still work if we have address email
       }
     }

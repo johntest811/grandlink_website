@@ -42,7 +42,7 @@ function FeaturedProjectsContent() {
       </p>
 
       {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 px-4 auto-rows-fr">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 px-4">
         {projects.map((p) => (
           <motion.div
             key={p.id}
@@ -50,7 +50,7 @@ function FeaturedProjectsContent() {
             className="cursor-pointer bg-white rounded-lg shadow border border-gray-200 overflow-hidden h-full flex flex-col"
             onClick={() => setSelected(p)}
           >
-            <div className="relative w-full aspect-[4/3] overflow-hidden bg-gray-100">
+            <div className="relative w-full aspect-[4/3] bg-gray-100 overflow-hidden">
               <Image
                 src={p.image_url || "/placeholder.jpg"}
                 alt={p.title}
@@ -59,7 +59,7 @@ function FeaturedProjectsContent() {
                 className="object-cover"
               />
             </div>
-            <div className="bg-white px-3 py-2 min-h-12 flex items-center">
+            <div className="bg-white px-3 py-2 min-h-[52px] flex items-center">
               <div className="text-sm font-semibold text-gray-900 truncate">{p.title}</div>
             </div>
           </motion.div>

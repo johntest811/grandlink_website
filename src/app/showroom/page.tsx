@@ -124,11 +124,11 @@ export default function ShowroomPage() {
                     className="rounded-xl border border-gray-200 shadow-sm bg-white overflow-hidden flex flex-col h-[600px] max-w-[350px] mx-auto"
                   >
                     <div className="w-full h-[350px] bg-gray-100 overflow-hidden">
-                      {s.image ? (
+                      {s.image && (
                         <button
                           type="button"
                           onClick={() => openModal(s)}
-                          className="w-full h-full block"
+                          className="block w-full h-full"
                           aria-label={`Open image for ${s.title}`}
                         >
                           <img
@@ -137,10 +137,6 @@ export default function ShowroomPage() {
                             className="w-full h-full object-cover object-center cursor-zoom-in"
                           />
                         </button>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
-                          No showroom image
-                        </div>
                       )}
                     </div>
                     <div className="p-4 flex-1 flex flex-col items-center justify-start">

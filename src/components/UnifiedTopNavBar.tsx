@@ -36,7 +36,7 @@ export default function UnifiedTopNavBar() {
   const [cartCount, setCartCount] = useState<number>(0);
   const [toast, setToast] = useState<{ title: string; message: string } | null>(null);
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [mobileDropdown, setMobileDropdown] = useState<string | null>(null);
   const [isMobileNav, setIsMobileNav] = useState(false);
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -75,6 +75,21 @@ export default function UnifiedTopNavBar() {
     };
 
     loadChromeSettings();
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncMobileState = () => {
+      const mobile = media.matches;
+      setIsMobileNav(mobile);
+      if (!mobile) {
+        setMobileDropdown(null);
+      }
+    };
+
+    syncMobileState();
+    media.addEventListener("change", syncMobileState);
+    return () => media.removeEventListener("change", syncMobileState);
   }, []);
 
   useEffect(() => {
@@ -259,13 +274,6 @@ export default function UnifiedTopNavBar() {
   }, []);
 
   useEffect(() => {
-    const onResize = () => setIsMobileNav(window.innerWidth < 1024);
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
         dropdownRef.current &&
@@ -276,21 +284,24 @@ export default function UnifiedTopNavBar() {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setNotifOpen(false);
       }
-      if (navRef.current && !navRef.current.contains(e.target as Node)) {
-        setActiveDropdown(null);
-      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [closeDropdown]);
 
-  const isDropdownOpen = (key: string) => {
-    return isMobileNav ? activeDropdown === key : hoveredDropdown === key;
+  const getNavBottom = () => {
+    if (!navRef.current) return 100;
+    const rect = navRef.current.getBoundingClientRect();
+    return rect.bottom;
   };
 
-  const handleDropdownToggle = (key: string) => {
+  const isDropdownOpen = (key: string) => {
+    return isMobileNav ? mobileDropdown === key : hoveredDropdown === key;
+  };
+
+  const toggleMobileDropdown = (key: string) => {
     if (!isMobileNav) return;
-    setActiveDropdown((prev) => (prev === key ? null : key));
+    setMobileDropdown((prev) => (prev === key ? null : key));
   };
 
   const getNotificationIcon = (type: string) => {
@@ -371,21 +382,25 @@ export default function UnifiedTopNavBar() {
           
           {/* About Us Dropdown */}
           <div
-            className="relative"
-            onMouseEnter={() => !isMobileNav && setHoveredDropdown("about")}
-            onMouseLeave={() => !isMobileNav && setHoveredDropdown(null)}
+            className="relative group"
+            onMouseEnter={() => {
+              if (!isMobileNav) setHoveredDropdown("about");
+            }}
+            onMouseLeave={() => {
+              if (!isMobileNav) setHoveredDropdown(null);
+            }}
           >
             <div className="flex items-center gap-1">
               <Link
                 href="/about-us"
-                className="text-gray-700 hover:text-[#8B1C1C] font-medium"
+                className="flex items-center gap-1 text-gray-700 hover:text-[#8B1C1C] font-medium"
               >
                 About Us
               </Link>
               <button
                 type="button"
-                onClick={() => handleDropdownToggle("about")}
-                className="p-1 text-gray-700 hover:text-[#8B1C1C]"
+                className="p-1 text-gray-600 hover:text-[#8B1C1C]"
+                onClick={() => toggleMobileDropdown("about")}
                 aria-label="Toggle About Us menu"
                 aria-expanded={isDropdownOpen("about")}
               >
@@ -393,7 +408,23 @@ export default function UnifiedTopNavBar() {
               </button>
             </div>
             {isDropdownOpen("about") && (
-              <div className="absolute left-0 top-full mt-2 bg-white shadow rounded z-50 min-w-[180px] border border-gray-100">
+              <div
+                className={`${
+                  isMobileNav
+                    ? "absolute left-0 top-full mt-2 bg-white shadow rounded border z-50 min-w-[180px]"
+                    : "fixed left-auto bg-white shadow rounded z-50 min-w-[180px]"
+                }`}
+                style={
+                  isMobileNav
+                    ? undefined
+                    : {
+                        top: getNavBottom(),
+                        left: navRef.current
+                          ? navRef.current.querySelectorAll("a")[1]?.getBoundingClientRect().left
+                          : 200,
+                      }
+                }
+              >
                 <Link href="/showroom" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Showroom</Link>
               </div>
             )}
@@ -401,21 +432,25 @@ export default function UnifiedTopNavBar() {
 
           {/* Services We Offer Dropdown */}
           <div
-            className="relative"
-            onMouseEnter={() => !isMobileNav && setHoveredDropdown("services")}
-            onMouseLeave={() => !isMobileNav && setHoveredDropdown(null)}
+            className="relative group"
+            onMouseEnter={() => {
+              if (!isMobileNav) setHoveredDropdown("services");
+            }}
+            onMouseLeave={() => {
+              if (!isMobileNav) setHoveredDropdown(null);
+            }}
           >
             <div className="flex items-center gap-1">
               <Link
                 href="/services"
-                className="text-gray-700 hover:text-[#8B1C1C] font-medium"
+                className="flex items-center gap-1 text-gray-700 hover:text-[#8B1C1C] font-medium"
               >
                 Services We Offer
               </Link>
               <button
                 type="button"
-                onClick={() => handleDropdownToggle("services")}
-                className="p-1 text-gray-700 hover:text-[#8B1C1C]"
+                className="p-1 text-gray-600 hover:text-[#8B1C1C]"
+                onClick={() => toggleMobileDropdown("services")}
                 aria-label="Toggle Services menu"
                 aria-expanded={isDropdownOpen("services")}
               >
@@ -423,7 +458,23 @@ export default function UnifiedTopNavBar() {
               </button>
             </div>
             {isDropdownOpen("services") && (
-              <div className="absolute left-0 top-full mt-2 bg-white shadow rounded z-50 min-w-[220px] border border-gray-100">
+              <div
+                className={`${
+                  isMobileNav
+                    ? "absolute left-0 top-full mt-2 bg-white shadow rounded border z-50 min-w-[220px]"
+                    : "fixed left-auto bg-white shadow rounded z-50 min-w-[220px]"
+                }`}
+                style={
+                  isMobileNav
+                    ? undefined
+                    : {
+                        top: getNavBottom(),
+                        left: navRef.current
+                          ? navRef.current.querySelectorAll("a")[2]?.getBoundingClientRect().left
+                          : 350,
+                      }
+                }
+              >
                 <Link href="/Featured" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Featured Projects</Link>
                 <Link href="/DeliveryProcess" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Delivery & Ordering Process</Link>
               </div>
@@ -432,21 +483,25 @@ export default function UnifiedTopNavBar() {
 
           {/* Products Dropdown */}
           <div
-            className="relative"
-            onMouseEnter={() => !isMobileNav && setHoveredDropdown("products")}
-            onMouseLeave={() => !isMobileNav && setHoveredDropdown(null)}
+            className="relative group"
+            onMouseEnter={() => {
+              if (!isMobileNav) setHoveredDropdown("products");
+            }}
+            onMouseLeave={() => {
+              if (!isMobileNav) setHoveredDropdown(null);
+            }}
           >
             <div className="flex items-center gap-1">
               <Link
                 href="/Product"
-                className="text-gray-700 hover:text-[#8B1C1C] font-medium"
+                className="flex items-center gap-1 text-gray-700 hover:text-[#8B1C1C] font-medium"
               >
                 Products
               </Link>
               <button
                 type="button"
-                onClick={() => handleDropdownToggle("products")}
-                className="p-1 text-gray-700 hover:text-[#8B1C1C]"
+                className="p-1 text-gray-600 hover:text-[#8B1C1C]"
+                onClick={() => toggleMobileDropdown("products")}
                 aria-label="Toggle Products menu"
                 aria-expanded={isDropdownOpen("products")}
               >
@@ -454,7 +509,23 @@ export default function UnifiedTopNavBar() {
               </button>
             </div>
             {isDropdownOpen("products") && (
-              <div className="absolute left-0 top-full mt-2 bg-white shadow rounded z-50 min-w-[220px] border border-gray-100 max-h-72 overflow-y-auto">
+              <div
+                className={`${
+                  isMobileNav
+                    ? "absolute left-0 top-full mt-2 bg-white shadow rounded border z-50 min-w-[200px]"
+                    : "fixed left-auto bg-white shadow rounded z-50 min-w-[200px]"
+                }`}
+                style={
+                  isMobileNav
+                    ? undefined
+                    : {
+                        top: getNavBottom(),
+                        left: navRef.current
+                          ? navRef.current.querySelectorAll("a")[3]?.getBoundingClientRect().left
+                          : 500,
+                      }
+                }
+              >
                 <Link href="/Product?category=Doors" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Doors</Link>
                 <Link href="/Product?category=Enclosure" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Enclosures</Link>
                 <Link href="/Product?category=Windows" className="block px-4 py-2 hover:bg-gray-100 text-gray-700">Windows</Link>

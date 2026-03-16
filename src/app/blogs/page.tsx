@@ -245,7 +245,7 @@ export default function BlogsPage() {
           ) : filteredBlogs.length === 0 ? (
             <div className="bg-gray-50 border rounded-lg p-6 text-gray-700">No blogs yet.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredBlogs.map((b) => {
                 const hearts = likeCounts[b.id] || 0;
                 const isLiked = !!likedByMe[b.id];
@@ -258,23 +258,23 @@ export default function BlogsPage() {
                         <button
                           type="button"
                           onClick={() => setImgPopup({ open: true, url: b.cover_image_url!, alt: b.title })}
-                          className="block w-full aspect-[16/10]"
+                          className="block w-full"
                           aria-label="Open image"
                           title="View image"
                         >
-                          <img src={b.cover_image_url} alt={b.title} className="w-full h-full object-cover" />
+                          <img src={b.cover_image_url} alt={b.title} className="w-full h-44 object-cover" />
                         </button>
                       ) : (
-                        <div className="w-full aspect-[16/10] bg-gray-200" />
+                        <div className="w-full h-44 bg-gray-200" />
                       )}
                       <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold text-gray-800">
                         {formatDate(b.published_at || b.created_at)}
                       </div>
                     </div>
 
-                    <div className="p-5 flex flex-col flex-1">
+                    <div className="p-5 flex-1 flex flex-col">
                       <Link href={`/blogs/${b.slug}`} className="block">
-                        <h2 className="text-lg font-bold text-gray-900 hover:text-[#8B1C1C] transition-colors line-clamp-2">
+                        <h2 className="text-lg font-bold text-gray-900 hover:text-[#8B1C1C] transition-colors line-clamp-2 min-h-[56px]">
                           {b.title}
                         </h2>
                       </Link>
@@ -283,7 +283,7 @@ export default function BlogsPage() {
                         {b.excerpt || ""}
                       </div>
 
-                      <div className="mt-auto pt-4 flex items-center justify-between">
+                      <div className="mt-4 flex items-center justify-between">
                         <Link
                           href={`/blogs/${b.slug}`}
                           className="text-sm font-semibold text-[#8B1C1C] hover:underline"
@@ -319,9 +319,9 @@ export default function BlogsPage() {
                         </div>
                       </div>
 
-                      {b.author_name ? (
-                        <div className="mt-3 text-xs text-gray-500">By {b.author_name}</div>
-                      ) : null}
+                      <div className="mt-3 min-h-[20px] text-xs text-gray-500">
+                        {b.author_name ? `By ${b.author_name}` : ""}
+                      </div>
                     </div>
                   </div>
                 );

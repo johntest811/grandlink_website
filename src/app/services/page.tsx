@@ -79,7 +79,7 @@ export default function ServicesPage() {
       <main className="flex-1">
         {/* Hero */}
         <div className="relative w-full overflow-hidden">
-          <div className="h-64 md:h-80 lg:h-96 relative overflow-hidden">
+          <div className="h-56 md:h-72 lg:h-80 relative max-h-[420px] overflow-hidden">
             <img
               src={pageContent.heroImageUrl || "/sevices.avif"}
               alt="services"
@@ -98,7 +98,7 @@ export default function ServicesPage() {
           </div>
 
           {/* curved white overlay to match design */}
-          <div className="absolute left-0 right-0 -bottom-8 pointer-events-none">
+          <div className="absolute left-0 right-0 bottom-0 pointer-events-none z-10">
             <svg
               viewBox="0 0 1440 120"
               className="w-full h-20 md:h-28"
@@ -111,7 +111,7 @@ export default function ServicesPage() {
             </svg>
           </div>
 
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 z-20 flex items-center justify-center">
             <div className="text-center px-6">
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white drop-shadow-lg">
                 {pageContent.heroTitle || "Our Services"}
@@ -122,7 +122,7 @@ export default function ServicesPage() {
         </div>
 
         {/* Intro (centered compressed paragraph under heading) */}
-        <section className="max-w-4xl mx-auto px-6 py-12 -mt-6 bg-white">
+        <section className="max-w-4xl mx-auto px-6 py-12 bg-white">
           <p className="text-center text-gray-600 mb-10 text-lg leading-relaxed">
             {pageContent.introText || DEFAULT_PAGE_CONTENT.introText}
           </p>
@@ -189,13 +189,13 @@ function ServiceCard({
   return (
     <div className="perspective" onClick={onClick}>
       <motion.div
-        className="relative w-full h-52 cursor-pointer overflow-hidden rounded-2xl"
+        className="relative w-full h-52 cursor-pointer"
         style={{ transformStyle: "preserve-3d" }}
         animate={{ rotateY: flipped ? 180 : 0 }}
         transition={{ duration: 0.6 }}
       >
         {/* Front */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#232d3b] text-white rounded-2xl shadow-xl backface-hidden hover:scale-[1.02] transition-transform">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#232d3b] text-white rounded-2xl shadow-xl backface-hidden hover:scale-105 transition-transform">
           <div className="p-3 bg-white/10 rounded-full mb-2">{icon}</div>
           <span className="mt-2 font-bold text-lg">{label}</span>
         </div>

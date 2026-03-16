@@ -6,6 +6,7 @@ import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
 import { ensureProductionWorkflow, PRODUCTION_STAGES } from "@/app/lib/productionWorkflow";
 import { formatAddressLineFromRecord } from "@/utils/addressFields";
 import InvoicePreviewModal from "@/components/InvoicePreviewModal";
+import { getMetaFulfillmentMethod, PICKUP_ADDRESS } from "@/utils/fulfillment";
 
 type UserItem = {
   id: string;
@@ -1103,6 +1104,11 @@ export default function ProfileOrderPage() {
                       {(selectedOrder.item.meta?.selected_branch || selectedOrder.item.meta?.branch) ? (
                         <p className="text-sm text-gray-600 mt-1">
                           <span className="font-medium">Branch:</span> {selectedOrder.item.meta?.selected_branch || selectedOrder.item.meta?.branch}
+                        </p>
+                      ) : null}
+                      {getMetaFulfillmentMethod(selectedOrder.item.meta) === "pickup" ? (
+                        <p className="text-sm text-gray-600 mt-1">
+                          <span className="font-medium">Pickup Address:</span> {String(selectedOrder.item.meta?.pickup_address || PICKUP_ADDRESS)}
                         </p>
                       ) : null}
                     </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
+import { getMetaFulfillmentMethod, PICKUP_ADDRESS } from "@/utils/fulfillment";
 
 const BRANCHES = [
   "BALINTAWAK BRANCH",
@@ -273,6 +274,8 @@ function ProfileReservePageContent() {
     const unitPrice = Number(item.meta?.product_price ?? product?.price ?? 0);
     const totalAmount = Number(getItemTotalPrice(item, product) || 0);
     const reservationFee = Number(item.meta?.reservation_fee ?? 0);
+    const fulfillmentMethod = getMetaFulfillmentMethod(item.meta);
+    const pickupAddress = String(item.meta?.pickup_address || PICKUP_ADDRESS);
     const addonsTotal = Number(item.meta?.addons_total ?? 0);
     const discountValue = Number(item.meta?.discount_value ?? 0);
     const createdAt = new Date(item.created_at).toLocaleString();
@@ -318,7 +321,13 @@ function ProfileReservePageContent() {
 
     <div class="summary">
       <div class="row"><span>Unit Price</span><span>₱${unitPrice.toLocaleString()}</span></div>
-      <div class="row"><span>Delivery Fee</span><span>₱${reservationFee.toLocaleString()}</span></div>
+      ${
+        fulfillmentMethod === "pickup"
+          ? `<div class="row"><span>Pickup Address</span><span style="max-width:60%; text-align:right;">${pickupAddress}</span></div>`
+          : reservationFee > 0
+            ? `<div class="row"><span>Delivery Fee</span><span>₱${reservationFee.toLocaleString()}</span></div>`
+            : ""
+      }
       <div class="row"><span>Add-ons</span><span>₱${addonsTotal.toLocaleString()}</span></div>
       <div class="row"><span>Discount</span><span>-₱${discountValue.toLocaleString()}</span></div>
       <div class="row total"><span>Total Amount</span><span>₱${totalAmount.toLocaleString()}</span></div>
@@ -904,6 +913,11 @@ function ProfileReservePageContent() {
                           <span className="font-medium">Branch:</span> {showFullReceipt.item.meta.branch}
                         </p>
                       )}
+                      {getMetaFulfillmentMethod(showFullReceipt.item.meta) === "pickup" ? (
+                        <p className="text-sm text-gray-600 mt-1">
+                          <span className="font-medium">Pickup Address:</span> {String(showFullReceipt.item.meta?.pickup_address || PICKUP_ADDRESS)}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>

@@ -9,9 +9,14 @@ const supabase = createClient(
 
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-const PAYPAL_ENVIRONMENT =
-  process.env.PAYPAL_ENVIRONMENT ||
-  (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox');
+const VERCEL_ENV = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
+const IS_VERCEL_PROD_DEPLOY = VERCEL_ENV === 'production';
+const PAYPAL_ENVIRONMENT = (
+  IS_VERCEL_PROD_DEPLOY
+    ? 'live'
+    : String(process.env.PAYPAL_ENVIRONMENT || '').trim() ||
+      (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
+).toLowerCase();
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';

@@ -6,6 +6,11 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { FaArrowLeft, FaShoppingCart } from "react-icons/fa";
 import { computeMeasurementPricing } from "../../../../utils/measurementPricing";
 import {
+  PICKUP_ADDRESS,
+  type FulfillmentMethod,
+  normalizeFulfillmentMethod,
+} from "@/utils/fulfillment";
+import {
   buildAddressPayloads,
   emptyAddressForm,
   formatAddressLineFromRecord,
@@ -93,6 +98,7 @@ function CartCheckoutContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const itemIdsParam = searchParams.get("items");
+  const deliveryMethodParam = searchParams.get("delivery_method");
 
   const [userId, setUserId] = useState<string | null>(null);
   const [items, setItems] = useState<UserItem[]>([]);
@@ -117,6 +123,13 @@ function CartCheckoutContent() {
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"paymongo" | "paypal">("paymongo");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>(() =>
+    normalizeFulfillmentMethod(deliveryMethodParam)
+  );
+
+  useEffect(() => {
+    setFulfillmentMethod(normalizeFulfillmentMethod(deliveryMethodParam));
+  }, [deliveryMethodParam]);
 
   const locationOptions = useMemo(
     () =>
@@ -645,10 +658,11 @@ function CartCheckoutContent() {
         : voucherInfo.value;
       discount = Math.min(discount, preDiscount);
     }
-    const deliveryFee = items.length > 0 ? DELIVERY_FEE : 0;
+    const deliveryFee =
+      items.length > 0 && fulfillmentMethod === "delivery" ? DELIVERY_FEE : 0;
     const total = Math.max(0, preDiscount - discount + deliveryFee);
     return { ...base, discount, deliveryFee, total };
-  }, [computeUnitPrice, items, voucherInfo]);
+  }, [computeUnitPrice, items, voucherInfo, fulfillmentMethod]);
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
   const applyVoucher = async () => {
@@ -678,7 +692,7 @@ function CartCheckoutContent() {
       alert("Please sign in");
       return;
     }
-    if (!selectedAddressId) {
+    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
       alert("Please select a delivery address");
       return;
     }
@@ -701,12 +715,13 @@ function CartCheckoutContent() {
           user_id: userId,
           payment_method: paymentMethod,
           payment_type: "reservation",
-          delivery_address_id: selectedAddressId,
-          branch: null,
-          delivery_method: "delivery",
+          delivery_method: fulfillmentMethod,
+          delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
+          branch: fulfillmentMethod === "pickup" ? "TAYTAY Main" : null,
+          pickup_address: fulfillmentMethod === "pickup" ? PICKUP_ADDRESS : null,
           // Include the receipt ref in the success URL so we can fetch only these items later
           success_url: `${window.location.origin}/profile/cart/success?source=cart&ref=${encodeURIComponent(receiptRef)}&payment_provider=${paymentMethod}`,
-          cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}`,
+          cancel_url: `${window.location.origin}/profile/cart/checkout?items=${itemIdsParam}&delivery_method=${fulfillmentMethod}`,
           payment_provider: paymentMethod,
           voucher: voucherInfo || undefined,
           // Also pass the ref so the server can store it in metadata and on each user_item
@@ -766,53 +781,85 @@ function CartCheckoutContent() {
                 Reservation Details
               </h2>
 
-              {/* Delivery Address */}
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Delivery Address <span className="text-red-600">*</span>
+                  Delivery Option <span className="text-red-600">*</span>
                 </label>
-                <select
-                  value={selectedAddressId}
-                  onChange={(e) => setSelectedAddressId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
-                  required
-                >
-                  <option value="">Select Address</option>
-                  {addresses.map((addr) => (
-                    <option key={addr.id} value={addr.id}>
-                      {addr.full_name} - {formatAddressLineFromRecord(addr)}
-                      {addr.is_default && " (Default)"}
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={openAddressListPopup}
-                    className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Manage Addresses
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openAddAddressForm}
-                    className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
-                  >
-                    + Add New Address
-                  </button>
+                <div className="flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="radio"
+                      name="fulfillmentMethod"
+                      checked={fulfillmentMethod === "delivery"}
+                      onChange={() => setFulfillmentMethod("delivery")}
+                    />
+                    Delivery
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="radio"
+                      name="fulfillmentMethod"
+                      checked={fulfillmentMethod === "pickup"}
+                      onChange={() => setFulfillmentMethod("pickup")}
+                    />
+                    Pickup
+                  </label>
                 </div>
-                {selectedAddressPreview ? (
-                  <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
-                    <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
-                    <div>{selectedAddressPreview.phone}</div>
-                    <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
-                    {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
-                  </div>
-                ) : null}
-                {addresses.length === 0 ? (
-                  <p className="text-sm text-gray-500 mt-2">No addresses found. Add one to continue delivery checkout.</p>
-                ) : null}
               </div>
+
+              {fulfillmentMethod === "delivery" ? (
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Delivery Address <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    value={selectedAddressId}
+                    onChange={(e) => setSelectedAddressId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#8B1C1C] focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select Address</option>
+                    {addresses.map((addr) => (
+                      <option key={addr.id} value={addr.id}>
+                        {addr.full_name} - {formatAddressLineFromRecord(addr)}
+                        {addr.is_default && " (Default)"}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={openAddressListPopup}
+                      className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Manage Addresses
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openAddAddressForm}
+                      className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
+                    >
+                      + Add New Address
+                    </button>
+                  </div>
+                  {selectedAddressPreview ? (
+                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+                      <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
+                      <div>{selectedAddressPreview.phone}</div>
+                      <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
+                      {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
+                    </div>
+                  ) : null}
+                  {addresses.length === 0 ? (
+                    <p className="text-sm text-gray-500 mt-2">No addresses found. Add one to continue delivery checkout.</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 px-4 py-3">
+                  <div className="text-sm font-semibold text-gray-700">Pickup Address</div>
+                  <div className="mt-1 text-sm text-gray-800">{PICKUP_ADDRESS}</div>
+                </div>
+              )}
             </div>
 
             {/* Measurements */}
@@ -1054,10 +1101,12 @@ function CartCheckoutContent() {
                     <span>-₱{totals.discount.toLocaleString()}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm text-gray-700">
-                  <span>Delivery Fee</span>
-                  <span>₱{totals.deliveryFee.toLocaleString()}</span>
-                </div>
+                {fulfillmentMethod === "delivery" ? (
+                  <div className="flex justify-between text-sm text-gray-700">
+                    <span>Delivery Fee</span>
+                    <span>₱{totals.deliveryFee.toLocaleString()}</span>
+                  </div>
+                ) : null}
                 <hr className="my-3" />
                 <div className="flex justify-between text-lg font-bold text-gray-900">
                   <span>Total Amount</span>
@@ -1071,7 +1120,7 @@ function CartCheckoutContent() {
                 disabled={
                   submitting ||
                   items.length === 0 ||
-                  !selectedAddressId
+                  (fulfillmentMethod === "delivery" && !selectedAddressId)
                 }
                 className="w-full bg-gradient-to-r from-[#8B1C1C] to-[#a83232] text-white rounded-lg px-6 py-4 font-bold text-lg hover:from-[#7a1919] hover:to-[#8B1C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] shadow-lg"
               >

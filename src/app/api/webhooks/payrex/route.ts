@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
+import { normalizeFulfillmentMethod } from '@/utils/fulfillment';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -181,7 +182,15 @@ export async function POST(request: NextRequest) {
     const addonsTotal = Number(metadata?.addons_total || 0);
     const discountValue = Number(metadata?.discount_value || 0);
     const paymentType = metadata?.payment_type || 'order';
-    const reservationFee = Number(metadata?.reservation_fee || (paymentType === 'reservation' ? 2599 : 0));
+    const deliveryMethod = normalizeFulfillmentMethod(
+      metadata?.delivery_method || metadata?.fulfillment_method
+    );
+    const reservationFee = (() => {
+      const explicit = metadata?.reservation_fee;
+      if (explicit !== null && typeof explicit !== 'undefined') return Number(explicit);
+      if (paymentType === 'reservation' && deliveryMethod === 'delivery') return 2599;
+      return 0;
+    })();
     const totalAmount = Number(metadata?.total_amount || amountPaid);
 
     console.log('🔍 Processing PayRex payment for items:', ids);

@@ -18,6 +18,7 @@ import {
   mergeLocationDropdownOptions,
   type LocationDropdownOptions,
 } from "@/utils/locationSuggestions";
+import { PICKUP_ADDRESS, type FulfillmentMethod } from "@/utils/fulfillment";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -95,6 +96,7 @@ function ReservationPageContent() {
   const [product, setProduct] = useState<Product | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("delivery");
   const [showAddressPopup, setShowAddressPopup] = useState(false);
   const [addressFormMode, setAddressFormMode] = useState<"add" | "edit" | null>(null);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
@@ -410,7 +412,7 @@ function ReservationPageContent() {
       : Math.min(preDiscount, voucherInfo.value)
     : 0;
   const discountedTotal = Math.max(0, preDiscount - discountValue);
-  const reservationFee = DELIVERY_FEE;
+  const reservationFee = fulfillmentMethod === "delivery" ? DELIVERY_FEE : 0;
   const balanceDue = Math.max(0, discountedTotal - reservationFee);
   const originalPrice = Math.max(0, Number(product?.price || 0));
 
@@ -486,7 +488,7 @@ function ReservationPageContent() {
       alert("Please sign in");
       return;
     }
-    if (!selectedAddressId) {
+    if (fulfillmentMethod === "delivery" && !selectedAddressId) {
       alert("Please select a delivery address");
       return;
     }
@@ -506,8 +508,13 @@ function ReservationPageContent() {
     }
     setSubmitting(true);
     try {
-      const selectedAddress = addresses.find((a) => a.id === selectedAddressId) || null;
-      if (!selectedAddress) throw new Error("Selected address not found");
+      const selectedAddress =
+        fulfillmentMethod === "delivery"
+          ? addresses.find((a) => a.id === selectedAddressId) || null
+          : null;
+      if (fulfillmentMethod === "delivery" && !selectedAddress) {
+        throw new Error("Selected address not found");
+      }
 
       const addons = formData.colorCustomization
         ? [
@@ -526,7 +533,7 @@ function ReservationPageContent() {
         item_type: "reservation",
         status: "pending_payment",
         quantity: qty,
-        delivery_address_id: selectedAddressId,
+        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
         special_instructions: formData.specialInstructions || null,
         payment_status: "pending",
         reservation_fee: reservationFee,
@@ -543,8 +550,10 @@ function ReservationPageContent() {
           product_description: product.description,
           additional_features: product.additionalfeatures,
           payment_method: paymentMethod,
-          delivery_method: "delivery",
-          selected_branch: null,
+          delivery_method: fulfillmentMethod,
+          selected_branch: fulfillmentMethod === "pickup" ? "TAYTAY Main" : null,
+          branch: fulfillmentMethod === "pickup" ? "TAYTAY Main" : null,
+          pickup_address: fulfillmentMethod === "pickup" ? PICKUP_ADDRESS : null,
           custom_dimensions: {
             enabled: formData.measurementEnabled,
             width: formData.measurementEnabled ? measurementPricing.width_m : undefined,
@@ -601,9 +610,10 @@ function ReservationPageContent() {
         user_item_ids: [userItem.id],
         payment_method: paymentMethod,
         payment_type: "reservation",
-        delivery_method: "delivery",
-        delivery_address_id: selectedAddressId,
-        branch: null,
+        delivery_method: fulfillmentMethod,
+        delivery_address_id: fulfillmentMethod === "delivery" ? selectedAddressId : null,
+        branch: fulfillmentMethod === "pickup" ? "TAYTAY Main" : null,
+        pickup_address: fulfillmentMethod === "pickup" ? PICKUP_ADDRESS : null,
         success_url: `${window.location.origin}/reservation/success?reservation_id=${userItem.id}&payment_provider=${paymentMethod}`,
         cancel_url: `${window.location.origin}/reservation?productId=${product.id}`,
         voucher: voucherInfo || undefined,
@@ -698,50 +708,83 @@ function ReservationPageContent() {
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Delivery Address <span className="text-red-600">*</span>
+                    Delivery Option <span className="text-red-600">*</span>
                   </label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    value={selectedAddressId}
-                    onChange={(e) => setSelectedAddressId(e.target.value)}
-                  >
-                    <option value="">Select Address</option>
-                    {addresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.full_name} — {formatAddressLineFromRecord(a)}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={openAddressListPopup}
-                      className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                      Manage Addresses
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openAddAddressForm}
-                      className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
-                    >
-                      + Add New Address
-                    </button>
+                  <div className="flex flex-wrap gap-6">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="fulfillmentMethod"
+                        checked={fulfillmentMethod === "delivery"}
+                        onChange={() => setFulfillmentMethod("delivery")}
+                      />
+                      Delivery
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="fulfillmentMethod"
+                        checked={fulfillmentMethod === "pickup"}
+                        onChange={() => setFulfillmentMethod("pickup")}
+                      />
+                      Pickup
+                    </label>
                   </div>
-                  {selectedAddressPreview ? (
-                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
-                      <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
-                      <div>{selectedAddressPreview.phone}</div>
-                      <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
-                      {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
-                    </div>
-                  ) : null}
-                  {addresses.length === 0 ? (
-                    <div className="mt-1 text-xs text-gray-600">
-                      No saved addresses yet. Add one to continue delivery checkout.
-                    </div>
-                  ) : null}
                 </div>
+
+                {fulfillmentMethod === "delivery" ? (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Delivery Address <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                      value={selectedAddressId}
+                      onChange={(e) => setSelectedAddressId(e.target.value)}
+                    >
+                      <option value="">Select Address</option>
+                      {addresses.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.full_name} — {formatAddressLineFromRecord(a)}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={openAddressListPopup}
+                        className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Manage Addresses
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openAddAddressForm}
+                        className="px-3 py-1.5 rounded bg-[#8B1C1C] text-sm text-white hover:bg-[#7a1919]"
+                      >
+                        + Add New Address
+                      </button>
+                    </div>
+                    {selectedAddressPreview ? (
+                      <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+                        <div className="font-semibold text-gray-900">{selectedAddressPreview.full_name}</div>
+                        <div>{selectedAddressPreview.phone}</div>
+                        <div>{formatAddressLineFromRecord(selectedAddressPreview)}</div>
+                        {selectedAddressPreview.email ? <div>{selectedAddressPreview.email}</div> : null}
+                      </div>
+                    ) : null}
+                    {addresses.length === 0 ? (
+                      <div className="mt-1 text-xs text-gray-600">
+                        No saved addresses yet. Add one to continue delivery checkout.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-300 bg-gray-50 px-4 py-3">
+                    <div className="text-sm font-semibold text-gray-700">Pickup Address</div>
+                    <div className="mt-1 text-sm text-gray-800">{PICKUP_ADDRESS}</div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Special Instructions</label>
@@ -954,10 +997,12 @@ function ReservationPageContent() {
                   <span>Total Product Value</span>
                   <span>₱{discountedTotal.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-sm text-gray-700">
-                  <span>Delivery Fee (Pay now)</span>
-                  <span>₱{reservationFee.toLocaleString()}</span>
-                </div>
+                {fulfillmentMethod === "delivery" ? (
+                  <div className="flex justify-between text-sm text-gray-700">
+                    <span>Delivery Fee (Pay now)</span>
+                    <span>₱{reservationFee.toLocaleString()}</span>
+                  </div>
+                ) : null}
                 <hr className="my-3" />
                 <div className="flex justify-between text-lg font-bold text-gray-900">
                   <span>Total Amount</span>
@@ -967,10 +1012,14 @@ function ReservationPageContent() {
 
               <button
                 onClick={handleReservation}
-                disabled={submitting || !selectedAddressId}
+                disabled={submitting || (fulfillmentMethod === "delivery" && !selectedAddressId)}
                 className="w-full bg-gradient-to-r from-[#8B1C1C] to-[#a83232] text-white rounded-lg px-6 py-4 font-bold text-lg disabled:opacity-50"
               >
-                {submitting ? "Processing..." : "Pay Delivery Fee & Reserve"}
+                {submitting
+                  ? "Processing..."
+                  : fulfillmentMethod === "delivery"
+                    ? "Pay Delivery Fee & Reserve"
+                    : "Reserve (Pickup)"}
               </button>
 
               <button
@@ -980,7 +1029,6 @@ function ReservationPageContent() {
                 Add to Cart Instead
               </button>
             </div>
-          </div>
         </div>
       </div>
 
@@ -1227,6 +1275,8 @@ function ReservationPageContent() {
           </div>
         </div>
       )}
+
+      </div>
     </div>
   );
 }

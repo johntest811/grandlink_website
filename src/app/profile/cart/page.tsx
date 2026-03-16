@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { computeMeasurementPricing } from "@/utils/measurementPricing";
+import { PICKUP_ADDRESS, type FulfillmentMethod } from "@/utils/fulfillment";
 
 type UserItem = {
   price: number | undefined;
@@ -51,6 +52,7 @@ export default function CartPage() {
   const [items, setItems] = useState<UserItem[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("delivery");
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [voucher, setVoucher] = useState("");
@@ -159,10 +161,11 @@ export default function CartPage() {
         : voucherInfo.value;
       discount = Math.min(discount, preDiscount);
     }
-    const deliveryFee = selectedItems.length > 0 ? DELIVERY_FEE : 0;
+    const deliveryFee =
+      selectedItems.length > 0 && fulfillmentMethod === "delivery" ? DELIVERY_FEE : 0;
     const total = Math.max(0, preDiscount - discount + deliveryFee);
     return { ...base, discount, deliveryFee, total };
-  }, [selectedItems, products, voucherInfo]);
+  }, [selectedItems, products, voucherInfo, fulfillmentMethod]);
 
   const updateQuantity = async (item: UserItem, delta: number) => {
     const next = Math.max(1, (item.quantity || 1) + delta);
@@ -197,7 +200,7 @@ export default function CartPage() {
     
     // Navigate to checkout page with selected items
     const itemIds = selectedItems.map(item => item.id).join(",");
-    router.push(`/profile/cart/checkout?items=${itemIds}`);
+    router.push(`/profile/cart/checkout?items=${itemIds}&delivery_method=${fulfillmentMethod}`);
   };
 
   const applyVoucher = async () => {
@@ -378,6 +381,36 @@ export default function CartPage() {
         <div className="w-96">
           <div className="sticky top-6 bg-white border rounded-lg shadow-lg p-6 space-y-4">
             <div className="text-black font-bold text-xl border-b pb-3">Payment Summary</div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-black">Delivery Option</div>
+              <div className="flex flex-wrap gap-6 text-sm text-black">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="fulfillmentMethod"
+                    checked={fulfillmentMethod === "delivery"}
+                    onChange={() => setFulfillmentMethod("delivery")}
+                  />
+                  Delivery
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="fulfillmentMethod"
+                    checked={fulfillmentMethod === "pickup"}
+                    onChange={() => setFulfillmentMethod("pickup")}
+                  />
+                  Pickup
+                </label>
+              </div>
+              {fulfillmentMethod === "pickup" ? (
+                <div className="rounded-lg border border-gray-300 bg-gray-50 px-4 py-3">
+                  <div className="text-sm font-semibold text-gray-700">Pickup Address</div>
+                  <div className="mt-1 text-sm text-gray-800">{PICKUP_ADDRESS}</div>
+                </div>
+              ) : null}
+            </div>
             
             <div className="space-y-3">
               <div className="flex justify-between text-sm text-black">
@@ -397,10 +430,12 @@ export default function CartPage() {
                 </div>
               )}
               
-              <div className="flex justify-between text-sm text-black">
-                <span>Delivery Fee</span>
-                <span>₱{totals.deliveryFee.toLocaleString()}</span>
-              </div>
+              {fulfillmentMethod === "delivery" ? (
+                <div className="flex justify-between text-sm text-black">
+                  <span>Delivery Fee</span>
+                  <span>₱{totals.deliveryFee.toLocaleString()}</span>
+                </div>
+              ) : null}
               
               <hr className="my-3 border-gray-300" />
               

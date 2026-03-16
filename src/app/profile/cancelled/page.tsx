@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+import { getMetaFulfillmentMethod, PICKUP_ADDRESS } from "@/utils/fulfillment";
 
 type UserItem = {
   id: string;
@@ -313,7 +314,7 @@ export default function ProfileCancelledPage() {
 
               const statusDisplay = getStatusDisplay(it.status);
               const refundStatus = getRefundStatus(it);
-              const reservationFee = it.meta?.reservation_fee || 500;
+              const reservationFee = Number(it.meta?.reservation_fee ?? 0);
               const totalPrice = it.total_amount || it.total_paid || ((p?.price || it.meta?.product_price || 0) * it.quantity);
               // Define refundAmount for card section (was causing ReferenceError)
               const refundAmount = Number(it.meta?.refund_amount ?? reservationFee);
@@ -511,7 +512,9 @@ export default function ProfileCancelledPage() {
               const item = receiptItem!;
               const product = productsById[item.product_id];
               const totalPrice = item.total_amount || item.total_paid || ((product?.price || item.meta?.product_price || 0) * item.quantity);
-              const reservationFee = item.meta?.reservation_fee || 500;
+              const fulfillmentMethod = getMetaFulfillmentMethod(item.meta);
+              const pickupAddress = String(item.meta?.pickup_address || PICKUP_ADDRESS);
+              const reservationFee = Number(item.meta?.reservation_fee ?? 0);
               const refundAmount = item.meta?.refund_amount || reservationFee;
 
               return (
@@ -535,6 +538,13 @@ export default function ProfileCancelledPage() {
                     </div>
                   </div>
 
+                  {fulfillmentMethod === "pickup" ? (
+                    <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs">
+                      <div className="font-semibold text-gray-900">Pickup Address</div>
+                      <div className="mt-1 text-gray-700">{pickupAddress}</div>
+                    </div>
+                  ) : null}
+
                   <div className="border-t border-black pt-3">
                     <div className="flex justify-between">
                       <span>Quantity</span>
@@ -544,10 +554,12 @@ export default function ProfileCancelledPage() {
                       <span>Total Value</span>
                       <span>₱{Number(totalPrice).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Original Payment</span>
-                      <span>₱{Number(reservationFee).toLocaleString()}</span>
-                    </div>
+                    {fulfillmentMethod === "delivery" ? (
+                      <div className="flex justify-between">
+                        <span>Original Payment</span>
+                        <span>₱{Number(reservationFee).toLocaleString()}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
                       <span>Refund Amount</span>
                       <span className="text-black">₱{Number(refundAmount).toLocaleString()}</span>

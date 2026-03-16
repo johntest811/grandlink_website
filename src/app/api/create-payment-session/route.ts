@@ -41,9 +41,16 @@ const PAYREX_PUBLIC_KEY =
 const PAYREX_PAYMENT_METHODS = process.env.PAYREX_PAYMENT_METHODS;
 const PAYPAL_CLIENT_ID = normalizeEnvValue(process.env.PAYPAL_CLIENT_ID);
 const PAYPAL_CLIENT_SECRET = normalizeEnvValue(process.env.PAYPAL_CLIENT_SECRET);
-const PAYPAL_ENVIRONMENT =
-  normalizeEnvValue(process.env.PAYPAL_ENVIRONMENT) ||
-  (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox');
+const VERCEL_ENV = normalizeEnvValue(process.env.VERCEL_ENV).toLowerCase();
+const IS_VERCEL_PROD_DEPLOY = VERCEL_ENV === 'production';
+// Requirement: PayPal should be live on Vercel production deployments.
+// For non-prod (preview/local), default to sandbox unless explicitly set.
+const PAYPAL_ENVIRONMENT = (
+  IS_VERCEL_PROD_DEPLOY
+    ? 'live'
+    : normalizeEnvValue(process.env.PAYPAL_ENVIRONMENT) ||
+      (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
+).toLowerCase();
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
   ? 'https://api-m.sandbox.paypal.com' 
   : 'https://api-m.paypal.com';
@@ -548,8 +555,15 @@ export async function POST(request: NextRequest) {
       delivery_method,
       delivery_address_id,
       branch,
+      pickup_address,
       receipt_ref,
     } = await request.json();
+
+    const normalizedDeliveryMethod = String(delivery_method || '').trim().toLowerCase();
+    const effectiveDeliveryMethod = normalizedDeliveryMethod === 'pickup' ? 'pickup' : 'delivery';
+    const effectivePickupAddress = typeof pickup_address === 'string' && pickup_address.trim()
+      ? pickup_address.trim().slice(0, 240)
+      : null;
 
     const normalizedPaymentMethod = String(payment_method || '').trim().toLowerCase();
     const normalizedPaymentProvider = String(payment_provider || '').trim().toLowerCase();
@@ -609,13 +623,16 @@ export async function POST(request: NextRequest) {
         quantity: cartItem.quantity,
         meta: {
           ...(cartItem.meta || {}),
-          ...(delivery_method ? { delivery_method } : {}),
+          delivery_method: effectiveDeliveryMethod,
           branch,
+          ...(effectiveDeliveryMethod === 'pickup' && effectivePickupAddress
+            ? { pickup_address: effectivePickupAddress }
+            : {}),
           from_cart: true,
           cart_id: cartItem.id,
           ...(receipt_ref ? { receipt_ref } : {}),
         },
-        delivery_address_id,
+        delivery_address_id: effectiveDeliveryMethod === 'delivery' ? delivery_address_id : null,
         created_at: nowIso,
         updated_at: nowIso,
       }));
@@ -810,30 +827,36 @@ export async function POST(request: NextRequest) {
       });
     });
 
-    // Delivery Fee is ALWAYS ₱2,599 (fixed, no adjustments)
-    const reservationFeeBase = 2599;
-    const reservationFeeCents = 259900; // ₱2,599.00 in centavos
+    // Delivery Fee is fixed at ₱2,599 and only applies to delivery (not pickup)
+    const reservationFeeBase = effectiveDeliveryMethod === 'delivery' ? 2599 : 0;
+    const reservationFeeCents = effectiveDeliveryMethod === 'delivery' ? 259900 : 0; // centavos
 
-    const reservationWeights = netLineCents.some((c) => c > 0) ? netLineCents : lineTotalsCents;
-    const reservationAllocations = allocateCents(reservationFeeCents, reservationWeights);
+    const reservationAllocations = reservationFeeCents > 0
+      ? allocateCents(
+          reservationFeeCents,
+          netLineCents.some((c) => c > 0) ? netLineCents : lineTotalsCents
+        )
+      : new Array(itemDetails.length).fill(0);
 
-    const reservationLineItem = {
-      name: 'Delivery Fee',
-      quantity: 1,
-      amount: reservationFeeCents,
-      currency: 'PHP',
-      description: 'One-time delivery fee (non-discountable)'
-    };
-    payMongoLineItems.push(reservationLineItem);
-    displayLineItems.push({
-      type: 'reservation_fee',
-      name: 'Delivery Fee',
-      quantity: 1,
-      unit_price: 2599,
-      line_total: 2599
-    });
+    if (reservationFeeCents > 0) {
+      const reservationLineItem = {
+        name: 'Delivery Fee',
+        quantity: 1,
+        amount: reservationFeeCents,
+        currency: 'PHP',
+        description: 'One-time delivery fee (non-discountable)'
+      };
+      payMongoLineItems.push(reservationLineItem);
+      displayLineItems.push({
+        type: 'reservation_fee',
+        name: 'Delivery Fee',
+        quantity: 1,
+        unit_price: reservationFeeBase,
+        line_total: reservationFeeBase
+      });
+    }
 
-    // Final total = products (after discount) + reservation fee
+    // Final total = products (after discount) + optional delivery fee
     const finalTotalCents = netProductTotalCents + reservationFeeCents;
 
     if (appliedDiscountCents > 0) {
@@ -866,12 +889,14 @@ export async function POST(request: NextRequest) {
       });
     });
 
-    const reservationFeeUsd = Number((reservationFeeCharged / 50).toFixed(2));
-    payPalItems.push({
-      name: 'Delivery Fee',
-      quantity: 1,
-      unit_amount: reservationFeeUsd.toFixed(2)
-    });
+    if (reservationFeeCharged > 0) {
+      const reservationFeeUsd = Number((reservationFeeCharged / 50).toFixed(2));
+      payPalItems.push({
+        name: 'Delivery Fee',
+        quantity: 1,
+        unit_amount: reservationFeeUsd.toFixed(2)
+      });
+    }
 
     const itemMetaMap = new Map<string, {
       lineDiscountValue: number;

@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { getMetaFulfillmentMethod } from "@/utils/fulfillment";
 
 const DELIVERY_FEE = 2599;
 import { FaCheckCircle, FaShoppingCart, FaArrowRight } from "react-icons/fa";
@@ -222,9 +223,17 @@ function CartSuccessPageContent() {
       if (discount === 0 && typeof meta.discount_value !== 'undefined') {
         discount = Number(meta.discount_value || 0);
       }
-      if (reservationFee === 0 && (meta.reservation_fee || meta.reservation_fee_share)) {
-        reservationFee = Number(meta.reservation_fee || DELIVERY_FEE);
-      }
+          if (
+            reservationFee === 0 &&
+            (typeof meta.reservation_fee !== "undefined" || typeof meta.reservation_fee_share !== "undefined")
+          ) {
+            const explicitFee = meta.reservation_fee;
+            if (explicitFee !== null && typeof explicitFee !== "undefined") {
+              reservationFee = Number(explicitFee);
+            } else if (getMetaFulfillmentMethod(meta) === "delivery") {
+              reservationFee = DELIVERY_FEE;
+            }
+          }
     });
 
     return { subtotal, addonsTotal, discount, reservationFee, total: grandTotal };

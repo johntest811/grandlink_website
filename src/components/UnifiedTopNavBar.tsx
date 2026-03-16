@@ -348,7 +348,10 @@ export default function UnifiedTopNavBar() {
           </Link>
         </div>
         
-        <nav ref={navRef} className="flex-1 flex justify-center items-center gap-8 ml-8 relative z-30">
+        <nav
+          ref={navRef}
+          className="flex-1 flex items-center gap-8 relative z-30 max-w-full overflow-x-auto whitespace-nowrap py-2 sm:py-0 ml-0 sm:ml-8 justify-start sm:justify-center"
+        >
           <Link href="/home" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Home</Link>
           
           {/* About Us Dropdown */}

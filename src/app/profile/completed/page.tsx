@@ -5,6 +5,7 @@ import Image from "next/image";
 import { supabase } from "@/app/Clients/Supabase/SupabaseClients";
 import { useRouter } from "next/navigation";
 import InvoicePreviewModal from "@/components/InvoicePreviewModal";
+import { getMetaFulfillmentMethod, PICKUP_ADDRESS } from "@/utils/fulfillment";
 
 type Item = {
   id: string;
@@ -263,6 +264,11 @@ export default function ProfileCompletedPage() {
 
             {(() => {
               const product = products[selectedReceipt.item.product_id];
+              const fulfillmentMethod = getMetaFulfillmentMethod(selectedReceipt.item.meta);
+              const pickupAddress = String(
+                selectedReceipt.item.meta?.pickup_address || PICKUP_ADDRESS
+              );
+              const reservationFee = Number(selectedReceipt.item.meta?.reservation_fee ?? 0);
               return (
                 <div className="px-5 pb-5 space-y-4 text-sm text-black max-h-[60vh] overflow-y-auto">
                   {/* Details grid */}
@@ -284,6 +290,13 @@ export default function ProfileCompletedPage() {
                       <div>{currency(product?.price || 0)}</div>
                     </div>
                   </div>
+
+                  {fulfillmentMethod === "pickup" ? (
+                    <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs">
+                      <div className="font-semibold text-gray-900">Pickup Address</div>
+                      <div className="mt-1 text-gray-700">{pickupAddress}</div>
+                    </div>
+                  ) : null}
 
                   {/* Totals */}
                   <div className="border-t border-black pt-3">
@@ -307,10 +320,12 @@ export default function ProfileCompletedPage() {
                         <span>-{currency(selectedReceipt.item.meta.discount_value)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between">
-                      <span>Delivery Fee</span>
-                      <span>{currency(selectedReceipt.item.meta?.reservation_fee || 2599)}</span>
-                    </div>
+                    {fulfillmentMethod === "delivery" && reservationFee > 0 ? (
+                      <div className="flex justify-between">
+                        <span>Delivery Fee</span>
+                        <span>{currency(reservationFee)}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
                       <span>Total Paid</span>
                       <span className="text-black">

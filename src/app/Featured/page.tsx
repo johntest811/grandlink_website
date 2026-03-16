@@ -42,22 +42,24 @@ function FeaturedProjectsContent() {
       </p>
 
       {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 px-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 px-4 auto-rows-fr">
         {projects.map((p) => (
           <motion.div
             key={p.id}
             whileHover={{ scale: 1.05 }}
-            className="cursor-pointer bg-white rounded-lg shadow border border-gray-200 overflow-hidden"
+            className="cursor-pointer bg-white rounded-lg shadow border border-gray-200 overflow-hidden h-full flex flex-col"
             onClick={() => setSelected(p)}
           >
-            <Image
-              src={p.image_url || "/placeholder.jpg"}
-              alt={p.title}
-              width={400}
-              height={300}
-              className="w-full h-40 object-cover"
-            />
-            <div className="bg-white px-3 py-2">
+            <div className="relative w-full aspect-[4/3] overflow-hidden bg-gray-100">
+              <Image
+                src={p.image_url || "/placeholder.jpg"}
+                alt={p.title}
+                fill
+                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
+                className="object-cover"
+              />
+            </div>
+            <div className="bg-white px-3 py-2 min-h-12 flex items-center">
               <div className="text-sm font-semibold text-gray-900 truncate">{p.title}</div>
             </div>
           </motion.div>

@@ -123,21 +123,24 @@ export default function ShowroomPage() {
                     key={s.id}
                     className="rounded-xl border border-gray-200 shadow-sm bg-white overflow-hidden flex flex-col h-[600px] max-w-[350px] mx-auto"
                   >
-                    <div className="w-full h-[350px] flex items-center justify-center bg-gray-100">
-                      {s.image && (
+                    <div className="w-full h-[350px] bg-gray-100 overflow-hidden">
+                      {s.image ? (
                         <button
                           type="button"
                           onClick={() => openModal(s)}
-                          className="w-full h-full"
+                          className="w-full h-full block"
                           aria-label={`Open image for ${s.title}`}
                         >
                           <img
                             src={s.image}
                             alt={s.title}
                             className="w-full h-full object-cover object-center cursor-zoom-in"
-                            style={{ aspectRatio: "4/3" }}
                           />
                         </button>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+                          No showroom image
+                        </div>
                       )}
                     </div>
                     <div className="p-4 flex-1 flex flex-col items-center justify-start">

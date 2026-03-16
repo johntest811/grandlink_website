@@ -78,8 +78,8 @@ export default function ServicesPage() {
       <UnifiedTopNavBar />
       <main className="flex-1">
         {/* Hero */}
-        <div className="relative w-full">
-          <div className="h-64 md:h-80 lg:h-96 relative">
+        <div className="relative w-full overflow-hidden">
+          <div className="h-64 md:h-80 lg:h-96 relative overflow-hidden">
             <img
               src={pageContent.heroImageUrl || "/sevices.avif"}
               alt="services"
@@ -189,13 +189,13 @@ function ServiceCard({
   return (
     <div className="perspective" onClick={onClick}>
       <motion.div
-        className="relative w-full h-52 cursor-pointer"
+        className="relative w-full h-52 cursor-pointer overflow-hidden rounded-2xl"
         style={{ transformStyle: "preserve-3d" }}
         animate={{ rotateY: flipped ? 180 : 0 }}
         transition={{ duration: 0.6 }}
       >
         {/* Front */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#232d3b] text-white rounded-2xl shadow-xl backface-hidden hover:scale-105 transition-transform">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#232d3b] text-white rounded-2xl shadow-xl backface-hidden hover:scale-[1.02] transition-transform">
           <div className="p-3 bg-white/10 rounded-full mb-2">{icon}</div>
           <span className="mt-2 font-bold text-lg">{label}</span>
         </div>

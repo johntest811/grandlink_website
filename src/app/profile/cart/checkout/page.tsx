@@ -988,7 +988,7 @@ function CartCheckoutContent() {
               </h2>
               <div className="mb-4">
                 <div className="text-xs text-gray-500">
-                  You will be redirected to a secure hosted checkout. Choose PayMongo for GCash/Maya or PayPal.
+                  You will be redirected to a secure hosted checkout. Choose PayMongo for QRPh or PayPal.
                 </div>
               </div>
               <div className="space-y-3">
@@ -1002,7 +1002,7 @@ function CartCheckoutContent() {
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayMongo</div>
-                    <div className="text-sm text-gray-500">GCash, Maya</div>
+                    <div className="text-sm text-gray-500">QRPh</div>
                   </div>
                 </label>
 

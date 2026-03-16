@@ -33,6 +33,7 @@ export default function UnifiedTopNavBar() {
   const [notifications, setNotifications] = useState<UserNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState<number>(0);
   const [toast, setToast] = useState<{ title: string; message: string } | null>(null);
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export default function UnifiedTopNavBar() {
       setIsMobileNav(mobile);
       if (!mobile) {
         setMobileDropdown(null);
+        setMobileMenuOpen(false);
       }
     };
 
@@ -91,6 +93,15 @@ export default function UnifiedTopNavBar() {
     media.addEventListener("change", syncMobileState);
     return () => media.removeEventListener("change", syncMobileState);
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -376,7 +387,7 @@ export default function UnifiedTopNavBar() {
         
         <nav
           ref={navRef}
-          className="flex-1 flex items-center gap-8 relative z-30 max-w-full overflow-x-auto whitespace-nowrap py-2 sm:py-0 ml-0 sm:ml-8 justify-start sm:justify-center"
+          className="hidden md:flex flex-1 items-center gap-8 relative z-30 max-w-full overflow-x-auto whitespace-nowrap py-2 sm:py-0 ml-0 sm:ml-8 justify-start sm:justify-center"
         >
           <Link href="/home" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Home</Link>
           
@@ -541,6 +552,26 @@ export default function UnifiedTopNavBar() {
         </nav>
         
         <div className="flex items-center gap-4">
+          {isMobileNav && (
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="p-2 rounded hover:bg-gray-100 transition"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? (
+                <svg className="w-6 h-6 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              )}
+            </button>
+          )}
+
           <Link href={chromeSettings.topNavInquireLink || "/Inquire"}>
             <button className="bg-[#8B1C1C] text-white px-4 py-2 rounded font-semibold hover:bg-[#a83232] transition">
               {chromeSettings.topNavInquireLabel || "INQUIRE NOW"}
@@ -769,6 +800,176 @@ export default function UnifiedTopNavBar() {
           </div>
         </div>
       </header>
+
+      {/* Mobile navigation drawer */}
+      {isMobileNav && mobileMenuOpen && (
+        <nav className="md:hidden w-full bg-white border-t border-gray-200 shadow-sm z-40">
+          <div className="px-4 py-3 space-y-2">
+            <Link
+              href="/home"
+              className="block rounded-lg px-3 py-3 text-base font-medium text-gray-800 hover:bg-gray-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setMobileDropdown(null);
+              }}
+            >
+              Home
+            </Link>
+
+            <div className="rounded-lg border border-gray-100">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-3 text-base font-medium text-gray-800"
+                onClick={() => toggleMobileDropdown("about")}
+                aria-expanded={isDropdownOpen("about")}
+                aria-label="Toggle About Us submenu"
+              >
+                <span>About Us</span>
+                <FaChevronDown className={`text-xs transition-transform ${isDropdownOpen("about") ? "rotate-180" : ""}`} />
+              </button>
+              {isDropdownOpen("about") && (
+                <div className="pb-2">
+                  <Link
+                    href="/about-us"
+                    className="block px-5 py-2.5 text-sm font-semibold text-[#8B1C1C] hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    View About Us
+                  </Link>
+                  <Link
+                    href="/showroom"
+                    className="block px-5 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    Showroom
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-100">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-3 text-base font-medium text-gray-800"
+                onClick={() => toggleMobileDropdown("services")}
+                aria-expanded={isDropdownOpen("services")}
+                aria-label="Toggle Services submenu"
+              >
+                <span>Services We Offer</span>
+                <FaChevronDown className={`text-xs transition-transform ${isDropdownOpen("services") ? "rotate-180" : ""}`} />
+              </button>
+              {isDropdownOpen("services") && (
+                <div className="pb-2">
+                  <Link
+                    href="/services"
+                    className="block px-5 py-2.5 text-sm font-semibold text-[#8B1C1C] hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    View All Services
+                  </Link>
+                  <Link
+                    href="/Featured"
+                    className="block px-5 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    Featured Projects
+                  </Link>
+                  <Link
+                    href="/DeliveryProcess"
+                    className="block px-5 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    Delivery & Ordering Process
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-100">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-3 text-base font-medium text-gray-800"
+                onClick={() => toggleMobileDropdown("products")}
+                aria-expanded={isDropdownOpen("products")}
+                aria-label="Toggle Products submenu"
+              >
+                <span>Products</span>
+                <FaChevronDown className={`text-xs transition-transform ${isDropdownOpen("products") ? "rotate-180" : ""}`} />
+              </button>
+              {isDropdownOpen("products") && (
+                <div className="pb-2 grid grid-cols-2 gap-1 px-2">
+                  <Link
+                    href="/Product"
+                    className="col-span-2 rounded-md px-3 py-2 text-sm font-semibold text-[#8B1C1C] hover:bg-gray-50"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setMobileDropdown(null);
+                    }}
+                  >
+                    View All Products
+                  </Link>
+                  {[
+                    ["Doors", "/Product?category=Doors"],
+                    ["Enclosures", "/Product?category=Enclosure"],
+                    ["Windows", "/Product?category=Windows"],
+                    ["Railings", "/Product?category=Railings"],
+                    ["Canopy", "/Product?category=Canopy"],
+                    ["Curtain Wall", "/Product?category=Curtain Wall"],
+                  ].map(([label, href]) => (
+                    <Link
+                      key={label}
+                      href={href}
+                      className="rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setMobileDropdown(null);
+                      }}
+                    >
+                      {label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Link
+              href="/FAQs"
+              className="block rounded-lg px-3 py-3 text-base font-medium text-gray-800 hover:bg-gray-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setMobileDropdown(null);
+              }}
+            >
+              FAQs
+            </Link>
+            <Link
+              href="/blogs"
+              className="block rounded-lg px-3 py-3 text-base font-medium text-gray-800 hover:bg-gray-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setMobileDropdown(null);
+              }}
+            >
+              Blogs
+            </Link>
+          </div>
+        </nav>
+      )}
 
       {/* Contact Bar */}
       <div className="w-full bg-[#232d3b] text-white flex flex-col sm:flex-row items-center justify-center gap-4 py-2 px-2 text-xs sm:text-sm z-10">

@@ -9,6 +9,22 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+type Showroom = {
+  id: number;
+  title: string;
+  address: string;
+  description: string;
+  image?: string;
+};
+
+function toPlainText(input?: string) {
+  return String(input || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export default function InquirePage() {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -28,6 +44,7 @@ export default function InquirePage() {
   const [phone, setPhone] = useState("0927‑574‑9475");
   const [emailContact, setEmailContact] = useState("grand‑east@gmail.com");
   const [facebook, setFacebook] = useState("facebook.com/grandeast");
+  const [showrooms, setShowrooms] = useState<Showroom[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -54,6 +71,35 @@ export default function InquirePage() {
       }
     };
     loadContent();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadShowrooms = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("showrooms")
+          .select("id, title, address, description, image")
+          .order("id", { ascending: true });
+
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.error("Could not load showrooms", error);
+          return;
+        }
+
+        if (!mounted) return;
+        setShowrooms((data || []) as Showroom[]);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("load showrooms", err);
+      }
+    };
+
+    loadShowrooms();
     return () => {
       mounted = false;
     };
@@ -197,15 +243,66 @@ export default function InquirePage() {
         </div>
       </section>
 
-      <section className="my-12">
-        <iframe
-          src="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/media/googleMap.1fabcae9.html?defaultLocation=0&showZoom=true&showStreetView=true&showMapType=true&language=en&id=dataItem-m162bqu2&googleMapsScriptPath=%2Fservices%2Feditor-elements-library%2Fdist%2Fthunderbolt%2Fmedia%2Fgoogle-map.min.5d8ab435.js&origin=https%3A%2F%2Fwww.grandeast.ph&hasFocus=true"
-          width="100%"
-          height="700"
-          allowFullScreen
-          loading="lazy"
-          className="w-full border-none"
-        ></iframe>
+      <section className="my-12 px-4 max-w-6xl mx-auto">
+        <div className="rounded-xl overflow-hidden shadow-lg border border-gray-200 bg-white">
+          <div className="px-5 py-3 border-b bg-gray-50">
+            <h3 className="text-base md:text-lg font-semibold text-gray-800">Google Maps Location</h3>
+          </div>
+          <div className="relative w-full h-[360px] sm:h-[500px] md:h-[620px]">
+            <iframe
+              title="Google Maps"
+              src="https://www.google.com/maps/d/u/0/embed?mid=1ODMZWBR-GH7nYbynYOu24cMlaCrD5Ns&ehbc=2E312F&noprof=1"
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              scrolling="no"
+              allowFullScreen
+              loading="lazy"
+              className="absolute inset-0 w-full h-full border-0"
+            ></iframe>
+          </div>
+        </div>
+
+        <div className="mt-8 rounded-xl border border-gray-200 bg-white p-5 md:p-6 shadow-lg">
+          <div className="mb-6 text-center">
+            <h3 className="text-2xl sm:text-3xl font-bold text-gray-900">Locations Near You</h3>
+            <div className="w-24 h-1 bg-[#B11C1C] rounded-full mx-auto mt-3" />
+          </div>
+
+          {showrooms.length === 0 ? (
+            <p className="text-sm text-gray-500">No showroom data available yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {showrooms.map((showroom) => (
+                <article
+                  key={showroom.id}
+                  className="rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm h-[360px] flex flex-col"
+                >
+                  <div className="w-full h-44 bg-gray-100 overflow-hidden shrink-0">
+                    {showroom.image ? (
+                      <img
+                        src={showroom.image}
+                        alt={showroom.title}
+                        className="w-full h-full object-cover object-center"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gray-200" />
+                    )}
+                  </div>
+                  <div className="p-4 flex-1 min-h-0 flex flex-col">
+                    <h4 className="text-base font-bold text-[#B11C1C] line-clamp-2 h-12">
+                      {showroom.title}
+                    </h4>
+                    <p className="mt-1 text-sm text-gray-700 line-clamp-2 h-10">{showroom.address}</p>
+                    <p className="mt-3 text-sm text-gray-600 line-clamp-4">
+                      {toPlainText(showroom.description)}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       <div className="h-[250px] bg-cover bg-center opacity-80" style={{ backgroundImage: "url('/images/city-night.jpg')" }}></div>

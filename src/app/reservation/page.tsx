@@ -907,7 +907,7 @@ function ReservationPageContent() {
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-gray-900">PayMongo</div>
-                    <div className="text-sm text-gray-500">GCash, Maya</div>
+                    <div className="text-sm text-gray-500">QRPh</div>
                   </div>
                 </label>
 

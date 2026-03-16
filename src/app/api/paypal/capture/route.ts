@@ -7,14 +7,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-const VERCEL_ENV = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
+function normalizeEnvValue(value?: string | null) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const PAYPAL_CLIENT_ID = normalizeEnvValue(process.env.PAYPAL_CLIENT_ID);
+const PAYPAL_CLIENT_SECRET = normalizeEnvValue(process.env.PAYPAL_CLIENT_SECRET);
+const VERCEL_ENV = normalizeEnvValue(process.env.VERCEL_ENV).toLowerCase();
 const IS_VERCEL_PROD_DEPLOY = VERCEL_ENV === 'production';
 const PAYPAL_ENVIRONMENT = (
   IS_VERCEL_PROD_DEPLOY
     ? 'live'
-    : String(process.env.PAYPAL_ENVIRONMENT || '').trim() ||
+    : normalizeEnvValue(process.env.PAYPAL_ENVIRONMENT) ||
       (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
 ).toLowerCase();
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
@@ -22,6 +34,10 @@ const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox'
   : 'https://api-m.paypal.com';
 
 async function getPayPalAccessToken() {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error('PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are required');
+  }
+
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
@@ -33,37 +49,69 @@ async function getPayPalAccessToken() {
     body: 'grant_type=client_credentials'
   });
 
-  const data = await response.json();
-  return data.access_token;
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.access_token) {
+    throw new Error(`Failed to authenticate with PayPal (${response.status})`);
+  }
+
+  return data.access_token as string;
+}
+
+async function getPayPalOrder(orderId: string, accessToken: string) {
+  const response = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    throw new Error(`Failed to fetch PayPal order (${response.status})`);
+  }
+
+  return data;
+}
+
+async function captureOrFetchPayPalOrder(orderId: string, accessToken: string) {
+  const captureResponse = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    }
+  });
+
+  const payload = await captureResponse.json().catch(() => null);
+
+  if (captureResponse.ok && payload) {
+    return payload;
+  }
+
+  const issue = String(payload?.details?.[0]?.issue || payload?.name || '').toUpperCase();
+  if (issue === 'ORDER_ALREADY_CAPTURED') {
+    return getPayPalOrder(orderId, accessToken);
+  }
+
+  throw new Error(`PayPal capture failed (${captureResponse.status})`);
 }
 
 export async function POST(request: NextRequest) {
   try {
     const { orderId } = await request.json();
 
-    if (!orderId) {
+    const normalizedOrderId = typeof orderId === 'string' ? orderId.trim() : '';
+
+    if (!normalizedOrderId) {
       return NextResponse.json({ error: 'Order ID required' }, { status: 400 });
     }
 
     // Get access token
     const accessToken = await getPayPalAccessToken();
 
-    // Capture the order
-    const captureResponse = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!captureResponse.ok) {
-      const errorData = await captureResponse.text();
-      console.error('PayPal capture failed:', errorData);
-      return NextResponse.json({ error: 'Payment capture failed' }, { status: 500 });
-    }
-
-    const captureData = await captureResponse.json();
+    // Capture the order (idempotent: falls back to fetch when already captured)
+    const captureData = await captureOrFetchPayPalOrder(normalizedOrderId, accessToken);
     
     // Process the successful payment (similar to webhook logic)
     const userItemIdsCsv = captureData.purchase_units?.[0]?.custom_id || captureData.purchase_units?.[0]?.reference_id;
@@ -80,7 +128,7 @@ export async function POST(request: NextRequest) {
           status: 'completed',
           completed_at: new Date().toISOString()
         })
-        .eq('stripe_session_id', orderId);
+        .eq('stripe_session_id', normalizedOrderId);
 
       for (const userItemId of userItemIds) {
         const { data: userItem, error: fetchError } = await supabase
@@ -103,7 +151,7 @@ export async function POST(request: NextRequest) {
             status: 'pending_payment',
             order_status: 'pending_payment',
             payment_status: 'completed',
-            payment_id: orderId,
+            payment_id: normalizedOrderId,
             total_paid: totalAmount,
             total_amount: totalAmount,
             payment_method: 'paypal',
@@ -111,7 +159,7 @@ export async function POST(request: NextRequest) {
               ...itemMeta,
               payment_confirmed_at: new Date().toISOString(),
               payment_method: 'paypal',
-              paypal_order_id: orderId
+              paypal_order_id: normalizedOrderId
             }
           })
           .eq('id', userItemId);

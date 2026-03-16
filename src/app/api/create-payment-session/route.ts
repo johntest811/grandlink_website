@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { computeMeasurementPricing } from '../../../utils/measurementPricing';
+import { randomUUID } from 'crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -128,8 +129,19 @@ async function getPayPalAccessToken() {
     },
     body: 'grant_type=client_credentials'
   });
-  const data = await response.json();
-  return data.access_token;
+
+  let data: any = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok || !data?.access_token) {
+    throw new Error(`PayPal auth error (${response.status})`);
+  }
+
+  return data.access_token as string;
 }
 
 async function createPayMongoSession(sessionData: any) {
@@ -165,7 +177,12 @@ async function createPayMongoSession(sessionData: any) {
   const configuredMethodTypesRaw = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((m) => {
+      if (m === 'maya') return 'paymaya';
+      if (m === 'qr-ph') return 'qrph';
+      return m;
+    });
 
   const removedCardLikeMethods = configuredMethodTypesRaw.filter((m) =>
     ['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(m)
@@ -180,12 +197,31 @@ async function createPayMongoSession(sessionData: any) {
     (m) => !['card', 'credit', 'debit', 'credit_card', 'debit_card'].includes(m)
   );
 
-  const paymentMethodTypeCandidates = paymongoMethodTypes.length
-    ? [paymongoMethodTypes]
-    : [
-        ['gcash', 'paymaya'],
-        ['gcash', 'maya'],
-      ];
+  const keyIsLive = payMongoKeyMode === 'live';
+
+  const paymentMethodTypeCandidates = (() => {
+    // Live policy: enforce QRPh only for PayMongo.
+    if (keyIsLive) {
+      const allowedLiveMethods = paymongoMethodTypes.filter((m) => m === 'qrph');
+      const removedNonQrphMethods = paymongoMethodTypes.filter((m) => m !== 'qrph');
+      if (removedNonQrphMethods.length > 0) {
+        console.warn(
+          `[PayMongo] Live mode active; ignoring non-QRPh methods: ${removedNonQrphMethods.join(', ')}`
+        );
+      }
+      return [Array.from(new Set(allowedLiveMethods.length ? allowedLiveMethods : ['qrph']))];
+    }
+
+    if (paymongoMethodTypes.length > 0) {
+      return [Array.from(new Set(paymongoMethodTypes))];
+    }
+
+    return [
+      ['gcash', 'paymaya'],
+      ['gcash', 'maya'],
+      ['qrph'],
+    ];
+  })();
 
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
 
@@ -275,7 +311,7 @@ async function createPayMongoSession(sessionData: any) {
     }
 
     const serialized = JSON.stringify(lastErrorPayload || {});
-    const looksLikeMethodTypeIssue = /payment_method_types|paymaya|maya/i.test(serialized);
+    const looksLikeMethodTypeIssue = /payment_method_types|paymaya|maya|gcash|qrph/i.test(serialized);
     if (!looksLikeMethodTypeIssue || configuredMethodTypesRaw.length > 0) {
       break;
     }
@@ -437,9 +473,17 @@ async function createPayPalOrder(orderData: any) {
     items = [],
   } = orderData;
 
+  const normalizedAmount = Number(amount || 0);
+  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+    throw new Error('Invalid amount for PayPal order');
+  }
+
   const accessToken = await getPayPalAccessToken();
   const idsCsv = Array.isArray(user_item_ids) ? user_item_ids.join(',') : '';
-  const usdAmount = Number((Number(amount || 0) / 50).toFixed(2));
+  const usdAmount = Number((normalizedAmount / 50).toFixed(2));
+  if (!Number.isFinite(usdAmount) || usdAmount <= 0) {
+    throw new Error('Computed PayPal USD amount is invalid');
+  }
 
   const paypalOrderData = {
     intent: 'CAPTURE',
@@ -451,15 +495,7 @@ async function createPayPalOrder(orderData: any) {
         amount: {
           currency_code: 'USD',
           value: usdAmount.toFixed(2),
-          breakdown: {
-            item_total: { currency_code: 'USD', value: usdAmount.toFixed(2) }
-          }
         },
-        items: items.map((item: any) => ({
-          name: item.name,
-          quantity: String(item.quantity),
-          unit_amount: { currency_code: 'USD', value: item.unit_amount }
-        })),
       },
     ],
     application_context: {
@@ -475,7 +511,8 @@ async function createPayPalOrder(orderData: any) {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': `gl-${randomUUID()}`,
     },
     body: JSON.stringify(paypalOrderData)
   });

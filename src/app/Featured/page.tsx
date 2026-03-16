@@ -42,25 +42,28 @@ function FeaturedProjectsContent() {
       </p>
 
       {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 px-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 px-4">
         {projects.map((p) => (
           <motion.div
             key={p.id}
-            whileHover={{ scale: 1.05 }}
-            className="cursor-pointer bg-white rounded-lg shadow border border-gray-200 overflow-hidden h-full flex flex-col"
+            whileHover={{ scale: 1.03 }}
+            className="group cursor-pointer rounded-xl shadow-lg border border-gray-200 overflow-hidden"
             onClick={() => setSelected(p)}
           >
-            <div className="relative w-full aspect-[4/3] bg-gray-100 overflow-hidden">
+            <div className="relative w-full aspect-[5/4] min-h-[250px] bg-gray-100 overflow-hidden">
               <Image
                 src={p.image_url || "/placeholder.jpg"}
                 alt={p.title}
                 fill
-                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-                className="object-cover"
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                className="object-cover transition-transform duration-300 group-hover:scale-105"
               />
-            </div>
-            <div className="bg-white px-3 py-2 min-h-[52px] flex items-center">
-              <div className="text-sm font-semibold text-gray-900 truncate">{p.title}</div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-4">
+                <div className="text-base sm:text-lg font-semibold text-white leading-tight line-clamp-2">
+                  {p.title}
+                </div>
+              </div>
             </div>
           </motion.div>
         ))}

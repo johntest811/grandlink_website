@@ -75,6 +75,7 @@ function detectPayMongoChannel(payload: any): string | null {
   const normalized = raw.trim().toLowerCase();
   if (normalized.includes('gcash')) return 'gcash';
   if (normalized.includes('maya') || normalized.includes('paymaya')) return 'paymaya';
+  if (normalized.includes('qrph')) return 'qrph';
   if (normalized.includes('card')) return 'card';
   return normalized;
 }

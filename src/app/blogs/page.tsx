@@ -245,53 +245,54 @@ export default function BlogsPage() {
           ) : filteredBlogs.length === 0 ? (
             <div className="bg-gray-50 border rounded-lg p-6 text-gray-700">No blogs yet.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
               {filteredBlogs.map((b) => {
                 const hearts = likeCounts[b.id] || 0;
                 const isLiked = !!likedByMe[b.id];
                 const views = viewCounts[b.id] || 0;
 
                 return (
-                  <div key={b.id} className="bg-white rounded-xl shadow border overflow-hidden h-full flex flex-col">
-                    <div className="relative">
+                  <div key={b.id} className="bg-white rounded-xl shadow border overflow-hidden h-[460px] flex flex-col">
+                    <div className="w-full h-48 shrink-0 bg-gray-200 overflow-hidden">
                       {b.cover_image_url ? (
                         <button
                           type="button"
                           onClick={() => setImgPopup({ open: true, url: b.cover_image_url!, alt: b.title })}
-                          className="block w-full"
+                          className="block w-full h-full"
                           aria-label="Open image"
                           title="View image"
                         >
-                          <img src={b.cover_image_url} alt={b.title} className="w-full h-44 object-cover" />
+                          <img src={b.cover_image_url} alt={b.title} className="w-full h-full object-cover" />
                         </button>
                       ) : (
-                        <div className="w-full h-44 bg-gray-200" />
+                        <div className="w-full h-full bg-gray-200" />
                       )}
-                      <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold text-gray-800">
-                        {formatDate(b.published_at || b.created_at)}
-                      </div>
                     </div>
 
-                    <div className="p-5 flex-1 flex flex-col">
+                    <div className="p-5 flex-1 flex flex-col min-h-0">
+                      <div className="h-6 text-xs font-semibold text-gray-500">
+                        {formatDate(b.published_at || b.created_at)}
+                      </div>
+
                       <Link href={`/blogs/${b.slug}`} className="block">
-                        <h2 className="text-lg font-bold text-gray-900 hover:text-[#8B1C1C] transition-colors line-clamp-2 min-h-[56px]">
+                        <h2 className="text-lg font-bold text-gray-900 hover:text-[#8B1C1C] transition-colors line-clamp-2 h-14 leading-7">
                           {b.title}
                         </h2>
                       </Link>
 
-                      <div className="mt-2 text-sm text-gray-600 line-clamp-3 min-h-[60px]">
+                      <div className="mt-2 text-sm text-gray-600 line-clamp-3 h-[66px]">
                         {b.excerpt || ""}
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between">
+                      <div className="mt-auto pt-4 h-12 flex items-center justify-between gap-2">
                         <Link
                           href={`/blogs/${b.slug}`}
-                          className="text-sm font-semibold text-[#8B1C1C] hover:underline"
+                          className="text-sm font-semibold text-[#8B1C1C] hover:underline shrink-0"
                         >
                           Read more
                         </Link>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => shareBlog(b.slug, b.title)}
@@ -313,13 +314,13 @@ export default function BlogsPage() {
                             <span className="text-sm font-semibold">{hearts}</span>
                           </button>
 
-                          <div className="text-xs text-gray-500" title="Unique viewers">
+                          <div className="text-xs text-gray-500 whitespace-nowrap" title="Unique viewers">
                             {views.toLocaleString()} views
                           </div>
                         </div>
                       </div>
 
-                      <div className="mt-3 min-h-[20px] text-xs text-gray-500">
+                      <div className="mt-2 h-5 text-xs text-gray-500">
                         {b.author_name ? `By ${b.author_name}` : ""}
                       </div>
                     </div>

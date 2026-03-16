@@ -7,14 +7,27 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-const VERCEL_ENV = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
+function normalizeEnvValue(value?: string | null) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const PAYPAL_CLIENT_ID = normalizeEnvValue(process.env.PAYPAL_CLIENT_ID);
+const PAYPAL_CLIENT_SECRET = normalizeEnvValue(process.env.PAYPAL_CLIENT_SECRET);
+const PAYPAL_WEBHOOK_ID = normalizeEnvValue(process.env.PAYPAL_WEBHOOK_ID);
+const VERCEL_ENV = normalizeEnvValue(process.env.VERCEL_ENV).toLowerCase();
 const IS_VERCEL_PROD_DEPLOY = VERCEL_ENV === 'production';
 const PAYPAL_ENVIRONMENT = (
   IS_VERCEL_PROD_DEPLOY
     ? 'live'
-    : String(process.env.PAYPAL_ENVIRONMENT || '').trim() ||
+    : normalizeEnvValue(process.env.PAYPAL_ENVIRONMENT) ||
       (process.env.NODE_ENV === 'production' ? 'live' : 'sandbox')
 ).toLowerCase();
 const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox' 
@@ -22,6 +35,10 @@ const PAYPAL_BASE_URL = PAYPAL_ENVIRONMENT === 'sandbox'
   : 'https://api-m.paypal.com';
 
 async function getPayPalAccessToken() {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error('PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are required');
+  }
+
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   
   const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
@@ -33,20 +50,81 @@ async function getPayPalAccessToken() {
     body: 'grant_type=client_credentials'
   });
 
-  const data = await response.json();
-  return data.access_token;
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.access_token) {
+    throw new Error(`Failed to authenticate with PayPal (${response.status})`);
+  }
+
+  return data.access_token as string;
 }
 
-async function verifyPayPalWebhook(headers: any, body: any, webhookId: string) {
-  // PayPal webhook verification logic
-  // This is a simplified version - in production, implement full webhook verification
-  return true;
+async function verifyPayPalWebhook(request: NextRequest, body: any, accessToken: string) {
+  const transmissionId = request.headers.get('paypal-transmission-id');
+  const transmissionTime = request.headers.get('paypal-transmission-time');
+  const transmissionSig = request.headers.get('paypal-transmission-sig');
+  const certUrl = request.headers.get('paypal-cert-url');
+  const authAlgo = request.headers.get('paypal-auth-algo');
+
+  if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) {
+    return false;
+  }
+
+  const response = await fetch(`${PAYPAL_BASE_URL}/v1/notifications/verify-webhook-signature`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      transmission_id: transmissionId,
+      transmission_time: transmissionTime,
+      cert_url: certUrl,
+      auth_algo: authAlgo,
+      transmission_sig: transmissionSig,
+      webhook_id: PAYPAL_WEBHOOK_ID,
+      webhook_event: body,
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) {
+    return false;
+  }
+
+  return String(data.verification_status || '').toUpperCase() === 'SUCCESS';
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    if (!rawBody) {
+      return NextResponse.json({ error: 'Missing webhook payload' }, { status: 400 });
+    }
+
+    let body: any = null;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: 'Invalid webhook payload' }, { status: 400 });
+    }
+
     const { event_type, resource } = body;
+
+    const accessToken = await getPayPalAccessToken();
+
+    const shouldVerifyWebhook = IS_VERCEL_PROD_DEPLOY || Boolean(PAYPAL_WEBHOOK_ID);
+    if (shouldVerifyWebhook) {
+      if (!PAYPAL_WEBHOOK_ID) {
+        console.error('PAYPAL_WEBHOOK_ID is missing in production environment');
+        return NextResponse.json({ error: 'Webhook configuration error' }, { status: 500 });
+      }
+
+      const verified = await verifyPayPalWebhook(request, body, accessToken);
+      if (!verified) {
+        console.error('Invalid PayPal webhook signature');
+        return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
+      }
+    }
 
     console.log('PayPal webhook received:', event_type);
 
@@ -60,7 +138,6 @@ export async function POST(request: NextRequest) {
       }
 
       // Get order details from PayPal
-      const accessToken = await getPayPalAccessToken();
       const orderResponse = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}`, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,

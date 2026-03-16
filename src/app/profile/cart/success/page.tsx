@@ -312,7 +312,7 @@ function CartSuccessPageContent() {
                                 return 'PayMongo';
                               }
 
-                              return `PayMongo${normalized ? ` (${channel.toUpperCase()})` : ' (GCash/Maya)'}`;
+                              return `PayMongo${normalized ? ` (${channel.toUpperCase()})` : ' (QRPH)'}`;
                             })()
                           : 'PayPal'
                         : '-'}

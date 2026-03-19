@@ -3,7 +3,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,8 +15,49 @@ function normalizeKey(s: string): string {
   return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function extractProductCategoryKeys(p: any): string[] {
+const DEFAULT_CATEGORY_OPTIONS = [
+  "Doors",
+  "Windows",
+  "Enclosure",
+  "Casement",
+  "Sliding",
+  "Railings",
+  "Canopy",
+  "Curtain Wall",
+];
+
+function normalizeCategoryLabel(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function canonicalCategoryKey(value: string): string {
+  const key = normalizeKey(value);
+  if (key.includes("curtain") && key.includes("wall")) return "curtainwall";
+  if (key.includes("enclosure")) return "enclosure";
+  return key;
+}
+
+function mergeCategoryLabels(...groups: (string[] | null | undefined)[]): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+
+  groups.forEach((group) => {
+    (group || []).forEach((item) => {
+      const label = normalizeCategoryLabel(item);
+      if (!label) return;
+      const key = canonicalCategoryKey(label);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      merged.push(label);
+    });
+  });
+
+  return merged;
+}
+
+function collectRawProductCategories(p: any): string[] {
   const raw: string[] = [];
+
   // Common fields
   if (Array.isArray(p?.category)) raw.push(...p.category);
   else if (typeof p?.category === "string") raw.push(p.category);
@@ -26,20 +67,19 @@ function extractProductCategoryKeys(p: any): string[] {
   if (typeof p?.type === "string") raw.push(p.type);
 
   // Support comma/pipe/slash-separated strings
-  const parts = raw
+  return raw
     .flatMap((s) => (typeof s === "string" ? s.split(/[\,\|\/]+/) : []))
-    .map((s) => s.trim())
+    .map((s) => normalizeCategoryLabel(s))
     .filter(Boolean);
+}
 
-  // Normalize keys and compress common variants to canonical keys
-  const keys = parts.map((s) => normalizeKey(s));
-  const simplified = keys.map((k) => {
-    if (k.includes("curtainwall") || (k.includes("curtain") && k.includes("wall"))) return "curtainwall";
-    if (k.includes("enclosure")) return "enclosure";
-    return k;
-  });
+function extractProductCategoryKeys(p: any): string[] {
+  const keys = collectRawProductCategories(p).map((item) => canonicalCategoryKey(item));
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 
-  return Array.from(new Set(simplified));
+function extractProductCategoryLabels(p: any): string[] {
+  return mergeCategoryLabels(collectRawProductCategories(p));
 }
 
 type ProductPageHero = {
@@ -56,6 +96,7 @@ function ProductsPageContent() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
+  const [adminCategoryOptions, setAdminCategoryOptions] = useState<string[]>([]);
   const [productHero, setProductHero] = useState<ProductPageHero>({
     title: "Our Products",
     subtitle: "Discover quality glass and aluminum solutions designed for modern spaces.",
@@ -93,6 +134,9 @@ function ProductsPageContent() {
         const data = await res.json();
         const content = data?.content ?? data ?? {};
         const hero = content?.product_page_hero;
+        if (Array.isArray(content?.productCategoryOptions)) {
+          setAdminCategoryOptions(mergeCategoryLabels(content.productCategoryOptions));
+        }
         if (hero && typeof hero === "object") {
           setProductHero((prev) => ({
             ...prev,
@@ -131,18 +175,18 @@ function ProductsPageContent() {
     };
   }, [mobileFilterOpen]);
 
-  // Get unique categories from products
-  const categories = [
-    "All Products",
-    "Doors",
-    "Windows",
-    "Enclosure",
-    "Casement",
-    "Sliding",
-    "Railings",
-    "Canopy",
-    "Curtain Wall",
-  ];
+  const inferredProductCategories = useMemo(
+    () => mergeCategoryLabels(products.flatMap((product) => extractProductCategoryLabels(product))),
+    [products]
+  );
+
+  const categories = useMemo(
+    () => [
+      "All Products",
+      ...mergeCategoryLabels(DEFAULT_CATEGORY_OPTIONS, adminCategoryOptions, inferredProductCategories),
+    ],
+    [adminCategoryOptions, inferredProductCategories]
+  );
 
   const [selectedCategories, setSelectedCategories] = useState<string[]>(["All Products"]);
 
@@ -165,7 +209,7 @@ function ProductsPageContent() {
     const parsedCategories = param
       .split(",")
       .map((category) => decodeURIComponent(category).trim())
-      .filter((category) => category !== "All Products" && categories.includes(category));
+      .filter((category) => category !== "All Products" && category.length > 0);
 
     setSelectedCategories(parsedCategories.length ? Array.from(new Set(parsedCategories)) : ["All Products"]);
   }, [searchParams]);

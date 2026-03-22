@@ -46,6 +46,7 @@ function CartSuccessPageContent() {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(true);
+  const [invoiceEmailSynced, setInvoiceEmailSynced] = useState(false);
   const [paypalCaptureState, setPaypalCaptureState] = useState<"capturing" | "done">(
     isPayPalReturn ? "capturing" : "done"
   );
@@ -159,6 +160,35 @@ function CartSuccessPageContent() {
 
     loadOrderDetails();
   }, [router, ref, source, paypalCaptureState]);
+
+  useEffect(() => {
+    const syncInvoiceEmails = async () => {
+      if (loading || invoiceEmailSynced || orderItems.length === 0) return;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) return;
+
+        const ids = Array.from(new Set(orderItems.map((item) => item.id).filter(Boolean)));
+        if (ids.length === 0) return;
+
+        await fetch("/api/invoices/resend", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ userItemIds: ids }),
+        });
+      } catch (error) {
+        console.warn("Invoice resend fallback failed:", error);
+      } finally {
+        setInvoiceEmailSynced(true);
+      }
+    };
+
+    syncInvoiceEmails();
+  }, [loading, invoiceEmailSynced, orderItems]);
 
   // Fallback cleanup to ensure any cart rows tied to these reservations are removed
   useEffect(() => {

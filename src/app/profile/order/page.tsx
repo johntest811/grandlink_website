@@ -63,25 +63,6 @@ type Address = {
   is_default?: boolean;
 };
 
-const BRANCHES = [
-  "BALINTAWAK BRANCH",
-  "STA. ROSA BRANCH",
-  "UGONG BRANCH",
-  "ALABANG SHOWROOM",
-  "IMUS BRANCH",
-  "PAMPANGA SHOWROOM",
-  "HIHOME BRANCH",
-  "MC HOME DEPO ORTIGAS",
-  "SAN JUAN CITY",
-  "CW COMMONWEALTH",
-  "MC HOME DEPO BGC",
-];
-
-function canChangeOrder(it: UserItem) {
-  const s = String(it.order_status || it.order_progress || it.status || "");
-  return s === "approved" || s === "accepted" || s === "pending_acceptance" || s === "pending_payment";
-}
-
 export default function ProfileOrderPage() {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<UserItem[]>([]);
@@ -96,13 +77,6 @@ export default function ProfileOrderPage() {
 
   const [imagePreview, setImagePreview] = useState<{ urls: string[]; index: number; title?: string } | null>(null);
   const [imagePreviewZoom, setImagePreviewZoom] = useState(1);
-
-  const [changeModal, setChangeModal] = useState<{ item: UserItem; product?: Product } | null>(null);
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [changeMethod, setChangeMethod] = useState<"delivery" | "pickup">("delivery");
-  const [changeAddressId, setChangeAddressId] = useState<string>("");
-  const [changeBranch, setChangeBranch] = useState<string>("");
-  const [changing, setChanging] = useState(false);
 
   useEffect(() => {
     if (!imagePreview) return;
@@ -332,81 +306,6 @@ export default function ProfileOrderPage() {
     }
   };
 
-  const openChange = async (item: UserItem) => {
-    const product = productsById[item.product_id];
-    setChangeModal({ item, product });
-
-    const inferred: "delivery" | "pickup" =
-      item?.meta?.delivery_method === "pickup" || item?.meta?.fulfillment_method === "pickup"
-        ? "pickup"
-        : item?.delivery_address_id
-        ? "delivery"
-        : "pickup";
-
-    setChangeMethod(inferred);
-    setChangeAddressId(item?.delivery_address_id || "");
-    setChangeBranch(String(item?.meta?.selected_branch || item?.meta?.branch || ""));
-
-    const { data: userData } = await supabase.auth.getUser();
-    const uid = (userData as any)?.user?.id ?? null;
-    if (!uid) return;
-
-    const { data } = await supabase
-      .from("addresses")
-      .select("id,full_name,address,phone,is_default")
-      .eq("user_id", uid)
-      .order("is_default", { ascending: false });
-
-    setAddresses((data || []) as Address[]);
-  };
-
-  const saveChange = async () => {
-    if (!changeModal) return;
-    if (changeMethod === "delivery" && !changeAddressId) {
-      alert("Please select a delivery address");
-      return;
-    }
-    if (changeMethod === "pickup" && !changeBranch) {
-      alert("Please select a pickup branch");
-      return;
-    }
-
-    setChanging(true);
-    try {
-      const { data: sessionWrap } = await supabase.auth.getSession();
-      const token = sessionWrap?.session?.access_token;
-      if (!token) {
-        alert("Please login again");
-        return;
-      }
-
-      const res = await fetch("/api/orders/change", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          user_item_id: changeModal.item.id,
-          delivery_method: changeMethod,
-          delivery_address_id: changeMethod === "delivery" ? changeAddressId : null,
-          branch: changeMethod === "pickup" ? changeBranch : null,
-        }),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to update order");
-
-      alert("Order updated successfully.");
-      setChangeModal(null);
-      if (userId) await load(userId);
-    } catch (e: any) {
-      alert(e?.message || String(e));
-    } finally {
-      setChanging(false);
-    }
-  };
-
   const currency = (n?: number) => `₱${(n ?? 0).toLocaleString()}`;
 
   if (loading) return <div className="py-16 text-center text-black">Loading...</div>;
@@ -485,14 +384,6 @@ export default function ProfileOrderPage() {
                       >
                         Display Invoice
                       </button>
-                      {canChangeOrder(item) && (
-                        <button
-                          onClick={() => openChange(item)}
-                          className="px-4 py-2 border border-black text-black rounded hover:bg-gray-50 text-sm"
-                        >
-                          Change
-                        </button>
-                      )}
                       <button
                         onClick={() => openProgress(item)}
                         className="px-4 py-2 bg-black text-white rounded hover:bg-black/90 text-sm"
@@ -518,113 +409,6 @@ export default function ProfileOrderPage() {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Change Order Modal */}
-      {changeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-lg bg-white p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-bold text-black">Change Order</div>
-                <div className="text-xs text-black/60">Order ID: {changeModal.item.id}</div>
-              </div>
-              <button
-                className="rounded border px-2 py-1 text-sm"
-                onClick={() => setChangeModal(null)}
-                disabled={changing}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <div className="text-sm font-medium text-black">Fulfillment Method</div>
-                <div className="mt-2 flex gap-4">
-                  <label className="inline-flex items-center gap-2 text-sm text-black">
-                    <input
-                      type="radio"
-                      name="changeMethod"
-                      value="delivery"
-                      checked={changeMethod === "delivery"}
-                      onChange={() => setChangeMethod("delivery")}
-                      disabled={changing}
-                    />
-                    Delivery
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-sm text-black">
-                    <input
-                      type="radio"
-                      name="changeMethod"
-                      value="pickup"
-                      checked={changeMethod === "pickup"}
-                      onChange={() => setChangeMethod("pickup")}
-                      disabled={changing}
-                    />
-                    Pickup
-                  </label>
-                </div>
-              </div>
-
-              {changeMethod === "delivery" ? (
-                <div>
-                  <div className="text-sm font-medium text-black">Delivery Address</div>
-                  <select
-                    className="mt-1 w-full border rounded px-3 py-2 text-black"
-                    value={changeAddressId}
-                    onChange={(e) => setChangeAddressId(e.target.value)}
-                    disabled={changing}
-                  >
-                    <option value="">Select Address</option>
-                    {addresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.full_name} — {a.address}
-                      </option>
-                    ))}
-                  </select>
-                  {addresses.length === 0 && (
-                    <div className="mt-1 text-xs text-black/60">No saved addresses found.</div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div className="text-sm font-medium text-black">Pickup Branch</div>
-                  <select
-                    className="mt-1 w-full border rounded px-3 py-2 text-black"
-                    value={changeBranch}
-                    onChange={(e) => setChangeBranch(e.target.value)}
-                    disabled={changing}
-                  >
-                    <option value="">Select Store Branch</option>
-                    {BRANCHES.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                className="rounded border px-4 py-2 text-sm text-black"
-                onClick={() => setChangeModal(null)}
-                disabled={changing}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-                onClick={saveChange}
-                disabled={changing}
-              >
-                {changing ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

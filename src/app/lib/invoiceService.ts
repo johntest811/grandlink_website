@@ -55,6 +55,12 @@ async function prepareInvoicePayload(userItemId: string, existingInvoice?: Invoi
 
   let deliveryAddressText: string | undefined;
   let addressEmail: string | null = null;
+  const hydrateAddress = (addr: any) => {
+    const name = addr?.full_name || [addr?.first_name, addr?.last_name].filter(Boolean).join(" ");
+    deliveryAddressText = `${name ? name + " — " : ""}${addr?.address || ""}${addr?.phone ? " — " + addr.phone : ""}`;
+    addressEmail = normalizeEmail(addr?.email);
+  };
+
   if (item.delivery_address_id) {
     const { data: addr } = await supabaseAdmin
       .from("addresses")
@@ -62,9 +68,22 @@ async function prepareInvoicePayload(userItemId: string, existingInvoice?: Invoi
       .eq("id", item.delivery_address_id)
       .maybeSingle();
     if (addr) {
-      const name = addr.full_name || [addr.first_name, addr.last_name].filter(Boolean).join(" ");
-      deliveryAddressText = `${name ? name + " — " : ""}${addr.address || ""}${addr.phone ? " — " + addr.phone : ""}`;
-      addressEmail = normalizeEmail((addr as any).email);
+      hydrateAddress(addr);
+    }
+  }
+
+  // Pickup orders often have no delivery_address_id; fallback to the user's default/newest address.
+  if (!addressEmail) {
+    const { data: fallbackAddr } = await supabaseAdmin
+      .from("addresses")
+      .select("address,full_name,phone,first_name,last_name,email")
+      .eq("user_id", item.user_id)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (fallbackAddr) {
+      hydrateAddress(fallbackAddr);
     }
   }
 
@@ -170,15 +189,24 @@ async function sendInvoiceEmail(options: {
   if (!transporter || recipients.length === 0) return false;
 
   const pdfBuffer = await renderInvoicePdf(invoiceData);
+  const receiptSummaryHtml = `
+    <div style="margin:0 0 16px 0; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb;">
+      <div style="font-weight:700; margin-bottom:6px;">Payment Receipt Summary</div>
+      <div>Order ID: ${invoiceData.orderId}</div>
+      <div>Invoice No: ${invoiceData.invoiceNumber}</div>
+      <div>Total Paid: ${invoiceData.currency} ${invoiceData.totalAmount.toLocaleString()}</div>
+      <div>Payment Method: ${invoiceData.paymentMethod || "N/A"}</div>
+    </div>
+  `;
 
   await transporter.sendMail({
     from: getMailFrom(),
     to: recipients.join(","),
-    subject: `Invoice ${invoiceData.invoiceNumber} - GrandLink`,
-    html: invoiceHtml,
+    subject: `GrandLink Receipt and Invoice ${invoiceData.invoiceNumber}`,
+    html: `${receiptSummaryHtml}${invoiceHtml}`,
     attachments: [
       {
-        filename: `${invoiceData.invoiceNumber}.pdf`,
+        filename: `${invoiceData.invoiceNumber}-receipt-invoice.pdf`,
         content: pdfBuffer,
         contentType: "application/pdf",
       },

@@ -6,26 +6,13 @@ import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import { getMetaFulfillmentMethod, PICKUP_ADDRESS } from "@/utils/fulfillment";
 
-const BRANCHES = [
-  "BALINTAWAK BRANCH",
-  "STA. ROSA BRANCH",
-  "UGONG BRANCH",
-  "ALABANG SHOWROOM",
-  "IMUS BRANCH",
-  "PAMPANGA SHOWROOM",
-  "HIHOME BRANCH",
-  "MC HOME DEPO ORTIGAS",
-  "SAN JUAN CITY",
-  "CW COMMONWEALTH",
-  "MC HOME DEPO BGC",
-];
-
 type UserItem = {
   id: string;
   user_id: string;
   product_id: string;
   item_type: string;
   status: string;
+  order_status?: string;
   quantity: number;
   meta: any;
   created_at: string;
@@ -88,13 +75,6 @@ function ProfileReservePageContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [showFullReceipt, setShowFullReceipt] = useState<{item: UserItem, product: Product} | null>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
-
-  const [changeModal, setChangeModal] = useState<{ item: UserItem; product?: Product } | null>(null);
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [changeMethod, setChangeMethod] = useState<"delivery" | "pickup">("delivery");
-  const [changeAddressId, setChangeAddressId] = useState<string>("");
-  const [changeBranch, setChangeBranch] = useState<string>("");
-  const [changing, setChanging] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -190,7 +170,8 @@ function ProfileReservePageContent() {
   const requestCancellation = async (item: UserItem) => {
     if (!userId) return;
 
-    if (!confirm("Request cancellation for this reservation? This will require admin approval.")) {
+    const reason = window.prompt("Reason for cancellation (optional):", "") ?? "";
+    if (!confirm("Request cancellation for this reservation?")) {
       return;
     }
 
@@ -198,15 +179,18 @@ function ProfileReservePageContent() {
     try {
       const updatedMeta = {
         ...item.meta,
-        cancellation_requested_at: new Date().toISOString(),
-        cancellation_reason: "User requested cancellation",
-        cancellation_status: "pending_approval"
+        cancel_requested: true,
+        cancel_requested_at: new Date().toISOString(),
+        cancel_reason: reason.trim() || null,
+        cancel_prev_stage: String(item.status || "reservation"),
+        cancellation_status: "pending_approval",
       };
 
       const { error } = await supabase
         .from("user_items")
         .update({ 
           status: "pending_cancellation",
+          order_status: "pending_cancellation",
           meta: updatedMeta,
           updated_at: new Date().toISOString()
         })
@@ -217,7 +201,7 @@ function ProfileReservePageContent() {
       // Update local state
       setItems(prev => prev.map(i => 
         i.id === item.id 
-          ? { ...i, status: "pending_cancellation", meta: updatedMeta }
+          ? { ...i, status: "pending_cancellation", order_status: "pending_cancellation", meta: updatedMeta }
           : i
       ));
 
@@ -225,35 +209,6 @@ function ProfileReservePageContent() {
     } catch (error: any) {
       console.error("Error requesting cancellation:", error);
       alert("Error submitting cancellation request: " + (error.message || "Unknown error"));
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const cancelReservation = async (item: UserItem) => {
-    if (!userId) return;
-
-    if (!confirm("Cancel this reservation? This action cannot be undone.")) {
-      return;
-    }
-
-    setActionLoading(item.id);
-    try {
-      const response = await fetch('/api/reservations/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_item_id: item.id, user_id: userId })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to cancel reservation');
-      }
-
-      setItems(prev => prev.filter(existing => existing.id !== item.id));
-      alert('Reservation cancelled successfully.');
-    } catch (error: any) {
-      console.error('Cancel reservation error:', error);
-      alert('Unable to cancel reservation: ' + (error.message || 'Unknown error'));
     } finally {
       setActionLoading(null);
     }
@@ -346,97 +301,6 @@ function ProfileReservePageContent() {
     popup.document.open();
     popup.document.write(html);
     popup.document.close();
-  };
-
-  const canChangeReservation = (it: UserItem) => {
-    const s = String(it.status || "");
-    return s === "pending_payment" || s === "reserved" || s === "pending_balance_payment";
-  };
-
-  const openChange = async (item: UserItem) => {
-    const product = productsById[item.product_id];
-    setChangeModal({ item, product });
-
-    const inferred: "delivery" | "pickup" =
-      item?.meta?.delivery_method === "pickup" || item?.meta?.fulfillment_method === "pickup"
-        ? "pickup"
-        : item?.delivery_address_id
-        ? "delivery"
-        : "pickup";
-
-    setChangeMethod(inferred);
-    setChangeAddressId(item?.delivery_address_id || "");
-    setChangeBranch(String(item?.meta?.selected_branch || item?.meta?.branch || ""));
-
-    const { data: userWrap } = await supabase.auth.getUser();
-    const uid = userWrap?.user?.id ?? null;
-    if (!uid) return;
-
-    const { data } = await supabase
-      .from("addresses")
-      .select("id,user_id,full_name,phone,address,label,full_address,city,province,postal_code,is_default")
-      .eq("user_id", uid)
-      .order("is_default", { ascending: false });
-
-    setAddresses((data || []) as Address[]);
-  };
-
-  const saveChange = async () => {
-    if (!changeModal) return;
-    if (changeMethod === "delivery" && !changeAddressId) {
-      alert("Please select a delivery address");
-      return;
-    }
-    if (changeMethod === "pickup" && !changeBranch) {
-      alert("Please select a pickup branch");
-      return;
-    }
-
-    setChanging(true);
-    try {
-      const { data: sessionWrap } = await supabase.auth.getSession();
-      const token = sessionWrap?.session?.access_token;
-      if (!token) {
-        alert("Please login again");
-        return;
-      }
-
-      const res = await fetch("/api/orders/change", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          user_item_id: changeModal.item.id,
-          delivery_method: changeMethod,
-          delivery_address_id: changeMethod === "delivery" ? changeAddressId : null,
-          branch: changeMethod === "pickup" ? changeBranch : null,
-        }),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to update reservation");
-
-      alert("Reservation updated successfully.");
-      setChangeModal(null);
-
-      // Refresh reservations list
-      if (userId) {
-        const { data: userItems, error: itemsError } = await supabase
-          .from("user_items")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("item_type", "reservation")
-          .in("status", ["pending_payment","reserved","pending_balance_payment","pending_cancellation"])
-          .order("created_at", { ascending: false });
-        if (!itemsError) setItems((userItems || []) as UserItem[]);
-      }
-    } catch (e: any) {
-      alert(e?.message || String(e));
-    } finally {
-      setChanging(false);
-    }
   };
 
   // Colors -> black
@@ -608,33 +472,13 @@ function ProfileReservePageContent() {
                         View Details
                       </button>
 
-                      {canChangeReservation(item) && (
-                        <button
-                          onClick={() => openChange(item)}
-                          disabled={actionLoading === item.id}
-                          className="px-4 py-2 text-sm border border-black text-black rounded hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          Change
-                        </button>
-                      )}
-                      
-                      {(item.status === 'pending_payment' || item.status === 'reserved') && (
-                        <button
-                          onClick={() => cancelReservation(item)}
-                          disabled={actionLoading === item.id}
-                          className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                        >
-                          {actionLoading === item.id ? 'Cancelling...' : 'Cancel Reservation'}
-                        </button>
-                      )}
-
-                      {(item.status === 'approved' || item.status === 'pending_balance_payment') && (
+                      {(item.status === 'pending_payment' || item.status === 'reserved' || item.status === 'pending_balance_payment') && (
                         <button
                           onClick={() => requestCancellation(item)}
                           disabled={actionLoading === item.id}
-                          className="px-4 py-2 text-sm bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
                         >
-                          {actionLoading === item.id ? "Processing..." : "Request Cancellation"}
+                          Request Cancel
                         </button>
                       )}
                     </div>
@@ -643,114 +487,6 @@ function ProfileReservePageContent() {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Receipt Modal */}
-      {changeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-lg bg-white p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-bold text-black">Change Reservation</div>
-                <div className="text-xs text-black/60">Order ID: {changeModal.item.id}</div>
-              </div>
-              <button
-                className="rounded border px-2 py-1 text-sm"
-                onClick={() => setChangeModal(null)}
-                disabled={changing}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <div className="text-sm font-medium text-black">Fulfillment Method</div>
-                <div className="mt-2 flex gap-4">
-                  <label className="inline-flex items-center gap-2 text-sm text-black">
-                    <input
-                      type="radio"
-                      name="changeMethod"
-                      value="delivery"
-                      checked={changeMethod === "delivery"}
-                      onChange={() => setChangeMethod("delivery")}
-                      disabled={changing}
-                    />
-                    Delivery
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-sm text-black">
-                    <input
-                      type="radio"
-                      name="changeMethod"
-                      value="pickup"
-                      checked={changeMethod === "pickup"}
-                      onChange={() => setChangeMethod("pickup")}
-                      disabled={changing}
-                    />
-                    Pickup
-                  </label>
-                </div>
-              </div>
-
-              {changeMethod === "delivery" ? (
-                <div>
-                  <div className="text-sm font-medium text-black">Delivery Address</div>
-                  <select
-                    className="mt-1 w-full border rounded px-3 py-2 text-black"
-                    value={changeAddressId}
-                    onChange={(e) => setChangeAddressId(e.target.value)}
-                    disabled={changing}
-                  >
-                    <option value="">Select Address</option>
-                    {addresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {(a.full_name || a.full_name === "" ? a.full_name : a.label || "Address")}
-                        {a.address ? ` — ${a.address}` : a.full_address ? ` — ${a.full_address}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {addresses.length === 0 && (
-                    <div className="mt-1 text-xs text-black/60">No saved addresses found.</div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div className="text-sm font-medium text-black">Pickup Branch</div>
-                  <select
-                    className="mt-1 w-full border rounded px-3 py-2 text-black"
-                    value={changeBranch}
-                    onChange={(e) => setChangeBranch(e.target.value)}
-                    disabled={changing}
-                  >
-                    <option value="">Select Store Branch</option>
-                    {BRANCHES.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                className="rounded border px-4 py-2 text-sm text-black"
-                onClick={() => setChangeModal(null)}
-                disabled={changing}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-                onClick={saveChange}
-                disabled={changing}
-              >
-                {changing ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

@@ -1,6 +1,17 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.SalesForecast (
+  Date text,
+  Product_ID text,
+  Product_Name text,
+  Category text,
+  Selling_Price bigint,
+  Beginning_Stock bigint,
+  Units_Sold bigint,
+  Revenue bigint,
+  Ending_Stock bigint
+);
 CREATE TABLE public.about (
   id integer NOT NULL DEFAULT nextval('about_id_seq'::regclass),
   grand text NOT NULL,
@@ -182,13 +193,6 @@ CREATE TABLE public.event_participants (
   CONSTRAINT event_participants_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id),
   CONSTRAINT event_participants_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-CREATE TABLE public.event_tags (
-  id bigint NOT NULL DEFAULT nextval('event_tags_id_seq'::regclass),
-  event_id bigint,
-  tag text NOT NULL,
-  CONSTRAINT event_tags_pkey PRIMARY KEY (id),
-  CONSTRAINT event_tags_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id)
-);
 CREATE TABLE public.events (
   id bigint NOT NULL DEFAULT nextval('events_id_seq'::regclass),
   title text NOT NULL,
@@ -311,25 +315,6 @@ CREATE TABLE public.order_team_members (
   CONSTRAINT order_team_members_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.admins(id),
   CONSTRAINT order_team_members_created_by_admin_id_fkey FOREIGN KEY (created_by_admin_id) REFERENCES public.admins(id)
 );
-CREATE TABLE public.payment_sessions (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  user_id uuid,
-  user_item_id uuid,
-  stripe_session_id text NOT NULL UNIQUE,
-  amount numeric NOT NULL,
-  currency text DEFAULT 'php'::text,
-  status text DEFAULT 'pending'::text,
-  payment_type text DEFAULT 'reservation'::text,
-  created_at timestamp with time zone DEFAULT now(),
-  completed_at timestamp with time zone,
-  payment_provider text DEFAULT 'paymongo'::text,
-  paypal_order_id text,
-  converted_amount numeric,
-  converted_currency text,
-  CONSTRAINT payment_sessions_pkey PRIMARY KEY (id),
-  CONSTRAINT payment_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT payment_sessions_user_item_id_fkey FOREIGN KEY (user_item_id) REFERENCES public.user_items(id)
-);
 CREATE TABLE public.products (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -404,27 +389,6 @@ CREATE TABLE public.rbac_positions (
   description text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT rbac_positions_pkey PRIMARY KEY (name)
-);
-CREATE TABLE public.reservations (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  user_id uuid,
-  user_item_id uuid,
-  name text NOT NULL,
-  last_name text NOT NULL,
-  phone text NOT NULL,
-  email text NOT NULL,
-  store_branch text NOT NULL,
-  type_of_product text NOT NULL,
-  product_model text,
-  width numeric,
-  height numeric,
-  thickness numeric,
-  construction text,
-  remarks text,
-  address text,
-  agree boolean NOT NULL DEFAULT false,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT reservations_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.sales_inventory_data (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

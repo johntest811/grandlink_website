@@ -38,6 +38,22 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+function resolveProductImageUrl(imageValue: string | null | undefined) {
+  const raw = String(imageValue || "").trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const cleaned = raw.replace(/^\/+/, "");
+  if (cleaned.startsWith("products/")) {
+    return `${SUPABASE_URL}/storage/v1/object/public/${cleaned}`;
+  }
+  if (cleaned.startsWith("uploads/")) {
+    return `${SUPABASE_URL}/storage/v1/object/public/${cleaned}`;
+  }
+
+  return `${SUPABASE_URL}/storage/v1/object/public/products/${cleaned}`;
+}
+
 export default function ProfileCancelledPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -304,12 +320,7 @@ export default function ProfileCancelledPage() {
             {filtered.map((it) => {
               const p = productsById[it.product_id];
               const imgKey = p?.images?.[0] ?? p?.image1 ?? p?.image2 ?? it.meta?.product_image;
-              // Build a safe storage URL: trim any leading slash and do NOT URL-encode path separators
-              const imgUrl = imgKey
-                ? (imgKey.startsWith("http")
-                    ? imgKey
-                    : `${SUPABASE_URL}/storage/v1/object/public/uploads/${String(imgKey).replace(/^\/+/, "")}`)
-                : null;
+              const imgUrl = resolveProductImageUrl(imgKey);
               const title = p?.name ?? it.meta?.product_name ?? "Untitled Product";
 
               const statusDisplay = getStatusDisplay(it.status);
@@ -348,7 +359,7 @@ export default function ProfileCancelledPage() {
                     <div className="flex gap-6">
                       <div className="w-32 h-32 bg-gray-100 flex items-center justify-center overflow-hidden rounded-lg flex-shrink-0">
                         {imgUrl ? (
-                          <img src={imgUrl} alt={title} className="w-full h-full object-cover opacity-60" />
+                          <img src={imgUrl} alt={title} className="w-full h-full object-cover" />
                         ) : (
                           <div className="text-black text-center opacity-60">
                             <div className="text-2xl mb-1">📦</div>
@@ -492,112 +503,202 @@ export default function ProfileCancelledPage() {
 
       {/* POPUP: Cancellation Receipt */}
       {receiptItem && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-white rounded-lg shadow-xl">
-            <div className="px-6 py-4 border-b flex items-center justify-between">
-              <div className="text-center flex-1">
-                <h2 className="text-2xl font-extrabold tracking-widest text-black">GRAND LINK</h2>
-                <p className="text-sm text-black">Cancellation Receipt</p>
+        <>
+          <style jsx global>{`
+            @media print {
+              @page {
+                size: A4;
+                margin: 15mm;
+              }
+
+              body * {
+                visibility: hidden;
+              }
+
+              #cancelled-receipt-print,
+              #cancelled-receipt-print * {
+                visibility: visible;
+              }
+
+              #cancelled-receipt-print {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+                max-height: 267mm;
+                overflow: hidden;
+              }
+
+              .no-print {
+                display: none !important;
+              }
+
+              #cancelled-receipt-print .mb-8 {
+                margin-bottom: 1rem !important;
+              }
+
+              #cancelled-receipt-print .mb-6 {
+                margin-bottom: 0.75rem !important;
+              }
+
+              #cancelled-receipt-print .p-8 {
+                padding: 1rem !important;
+              }
+
+              #cancelled-receipt-print .p-4 {
+                padding: 0.5rem !important;
+              }
+
+              #cancelled-receipt-print {
+                font-size: 10pt;
+              }
+
+              #cancelled-receipt-print h1 {
+                font-size: 20pt;
+              }
+
+              #cancelled-receipt-print h3 {
+                font-size: 12pt;
+              }
+            }
+          `}</style>
+
+          <div className="fixed inset-0 bg-transparent flex items-center justify-center z-50 p-4">
+            <div className="bg-white bg-opacity-95 backdrop-blur-sm rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+              <div className="no-print flex justify-between items-center p-4 border-b bg-white bg-opacity-80">
+                <h2 className="text-lg font-semibold text-gray-800">Cancellation Receipt</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={() => setReceiptItem(null)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
-              <button
-                className="text-black text-2xl ml-4"
-                aria-label="Close"
-                onClick={() => setReceiptItem(null)}
-              >
-                ×
-              </button>
-            </div>
 
-            {(() => {
-              const item = receiptItem!;
-              const product = productsById[item.product_id];
-              const totalPrice = item.total_amount || item.total_paid || ((product?.price || item.meta?.product_price || 0) * item.quantity);
-              const fulfillmentMethod = getMetaFulfillmentMethod(item.meta);
-              const pickupAddress = String(item.meta?.pickup_address || PICKUP_ADDRESS);
-              const reservationFee = Number(item.meta?.reservation_fee ?? 0);
-              const refundAmount = item.meta?.refund_amount || reservationFee;
+              {(() => {
+                const item = receiptItem;
+                const product = productsById[item.product_id];
+                const totalPrice = item.total_amount || item.total_paid || ((product?.price || item.meta?.product_price || 0) * item.quantity);
+                const fulfillmentMethod = getMetaFulfillmentMethod(item.meta);
+                const pickupAddress = String(item.meta?.pickup_address || PICKUP_ADDRESS);
+                const reservationFee = Number(item.meta?.reservation_fee ?? 0);
+                const refundAmount = item.meta?.refund_amount || reservationFee;
 
-              return (
-                <div className="px-6 py-4 space-y-3 text-sm text-black">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div>Cancellation ID</div>
-                      <div className="font-mono text-xs">{item.id}</div>
+                return (
+                  <div id="cancelled-receipt-print" className="p-8 bg-white bg-opacity-90" style={{ maxWidth: "210mm", margin: "0 auto" }}>
+                    <div className="text-center mb-8 border-b-2 border-gray-300 pb-6">
+                      <h1 className="text-3xl font-bold text-gray-900 mb-2">GRAND EAST</h1>
+                      <p className="text-sm text-gray-600">Cancellation Receipt</p>
+                      <p className="text-xs text-gray-500 mt-1">Refund and status details</p>
                     </div>
-                    <div className="text-right">
-                      <div>Date</div>
-                      <div>{new Date(item.updated_at || item.created_at).toLocaleString()}</div>
-                    </div>
-                    <div>
-                      <div>Product</div>
-                      <div className="font-medium">{product?.name || item.meta?.product_name || "Item"}</div>
-                    </div>
-                    <div className="text-right">
-                      <div>Unit Price</div>
-                      <div>₱{Number(product?.price || item.meta?.product_price || 0).toLocaleString()}</div>
-                    </div>
-                  </div>
 
-                  {fulfillmentMethod === "pickup" ? (
-                    <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs">
-                      <div className="font-semibold text-gray-900">Pickup Address</div>
-                      <div className="mt-1 text-gray-700">{pickupAddress}</div>
-                    </div>
-                  ) : null}
-
-                  <div className="border-t border-black pt-3">
-                    <div className="flex justify-between">
-                      <span>Quantity</span>
-                      <span>{item.quantity}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Total Value</span>
-                      <span>₱{Number(totalPrice).toLocaleString()}</span>
-                    </div>
-                    {fulfillmentMethod === "delivery" ? (
-                      <div className="flex justify-between">
-                        <span>Original Payment</span>
-                        <span>₱{Number(reservationFee).toLocaleString()}</span>
+                    <div className="mb-6">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Cancellation ID</p>
+                          <p className="text-gray-900 font-mono text-xs break-all">{item.id}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Status</p>
+                          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                            {item.status === "cancelled" ? "CANCELLED" : "PENDING CANCELLATION"}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Created</p>
+                          <p className="text-gray-900">{new Date(item.created_at).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Updated</p>
+                          <p className="text-gray-900">{new Date(item.updated_at || item.created_at).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}</p>
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
-                      <span>Refund Amount</span>
-                      <span className="text-black">₱{Number(refundAmount).toLocaleString()}</span>
                     </div>
-                  </div>
 
-                  <div className="border-t border-black pt-3 space-y-1">
-                    <div className="flex justify-between">
-                      <span>Status</span>
-                      <span className="font-medium">{item.status === "cancelled" ? "Cancelled" : "Pending Cancellation"}</span>
+                    <div className="mb-6 border-t border-b border-gray-200 py-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Product Details</h3>
+                      <p className="font-semibold text-gray-900 text-lg">{product?.name || item.meta?.product_name || "Item"}</p>
+                      <p className="text-sm text-gray-600 mt-1">Quantity: {item.quantity}</p>
+                      {fulfillmentMethod === "pickup" ? (
+                        <p className="text-sm text-gray-600">Pickup Address: {pickupAddress}</p>
+                      ) : null}
                     </div>
-                    {item.meta?.cancellation_reason && (
+
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Payment and Refund Summary</h3>
+                      <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Total Value</span>
+                          <span className="text-gray-900 font-medium">₱{Number(totalPrice).toLocaleString()}</span>
+                        </div>
+                        {fulfillmentMethod === "delivery" ? (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Original Payment</span>
+                            <span className="text-gray-900 font-medium">₱{Number(reservationFee).toLocaleString()}</span>
+                          </div>
+                        ) : null}
+                        <div className="border-t border-gray-300 pt-2 mt-2">
+                          <div className="flex justify-between">
+                            <span className="text-gray-900 font-bold text-lg">Refund Amount</span>
+                            <span className="text-gray-900 font-bold text-xl">₱{Number(refundAmount).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-gray-200 pt-4 text-sm text-gray-700 space-y-1">
                       <div className="flex justify-between">
-                        <span>Reason</span>
+                        <span>Cancellation Reason</span>
                         <span>{getCancellationReason(item.meta)}</span>
                       </div>
-                    )}
-                    {item.meta?.refund_status && (
                       <div className="flex justify-between">
                         <span>Refund Status</span>
                         <span>{getRefundStatus(item).label}</span>
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
+                    </div>
 
-            <div className="px-6 py-4 border-t flex justify-end gap-2">
-              <button onClick={() => window.print()} className="px-4 py-2 bg-black text-white rounded">
-                Print
-              </button>
-              <button onClick={() => setReceiptItem(null)} className="px-4 py-2 bg-black text-white rounded">
-                Close
-              </button>
+                    <div className="mt-8 pt-6 border-t border-gray-200 text-center">
+                      <p className="text-xs text-gray-500 mb-2">
+                        This is an official cancellation receipt from Grand East. For inquiries, contact customer support.
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Generated on {new Date().toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
-        </div>
+        </>
       )}
     </section>
   );

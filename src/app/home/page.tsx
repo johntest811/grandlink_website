@@ -72,7 +72,7 @@ export default function HomePage() {
         // select columns that exist in your products table
         const { data, error } = await supabaseClient
           .from("products")
-          .select("id, name, description, price, images, image1, image2, image3, image4, image5, created_at")
+          .select("id, name, fullproductname, description, price, images, image1, image2, image3, image4, image5, created_at")
           .order("created_at", { ascending: false })
           .limit(4);
 
@@ -93,10 +93,14 @@ export default function HomePage() {
           const imagesArray = Array.isArray(p.images) && p.images.length ? p.images : arrFromCols;
           const firstImage = imagesArray && imagesArray.length ? imagesArray[0] : undefined;
 
+          const productCode = p.name ?? p.code ?? `GE-${String(p.id || "").slice(0, 6)}`;
+          const productName = p.fullproductname ?? p.product_name ?? p.productName ?? p.name;
+
           return {
             id: p.id,
-            title: p.title ?? p.name, // keep backward compatibility
-            name: p.name,
+            title: productCode,
+            name: productName,
+            code: productCode,
             description: p.description,
             price: p.price,
             images: imagesArray,
@@ -345,7 +349,8 @@ function ProductCategory({
               const img = imgKey ? getImageUrl(imgKey) : null;
               const dateLabel = item.created_at ? new Date(item.created_at).toLocaleDateString() : null;
               const previewHtml = renderHtmlPreview(item.description ?? item.summary ?? item.content);
-              const displayTitle = item.title ?? item.name ?? "Untitled";
+              const displayCode = item.code ?? item.title ?? item.name ?? "Untitled";
+              const displayName = item.name ?? item.fullproductname ?? item.product_name ?? displayCode;
 
               return (
                 <div key={key} className="border border-gray-200 shadow-sm hover:shadow-md transition rounded-lg p-4 flex flex-col bg-white">
@@ -355,7 +360,8 @@ function ProductCategory({
 
                   <div className="flex-1 flex flex-col justify-between mt-3">
                     <div>
-                      <h3 className="font-semibold text-center text-black mb-1">{displayTitle}</h3>
+                      <h3 className="font-semibold text-center text-black mb-1">{displayCode}</h3>
+                      <p className="text-sm text-center text-gray-700 mb-1">{displayName}</p>
                       {previewHtml ? (
                         <div
                           className="blog-content text-sm leading-relaxed text-gray-600 mt-2 text-center [&_*]:text-gray-600"

@@ -166,6 +166,25 @@ export default function ShowroomPage() {
               })}
             </div>
           ))}
+
+          <section className="mt-4 rounded-xl overflow-hidden shadow-lg border border-gray-200 bg-white">
+            <div className="px-5 py-3 border-b bg-gray-50">
+              <h3 className="text-base md:text-lg font-semibold text-gray-800">Google Maps Location</h3>
+            </div>
+            <div className="relative w-full h-[360px] sm:h-[500px] md:h-[620px]">
+              <iframe
+                title="Showroom Google Maps"
+                src="https://www.google.com/maps/d/u/0/embed?mid=1ODMZWBR-GH7nYbynYOu24cMlaCrD5Ns&ehbc=2E312F&noprof=1"
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                scrolling="no"
+                allowFullScreen
+                loading="lazy"
+                className="absolute inset-0 w-full h-full border-0"
+              ></iframe>
+            </div>
+          </section>
         </div>
       </main>
       <Footer />

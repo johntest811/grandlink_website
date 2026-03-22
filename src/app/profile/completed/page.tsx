@@ -255,157 +255,204 @@ export default function ProfileCompletedPage() {
       )}
 
       {selectedReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-xl rounded-lg bg-white shadow-lg">
-            <div className="text-center border-b pb-4 mb-4 px-5 pt-4">
-              <h2 className="text-2xl font-extrabold tracking-widest text-black">GRAND LINK</h2>
-              <p className="text-sm text-black">Official Receipt</p>
-            </div>
+        <>
+          <style jsx global>{`
+            @media print {
+              @page {
+                size: A4;
+                margin: 15mm;
+              }
 
-            {(() => {
-              const product = products[selectedReceipt.item.product_id];
-              const fulfillmentMethod = getMetaFulfillmentMethod(selectedReceipt.item.meta);
-              const pickupAddress = String(
-                selectedReceipt.item.meta?.pickup_address || PICKUP_ADDRESS
-              );
-              const reservationFee = Number(selectedReceipt.item.meta?.reservation_fee ?? 0);
-              return (
-                <div className="px-5 pb-5 space-y-4 text-sm text-black max-h-[60vh] overflow-y-auto">
-                  {/* Details grid */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-black">Order ID</div>
-                      <div className="font-mono text-xs">{selectedReceipt.item.id}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-black">Date</div>
-                      <div>{new Date(selectedReceipt.item.created_at).toLocaleString()}</div>
-                    </div>
-                    <div>
-                      <div className="text-black">Product</div>
-                      <div className="font-medium">{product?.name || "Item"}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-black">Unit Price</div>
-                      <div>{currency(product?.price || 0)}</div>
-                    </div>
-                  </div>
+              body * {
+                visibility: hidden;
+              }
 
-                  {fulfillmentMethod === "pickup" ? (
-                    <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs">
-                      <div className="font-semibold text-gray-900">Pickup Address</div>
-                      <div className="mt-1 text-gray-700">{pickupAddress}</div>
-                    </div>
-                  ) : null}
+              #completed-receipt-print,
+              #completed-receipt-print * {
+                visibility: visible;
+              }
 
-                  {/* Totals */}
-                  <div className="border-t border-black pt-3">
-                    <div className="flex justify-between">
-                      <span>Quantity</span>
-                      <span>{selectedReceipt.item.quantity}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Unit Price</span>
-                      <span>{currency(product?.price || 0)}</span>
-                    </div>
-                    {selectedReceipt.item.meta?.addons_total > 0 && (
-                      <div className="flex justify-between">
-                        <span>Add-ons Total</span>
-                        <span>{currency(selectedReceipt.item.meta.addons_total)}</span>
-                      </div>
-                    )}
-                    {selectedReceipt.item.meta?.discount_value > 0 && (
-                      <div className="flex justify-between text-green-600">
-                        <span>Discount</span>
-                        <span>-{currency(selectedReceipt.item.meta.discount_value)}</span>
-                      </div>
-                    )}
-                    {fulfillmentMethod === "delivery" && reservationFee > 0 ? (
-                      <div className="flex justify-between">
-                        <span>Delivery Fee</span>
-                        <span>{currency(reservationFee)}</span>
-                      </div>
-                    ) : null}
-                    <div className="flex justify-between font-semibold text-lg border-t border-black pt-2">
-                      <span>Total Paid</span>
-                      <span className="text-black">
-                        {currency(selectedReceipt.item.total_amount || selectedReceipt.item.total_paid || (product?.price || 0) * selectedReceipt.item.quantity)}
-                      </span>
-                    </div>
-                  </div>
+              #completed-receipt-print {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+                max-height: 267mm;
+                overflow: hidden;
+              }
 
-                  {/* Payment / Ship / Completed times (same as order page) */}
-                  <div className="border-t border-black pt-3 space-y-1">
-                    {(() => {
-                      const sessions = selectedReceipt.sessions || [];
-                      const paid = sessions.find((s) => s.status === "completed") || sessions[0];
-                      const payMethod = paid?.payment_provider ? paid.payment_provider.toUpperCase() : "N/A";
-                      const payTime = paid?.completed_at || paid?.created_at;
+              .no-print {
+                display: none !important;
+              }
 
-                      const hist =
-                        (selectedReceipt.item as any).progress_history ||
-                        selectedReceipt.item.meta?.progress_history ||
-                        [];
-                      const tsOf = (keys: string[]) => {
-                        const m = hist.find((h: any) => keys.includes(h.status));
-                        return m?.updated_at ? new Date(m.updated_at).toLocaleString() : undefined;
-                      };
-                      const shipTime = tsOf(["out_for_delivery"]) || tsOf(["ready_for_delivery"]) || "Pending";
-                      const completedTime =
-                        tsOf(["completed"]) ||
-                        (selectedReceipt.item.updated_at
-                          ? new Date(selectedReceipt.item.updated_at).toLocaleString()
-                          : "Pending");
+              #completed-receipt-print .mb-8 {
+                margin-bottom: 1rem !important;
+              }
 
-                      return (
-                        <>
-                          <div className="flex justify-between">
-                            <span>Payment Method</span>
-                            <span className="font-medium">{payMethod}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Payment Time</span>
-                            <span>{payTime ? new Date(payTime).toLocaleString() : "N/A"}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Ship Time</span>
-                            <span>{shipTime}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Completed Time</span>
-                            <span>{completedTime}</span>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
+              #completed-receipt-print .mb-6 {
+                margin-bottom: 0.75rem !important;
+              }
 
-                  {/* If there are sessions, optionally list them below (kept minimal) */}
-                  {selectedReceipt.sessions.length === 0 ? (
-                    <div className="rounded border p-4 text-sm">
-                      No payment records yet. Your receipt will appear here once processed.
-                    </div>
-                  ) : null}
+              #completed-receipt-print .p-8 {
+                padding: 1rem !important;
+              }
+
+              #completed-receipt-print .p-4 {
+                padding: 0.5rem !important;
+              }
+
+              #completed-receipt-print {
+                font-size: 10pt;
+              }
+
+              #completed-receipt-print h1 {
+                font-size: 20pt;
+              }
+
+              #completed-receipt-print h3 {
+                font-size: 12pt;
+              }
+            }
+          `}</style>
+
+          <div className="fixed inset-0 z-50 bg-transparent flex items-center justify-center p-4">
+            <div className="bg-white bg-opacity-95 backdrop-blur-sm rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
+              <div className="no-print flex justify-between items-center p-4 border-b bg-white bg-opacity-80">
+                <h2 className="text-lg font-semibold text-gray-800">Completed Order Receipt</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={() => setSelectedReceipt(null)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+                  >
+                    Close
+                  </button>
                 </div>
-              );
-            })()}
+              </div>
 
-            <div className="border-t px-5 py-3 text-right">
-              <button
-                onClick={() => window.print()}
-                className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90 mr-2"
-              >
-                Print
-              </button>
-              <button
-                onClick={() => setSelectedReceipt(null)}
-                className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-              >
-                Close
-              </button>
+              {(() => {
+                const product = products[selectedReceipt.item.product_id];
+                const fulfillmentMethod = getMetaFulfillmentMethod(selectedReceipt.item.meta);
+                const pickupAddress = String(selectedReceipt.item.meta?.pickup_address || PICKUP_ADDRESS);
+                const reservationFee = Number(selectedReceipt.item.meta?.reservation_fee ?? 0);
+                const sessions = selectedReceipt.sessions || [];
+                const paid = sessions.find((s) => s.status === "completed") || sessions[0];
+                const payMethod = paid?.payment_provider ? paid.payment_provider.toUpperCase() : "N/A";
+
+                return (
+                  <div id="completed-receipt-print" className="p-8 bg-white bg-opacity-90" style={{ maxWidth: "210mm", margin: "0 auto" }}>
+                    <div className="text-center mb-8 border-b-2 border-gray-300 pb-6">
+                      <h1 className="text-3xl font-bold text-gray-900 mb-2">GRAND EAST</h1>
+                      <p className="text-sm text-gray-600">Official Receipt</p>
+                      <p className="text-xs text-gray-500 mt-1">Completed Order</p>
+                    </div>
+
+                    <div className="mb-6">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Order ID</p>
+                          <p className="text-gray-900 font-mono text-xs break-all">{selectedReceipt.item.id}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Status</p>
+                          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">COMPLETED</span>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Created</p>
+                          <p className="text-gray-900">{new Date(selectedReceipt.item.created_at).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">Completed</p>
+                          <p className="text-gray-900">{new Date(selectedReceipt.item.updated_at || selectedReceipt.item.created_at).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mb-6 border-t border-b border-gray-200 py-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Product Details</h3>
+                      <p className="font-semibold text-gray-900 text-lg">{product?.name || "Item"}</p>
+                      <p className="text-sm text-gray-600 mt-1">Quantity: {selectedReceipt.item.quantity}</p>
+                      <p className="text-sm text-gray-600">Payment Method: {payMethod}</p>
+                      {fulfillmentMethod === "pickup" ? (
+                        <p className="text-sm text-gray-600">Pickup Address: {pickupAddress}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Payment Summary</h3>
+                      <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Unit Price</span>
+                          <span className="text-gray-900 font-medium">{currency(product?.price || 0)}</span>
+                        </div>
+                        {selectedReceipt.item.meta?.addons_total > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Add-ons</span>
+                            <span className="text-gray-900 font-medium">{currency(selectedReceipt.item.meta.addons_total)}</span>
+                          </div>
+                        )}
+                        {selectedReceipt.item.meta?.discount_value > 0 && (
+                          <div className="flex justify-between text-sm text-green-600">
+                            <span>Discount</span>
+                            <span className="font-medium">-{currency(selectedReceipt.item.meta.discount_value)}</span>
+                          </div>
+                        )}
+                        {fulfillmentMethod === "delivery" && reservationFee > 0 ? (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Delivery Fee</span>
+                            <span className="text-gray-900 font-medium">{currency(reservationFee)}</span>
+                          </div>
+                        ) : null}
+                        <div className="border-t border-gray-300 pt-2 mt-2">
+                          <div className="flex justify-between">
+                            <span className="text-gray-900 font-bold text-lg">Total Paid</span>
+                            <span className="text-gray-900 font-bold text-xl">
+                              {currency(selectedReceipt.item.total_amount || selectedReceipt.item.total_paid || (product?.price || 0) * selectedReceipt.item.quantity)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-gray-200 text-center">
+                      <p className="text-xs text-gray-500 mb-2">
+                        This is an official receipt from Grand East. For inquiries, please contact our customer service.
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Generated on {new Date().toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
-        </div>
+        </>
       )}
 
       <InvoicePreviewModal

@@ -42,8 +42,19 @@ function resolveProductImageUrl(imageValue: string | null | undefined) {
   const raw = String(imageValue || "").trim();
   if (!raw) return null;
   if (/^https?:\/\//i.test(raw)) return raw;
+  if (!SUPABASE_URL) return null;
+
+  if (raw.startsWith("/storage/v1/object/public/")) {
+    return `${SUPABASE_URL}${raw}`;
+  }
+  if (raw.startsWith("storage/v1/object/public/")) {
+    return `${SUPABASE_URL}/${raw}`;
+  }
 
   const cleaned = raw.replace(/^\/+/, "");
+  if (cleaned.startsWith("object/public/")) {
+    return `${SUPABASE_URL}/storage/v1/${cleaned}`;
+  }
   if (cleaned.startsWith("products/")) {
     return `${SUPABASE_URL}/storage/v1/object/public/${cleaned}`;
   }
@@ -51,7 +62,52 @@ function resolveProductImageUrl(imageValue: string | null | undefined) {
     return `${SUPABASE_URL}/storage/v1/object/public/${cleaned}`;
   }
 
+  const extMatch = cleaned.match(/\.(png|jpe?g|webp|avif|gif|bmp|svg)$/i);
+  if (!extMatch) return null;
+
   return `${SUPABASE_URL}/storage/v1/object/public/products/${cleaned}`;
+}
+
+function normalizeImageCandidates(value: unknown): string[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return [];
+
+  if ((raw.startsWith("[") && raw.endsWith("]")) || (raw.startsWith("{") && raw.endsWith("}"))) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  if (raw.includes(",")) {
+    return raw
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [raw];
+}
+
+function getProductImageCandidates(product: Product | undefined, metaImage: unknown): string[] {
+  const merged = [
+    ...normalizeImageCandidates(product?.images),
+    ...normalizeImageCandidates(product?.image1),
+    ...normalizeImageCandidates(product?.image2),
+    ...normalizeImageCandidates(metaImage),
+  ];
+
+  return Array.from(new Set(merged));
 }
 
 export default function ProfileCancelledPage() {
@@ -63,6 +119,7 @@ export default function ProfileCancelledPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "cancelled" | "pending_cancellation">("all");
   const [receiptItem, setReceiptItem] = useState<UserItem | null>(null);
+  const [imageCursorByItem, setImageCursorByItem] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -160,6 +217,10 @@ export default function ProfileCancelledPage() {
     return result;
   }, [items, productsById, query, filter]);
 
+  useEffect(() => {
+    setImageCursorByItem({});
+  }, [items]);
+
   const getStatusDisplay = (status: string) => {
     const statusMap = {
       cancelled: {
@@ -246,48 +307,61 @@ export default function ProfileCancelledPage() {
   const pendingCount = items.filter((i) => i.status === "pending_cancellation").length;
 
   return (
-    <section className="flex-1 flex flex-col px-8 py-8">
-      <div className="mb-6">
-        {/* Make gray text black */}
-        <h1 className="text-2xl font-bold text-black mb-2">Cancelled Reservations</h1>
-        <p className="text-black text-sm mb-4">View your cancelled reservations and track refund status</p>
+    <section className="flex-1 flex flex-col px-4 sm:px-6 lg:px-8 py-6 sm:py-8 bg-gradient-to-b from-[#fff9f9] to-[#f6f8fb] min-h-screen">
+      <div className="mb-6 rounded-2xl border border-white/70 bg-white/90 backdrop-blur-sm shadow-sm p-5 sm:p-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-[#231f20] mb-2">Cancelled Reservations</h1>
+        <p className="text-[#3a3a3a] text-sm sm:text-base mb-5">Track cancellation progress, refunds, and next actions for each reservation.</p>
 
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div className="bg-red-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-red-600">{cancelledCount}</div>
-            <div className="text-sm text-red-700">Cancelled</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-5">
+          <div className="rounded-xl border border-red-100 bg-gradient-to-br from-red-50 to-rose-50 p-4 text-center">
+            <div className="text-2xl font-bold text-red-700">{cancelledCount}</div>
+            <div className="text-sm text-red-800">Cancelled</div>
           </div>
-          <div className="bg-orange-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-orange-600">{pendingCount}</div>
-            <div className="text-sm text-orange-700">Pending Cancellation</div>
+          <div className="rounded-xl border border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 p-4 text-center">
+            <div className="text-2xl font-bold text-orange-700">{pendingCount}</div>
+            <div className="text-sm text-orange-800">Pending Cancellation</div>
           </div>
-          <div className="bg-blue-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-blue-600">{items.length}</div>
-            <div className="text-sm text-blue-700">Total</div>
+          <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-cyan-50 p-4 text-center">
+            <div className="text-2xl font-bold text-blue-700">{items.length}</div>
+            <div className="text-sm text-blue-800">Total</div>
           </div>
         </div>
 
-        <div className="flex gap-4 mb-4">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as any)}
-            className="border rounded px-3 py-2 bg-white text-black"
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            onClick={() => setFilter("all")}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              filter === "all" ? "bg-[#8B1C1C] text-white" : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+            }`}
           >
-            <option value="all">All Cancellations</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="pending_cancellation">Pending Cancellation</option>
-          </select>
+            All
+          </button>
+          <button
+            onClick={() => setFilter("cancelled")}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              filter === "cancelled" ? "bg-[#8B1C1C] text-white" : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            Cancelled
+          </button>
+          <button
+            onClick={() => setFilter("pending_cancellation")}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              filter === "pending_cancellation" ? "bg-[#8B1C1C] text-white" : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            Pending
+          </button>
         </div>
 
         <input
           type="text"
-          placeholder="Search cancelled reservations"
-          className="w-full border rounded px-4 py-2 bg-gray-100 text-black placeholder:text-black/60 focus:bg-white focus:border-blue-400"
+          placeholder="Search by product name or reservation ID"
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-black/50 focus:outline-none focus:ring-2 focus:ring-[#8B1C1C]/25 focus:border-[#8B1C1C]/40"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <hr className="mb-6" />
 
       <div className="flex-1">
         {loading ? (
@@ -296,7 +370,7 @@ export default function ProfileCancelledPage() {
             <p>Loading cancelled reservations...</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center border rounded bg-white py-16">
+          <div className="flex flex-1 items-center justify-center border border-gray-200 rounded-2xl bg-white py-16">
             <div className="flex flex-col items-center">
               <div className="text-6xl mb-4">{filter === "all" ? "📋" : filter === "cancelled" ? "❌" : "⏳"}</div>
               <p className="mt-4 text-black text-lg font-medium">
@@ -319,8 +393,9 @@ export default function ProfileCancelledPage() {
           <div className="space-y-6">
             {filtered.map((it) => {
               const p = productsById[it.product_id];
-              const imgKey = p?.images?.[0] ?? p?.image1 ?? p?.image2 ?? it.meta?.product_image;
-              const imgUrl = resolveProductImageUrl(imgKey);
+              const imageCandidates = getProductImageCandidates(p, it.meta?.product_image);
+              const cursor = imageCursorByItem[it.id] ?? 0;
+              const imgUrl = resolveProductImageUrl(imageCandidates[cursor]);
               const title = p?.name ?? it.meta?.product_name ?? "Untitled Product";
 
               const statusDisplay = getStatusDisplay(it.status);
@@ -331,8 +406,8 @@ export default function ProfileCancelledPage() {
               const refundAmount = Number(it.meta?.refund_amount ?? reservationFee);
 
               return (
-                <div key={it.id} className="bg-white rounded-lg shadow-md overflow-hidden border">
-                  <div className="bg-gray-50 px-6 py-4 border-b">
+                <div key={it.id} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
+                  <div className="bg-gradient-to-r from-gray-50 to-white px-4 sm:px-6 py-4 border-b border-gray-200">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-bold text-lg text-black">Reservation #{it.id.slice(-8)}</h3>
@@ -355,11 +430,21 @@ export default function ProfileCancelledPage() {
                     </div>
                   </div>
 
-                  <div className="p-6">
-                    <div className="flex gap-6">
-                      <div className="w-32 h-32 bg-gray-100 flex items-center justify-center overflow-hidden rounded-lg flex-shrink-0">
+                  <div className="p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row gap-5 sm:gap-6">
+                      <div className="w-full sm:w-40 h-52 sm:h-40 bg-gray-100 flex items-center justify-center overflow-hidden rounded-xl flex-shrink-0 border border-gray-200">
                         {imgUrl ? (
-                          <img src={imgUrl} alt={title} className="w-full h-full object-cover" />
+                          <img
+                            src={imgUrl}
+                            alt={title}
+                            className="w-full h-full object-cover"
+                            onError={() => {
+                              setImageCursorByItem((prev) => ({
+                                ...prev,
+                                [it.id]: Math.min((prev[it.id] ?? 0) + 1, imageCandidates.length),
+                              }));
+                            }}
+                          />
                         ) : (
                           <div className="text-black text-center opacity-60">
                             <div className="text-2xl mb-1">📦</div>
@@ -369,9 +454,9 @@ export default function ProfileCancelledPage() {
                       </div>
 
                       <div className="flex-1">
-                        <h4 className="font-semibold text-xl text-black mb-2">{title}</h4>
+                        <h4 className="font-semibold text-lg sm:text-xl text-black mb-2">{title}</h4>
 
-                        <div className="grid grid-cols-2 gap-4 mb-4 text-sm text-black">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-4 text-sm text-black">
                           <div>
                             <span className="text-black">Quantity:</span>
                             <span className="ml-2 font-medium">{it.quantity} pcs</span>
@@ -410,7 +495,7 @@ export default function ProfileCancelledPage() {
                       </div>
                     </div>
 
-                    <div className="mt-6 bg-gray-50 p-4 rounded-lg">
+                    <div className="mt-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
                       <h5 className="font-semibold text-black mb-3">Refund Information</h5>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between text-black">
@@ -443,7 +528,7 @@ export default function ProfileCancelledPage() {
                       </div>
                     </div>
 
-                    <div className="mt-6 flex flex-wrap gap-3">
+                    <div className="mt-6 flex flex-wrap gap-2.5">
                       <button
                         onClick={() => viewCancellationReceipt(it)}
                         className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors text-sm"

@@ -644,8 +644,13 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
     let windLifetime: Float32Array | null = null;
     let windBaseOpacity = 0.3;
     let splashSystem: THREE.Points | null = null;
+    let groundRainSystem: THREE.Points | null = null;
     let splashVelY: Float32Array | null = null;
+    let splashVelX: Float32Array | null = null;
+    let splashVelZ: Float32Array | null = null;
     let splashLifetime: Float32Array | null = null;
+    let groundRainVelY: Float32Array | null = null;
+    let groundRainLifetime: Float32Array | null = null;
     let splashArea: { minX: number; maxX: number; minZ: number; maxZ: number; groundY: number } | null = null;
     let lightningFlash = 0;
     let activeWeather: Props["weather"] = weather;
@@ -770,10 +775,10 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
       if (modelBounds) {
         const center = modelBounds.getCenter(new THREE.Vector3());
         const size = modelBounds.getSize(new THREE.Vector3());
-        // Slightly tighter volume so it reads like an "animation" rain layer
-        // rather than filling the whole scene.
-        const spanX = Math.max(size.x * 2.4, 120);
-        const spanZ = Math.max(size.z * 2.4, 120);
+        // Expand rainfall to better cover full staging area and floor footprint.
+        const groundSpan = Math.max(120, Math.max(groundPlane.scale.x, groundPlane.scale.y));
+        const spanX = Math.max(size.x * 3.4, groundSpan * 0.92, 180);
+        const spanZ = Math.max(size.z * 3.4, groundSpan * 0.92, 180);
         const height = Math.max(size.y * 2.6, 200);
         const padY = Math.max(size.y * 0.6, 40);
 
@@ -789,12 +794,12 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
 
       // Fallback: sensible default around origin
       return {
-        minX: -110,
-        maxX: 110,
+        minX: -170,
+        maxX: 170,
         minY: -40,
-        maxY: 170,
-        minZ: -110,
-        maxZ: 110,
+        maxY: 190,
+        minZ: -170,
+        maxZ: 170,
       };
     };
 
@@ -836,8 +841,20 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         } catch (e) {}
         splashSystem = null;
         splashVelY = null;
+        splashVelX = null;
+        splashVelZ = null;
         splashLifetime = null;
         splashArea = null;
+      }
+      if (groundRainSystem) {
+        try {
+          scene.remove(groundRainSystem);
+          groundRainSystem.geometry.dispose();
+          (groundRainSystem.material as THREE.PointsMaterial).dispose();
+        } catch (e) {}
+        groundRainSystem = null;
+        groundRainVelY = null;
+        groundRainLifetime = null;
       }
       scene.fog = null;
       lightningFlash = 0;
@@ -921,9 +938,9 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         renderer.setClearColor(0xa7b5c4, 1);
 
         // Streak rain (LineSegments) anchored to model bounds so it always appears.
-        const rainDensity = isLowEnd ? 0.16 : 0.26;
+        const rainDensity = isLowEnd ? 0.24 : 0.42;
         const rainCount = Math.max(
-          420,
+          880,
           Math.round((performanceFactor > 0.6 ? STORM_RAIN : BASE_RAIN) * rainDensity)
         );
         rainArea = computeRainArea();
@@ -945,14 +962,14 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
           rainBaseX![i] = headX;
           rainBaseZ![i] = headZ;
 
-          const baseLen = 9 + Math.random() * 16;
+          const baseLen = 11 + Math.random() * 18;
           const len = baseLen * (0.85 + Math.min(1, performanceFactor) * 0.25);
           rainLen![i] = len;
 
-          rainVelY![i] = (58 + Math.random() * 48) * (1 + (0.75 - performanceFactor) * 0.2);
-          rainVelX![i] = (Math.random() - 0.5) * (10 + Math.random() * 14);
+          rainVelY![i] = (72 + Math.random() * 62) * (1 + (0.75 - performanceFactor) * 0.2);
+          rainVelX![i] = (Math.random() - 0.5) * (13 + Math.random() * 17);
           rainSwirlPhase![i] = Math.random() * Math.PI * 2;
-          rainSwirlRadius![i] = 0.4 + Math.random() * 2.2;
+          rainSwirlRadius![i] = 0.7 + Math.random() * 3.1;
 
           const idx = i * 6;
           positions[idx + 0] = headX;
@@ -972,7 +989,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         const mat = new THREE.LineBasicMaterial({
           color: 0xb9d8ff,
           transparent: true,
-          opacity: Math.min(0.5, Math.max(0.28, rainBaseOpacity * 0.82)),
+          opacity: Math.min(0.62, Math.max(0.34, rainBaseOpacity * 0.95)),
           depthWrite: false,
           blending: THREE.NormalBlending,
         });
@@ -984,29 +1001,29 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         const fogDensity = performanceFactor > 0.5 ? 0.0016 : 0.0011;
         scene.fog = new THREE.FogExp2(0xa7b5c4, fogDensity);
 
-        const splashCount = Math.max(220, Math.round((isLowEnd ? BASE_WIND : STRONG_WIND) * 0.9));
+        const splashCount = Math.max(460, Math.round((isLowEnd ? BASE_WIND : STRONG_WIND) * 1.9));
         const splashPositions = new Float32Array(splashCount * 3);
         splashVelY = new Float32Array(splashCount);
+        splashVelX = new Float32Array(splashCount);
+        splashVelZ = new Float32Array(splashCount);
         splashLifetime = new Float32Array(splashCount);
-        if (modelBounds) {
-          const size = modelBounds.getSize(new THREE.Vector3());
-          splashArea = {
-            minX: modelBounds.min.x - Math.max(8, size.x * 0.2),
-            maxX: modelBounds.max.x + Math.max(8, size.x * 0.2),
-            minZ: modelBounds.min.z - Math.max(8, size.z * 0.2),
-            maxZ: modelBounds.max.z + Math.max(8, size.z * 0.2),
-            groundY: groundPlane.position.y + 0.03,
-          };
-        } else {
-          splashArea = { minX: -60, maxX: 60, minZ: -60, maxZ: 60, groundY: groundPlane.position.y + 0.03 };
-        }
+        const halfFloor = Math.max(50, Math.max(groundPlane.scale.x, groundPlane.scale.y) * 0.5);
+        splashArea = {
+          minX: -halfFloor,
+          maxX: halfFloor,
+          minZ: -halfFloor,
+          maxZ: halfFloor,
+          groundY: groundPlane.position.y + 0.03,
+        };
 
         for (let i = 0; i < splashCount; i++) {
           const base = i * 3;
           splashPositions[base + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
           splashPositions[base + 1] = splashArea.groundY + Math.random() * 0.04;
           splashPositions[base + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
-          splashVelY[i] = 1.8 + Math.random() * 2.8;
+          splashVelY[i] = 2.1 + Math.random() * 4.3;
+          splashVelX[i] = (Math.random() - 0.5) * 2.4;
+          splashVelZ[i] = (Math.random() - 0.5) * 2.4;
           splashLifetime[i] = Math.random();
         }
 
@@ -1014,9 +1031,9 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         splashGeo.setAttribute("position", new THREE.BufferAttribute(splashPositions, 3));
         const splashMat = new THREE.PointsMaterial({
           color: 0xd9e9ff,
-          size: isLowEnd ? 1.4 : 2.1,
+          size: isLowEnd ? 1.9 : 2.8,
           transparent: true,
-          opacity: 0.34,
+          opacity: 0.46,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
           sizeAttenuation: true,
@@ -1025,6 +1042,36 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         splashSystem.frustumCulled = false;
         splashSystem.renderOrder = 2;
         scene.add(splashSystem);
+
+        const groundRainCount = Math.max(900, Math.round((isLowEnd ? BASE_RAIN : STORM_RAIN) * 0.14));
+        const groundRainPositions = new Float32Array(groundRainCount * 3);
+        groundRainVelY = new Float32Array(groundRainCount);
+        groundRainLifetime = new Float32Array(groundRainCount);
+        for (let i = 0; i < groundRainCount; i++) {
+          const base = i * 3;
+          groundRainPositions[base + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
+          groundRainPositions[base + 1] = splashArea.groundY + 1.5 + Math.random() * 24;
+          groundRainPositions[base + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
+          groundRainVelY[i] = 24 + Math.random() * 42;
+          groundRainLifetime[i] = Math.random();
+        }
+
+        const groundRainGeo = new THREE.BufferGeometry();
+        groundRainGeo.setAttribute("position", new THREE.BufferAttribute(groundRainPositions, 3));
+        const groundRainMat = new THREE.PointsMaterial({
+          color: 0xcfe5ff,
+          map: rainTexture,
+          size: isLowEnd ? 2.4 : 3.2,
+          transparent: true,
+          opacity: 0.24,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          sizeAttenuation: true,
+        });
+        groundRainSystem = new THREE.Points(groundRainGeo, groundRainMat);
+        groundRainSystem.frustumCulled = false;
+        groundRainSystem.renderOrder = 2;
+        scene.add(groundRainSystem);
 
       } else if (type === "night") {
         scene.background = new THREE.Color(0x0b1020);
@@ -2002,27 +2049,52 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         }
       }
 
-      if (splashSystem && splashVelY && splashLifetime && splashArea) {
+      if (splashSystem && splashVelY && splashVelX && splashVelZ && splashLifetime && splashArea) {
         const splashPositions = splashSystem.geometry.attributes.position as THREE.BufferAttribute;
         const arr = splashPositions.array as Float32Array;
         const count = splashVelY.length;
 
         for (let i = 0; i < count; i++) {
           const idx = i * 3;
-          splashLifetime[i] += dt * (1.6 + Math.random() * 0.8);
+          splashLifetime[i] += dt * 2.1;
+          arr[idx + 0] += splashVelX[i] * dt;
           arr[idx + 1] += splashVelY[i] * dt;
-          splashVelY[i] -= 14 * dt;
+          arr[idx + 2] += splashVelZ[i] * dt;
+          splashVelY[i] -= 16.5 * dt;
+          splashVelX[i] *= 0.94;
+          splashVelZ[i] *= 0.94;
 
           if (splashLifetime[i] >= 1 || arr[idx + 1] < splashArea.groundY) {
             arr[idx + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
             arr[idx + 1] = splashArea.groundY + Math.random() * 0.03;
             arr[idx + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
-            splashVelY[i] = 1.4 + Math.random() * 3.2;
+            splashVelY[i] = 2.0 + Math.random() * 4.1;
+            splashVelX[i] = (Math.random() - 0.5) * 3.2;
+            splashVelZ[i] = (Math.random() - 0.5) * 3.2;
             splashLifetime[i] = 0;
           }
         }
 
         splashPositions.needsUpdate = true;
+      }
+
+      if (groundRainSystem && groundRainVelY && groundRainLifetime && splashArea) {
+        const groundRainPositions = groundRainSystem.geometry.attributes.position as THREE.BufferAttribute;
+        const arr = groundRainPositions.array as Float32Array;
+        const count = groundRainVelY.length;
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3;
+          groundRainLifetime[i] += dt;
+          arr[idx + 1] -= groundRainVelY[i] * dt;
+          if (arr[idx + 1] <= splashArea.groundY || groundRainLifetime[i] > 1.15) {
+            arr[idx + 0] = splashArea.minX + Math.random() * (splashArea.maxX - splashArea.minX);
+            arr[idx + 1] = splashArea.groundY + 2 + Math.random() * 22;
+            arr[idx + 2] = splashArea.minZ + Math.random() * (splashArea.maxZ - splashArea.minZ);
+            groundRainVelY[i] = 24 + Math.random() * 44;
+            groundRainLifetime[i] = 0;
+          }
+        }
+        groundRainPositions.needsUpdate = true;
       }
 
       if (heavyStep && windSystem && windVel && windLifetime && modelBounds) {
@@ -2130,6 +2202,12 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
         try {
           splashSystem.geometry.dispose();
           (splashSystem.material as THREE.PointsMaterial).dispose();
+        } catch {}
+      }
+      if (groundRainSystem) {
+        try {
+          groundRainSystem.geometry.dispose();
+          (groundRainSystem.material as THREE.PointsMaterial).dispose();
         } catch {}
       }
       try {

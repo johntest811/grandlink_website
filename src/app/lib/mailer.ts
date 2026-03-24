@@ -19,6 +19,8 @@ type SimpleMailOptions = {
 let sendgridReady = false;
 let primaryGmailTransporter: nodemailer.Transporter | null = null;
 let backupGmailTransporter: nodemailer.Transporter | null = null;
+let invoicePrimaryGmailTransporter: nodemailer.Transporter | null = null;
+let invoiceBackupGmailTransporter: nodemailer.Transporter | null = null;
 
 function normalizePass(pass: string) {
   return pass.replace(/\s+/g, "");
@@ -72,6 +74,34 @@ function getOrCreateBackupGmailTransporter() {
     auth: { user, pass: normalizePass(pass) },
   });
   return backupGmailTransporter;
+}
+
+function getOrCreateInvoicePrimaryGmailTransporter() {
+  const user = process.env.INVOICE_GMAIL_USER;
+  const pass = process.env.INVOICE_GMAIL_PASS;
+  if (!user || !pass) return null;
+  if (invoicePrimaryGmailTransporter) return invoicePrimaryGmailTransporter;
+  invoicePrimaryGmailTransporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: { user, pass: normalizePass(pass) },
+  });
+  return invoicePrimaryGmailTransporter;
+}
+
+function getOrCreateInvoiceBackupGmailTransporter() {
+  const user = process.env.INVOICE_GMAIL_BACKUP_USER;
+  const pass = process.env.INVOICE_GMAIL_BACKUP_PASS;
+  if (!user || !pass) return null;
+  if (invoiceBackupGmailTransporter) return invoiceBackupGmailTransporter;
+  invoiceBackupGmailTransporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: { user, pass: normalizePass(pass) },
+  });
+  return invoiceBackupGmailTransporter;
 }
 
 function coerceToList(value: any): string[] {
@@ -185,5 +215,57 @@ export function getMailFrom() {
     process.env.GMAIL_BACKUP_FROM ||
     process.env.GMAIL_BACKUP_USER ||
     "no-reply@grandlink"
+  );
+}
+
+export function getInvoiceMailTransporter() {
+  const primary = getOrCreateInvoicePrimaryGmailTransporter();
+  const backup = getOrCreateInvoiceBackupGmailTransporter();
+
+  if (!primary && !backup) {
+    return getMailTransporter();
+  }
+
+  return {
+    async sendMail(options: SimpleMailOptions) {
+      if (primary) {
+        try {
+          await primary.sendMail({
+            from: options.from || getInvoiceMailFrom(),
+            to: options.to,
+            subject: options.subject,
+            text: options.text,
+            html: options.html,
+            attachments: options.attachments as any,
+          });
+          return;
+        } catch (err: any) {
+          console.warn("Primary invoice Gmail send failed:", err);
+          if (!backup || !shouldRetryWithBackupProvider(err)) throw err;
+        }
+      }
+
+      if (backup) {
+        await backup.sendMail({
+          from: options.from || getInvoiceMailFrom(),
+          to: options.to,
+          subject: options.subject,
+          text: options.text,
+          html: options.html,
+          attachments: options.attachments as any,
+        });
+        return;
+      }
+
+      throw new Error("No invoice mail transport configured");
+    },
+  } as any;
+}
+
+export function getInvoiceMailFrom() {
+  return (
+    process.env.INVOICE_GMAIL_FROM ||
+    process.env.INVOICE_GMAIL_USER ||
+    getMailFrom()
   );
 }

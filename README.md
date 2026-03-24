@@ -27,11 +27,29 @@ SUPABASE_SERVICE_ROLE_KEY=...
 GMAIL_USER=your_gmail@gmail.com
 GMAIL_PASS=your_gmail_app_password
 GMAIL_FROM="GrandLink <your_gmail@gmail.com>"
+
+# Optional: dedicated mailbox only for invoice/receipt emails
+INVOICE_GMAIL_USER=invoice_bot@gmail.com
+INVOICE_GMAIL_PASS=invoice_bot_app_password
+INVOICE_GMAIL_FROM="GrandLink Invoices <invoice_bot@gmail.com>"
+
+# Payment gateways / webhooks
+PAYMONGO_SECRET_KEY=...
+PAYMONGO_ENVIRONMENT=live
+PAYPAL_CLIENT_ID=...
+PAYPAL_CLIENT_SECRET=...
+PAYPAL_WEBHOOK_ID=...
+PAYREX_SECRET_KEY=...
+PAYREX_WEBHOOK_SECRET_KEY=...
+
+# App URLs (used in invoice assets and callbacks)
+NEXT_PUBLIC_BASE_URL=https://your-website-domain
 ```
 
 Notes:
 - For Gmail, use an **App Password** (not your normal password).
 - `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the browser.
+- If `INVOICE_GMAIL_*` is set, invoice/receipt emails use that mailbox first, and fall back to normal mail settings if unavailable.
 
 ## Database: invoices table
 
@@ -65,6 +83,17 @@ Checkout and reservations support Pickup/Delivery. The selected method is persis
 ## Webhook reminder
 
 Payment gateways require a **public webhook URL**. For local testing, use something like ngrok and point PayMongo/PayPal webhooks to your `.../api/webhooks/*` endpoints.
+
+## Vercel deployment checklist (invoice-safe)
+
+1. Set all required environment variables in Vercel Project Settings for **Production** and **Preview** as needed.
+2. Configure webhook URLs to your Vercel domain:
+	- `/api/webhooks/paymongo`
+	- `/api/webhooks/paypal`
+	- `/api/webhooks/payrex`
+3. Keep `PAYMONGO_SECRET_KEY` and `PAYPAL_*` credentials in matching mode (live for production).
+4. Keep at least one valid SMTP sender configured (`INVOICE_GMAIL_*` recommended, otherwise `GMAIL_*`).
+5. Verify one successful reservation payment and one successful cart checkout in production, then confirm invoice email delivery and `/profile/invoice/[userItemId]` rendering.
 
 ## PayMongo method policy
 

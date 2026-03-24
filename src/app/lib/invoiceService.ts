@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getMailFrom, getMailTransporter } from "./mailer";
+import { getInvoiceMailFrom, getInvoiceMailTransporter } from "./mailer";
 import { InvoiceData, InvoiceLine, renderInvoiceHtml, renderInvoicePdf } from "./invoice";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -185,7 +185,7 @@ async function sendInvoiceEmail(options: {
   invoiceHtml: string;
 }) {
   const { invoiceId, recipients, invoiceData, invoiceHtml } = options;
-  const transporter = getMailTransporter();
+  const transporter = getInvoiceMailTransporter();
   if (!transporter || recipients.length === 0) return false;
 
   const pdfBuffer = await renderInvoicePdf(invoiceData);
@@ -200,7 +200,7 @@ async function sendInvoiceEmail(options: {
   `;
 
   await transporter.sendMail({
-    from: getMailFrom(),
+    from: getInvoiceMailFrom(),
     to: recipients.join(","),
     subject: `GrandLink Receipt and Invoice ${invoiceData.invoiceNumber}`,
     html: `${receiptSummaryHtml}${invoiceHtml}`,

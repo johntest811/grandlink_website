@@ -183,6 +183,13 @@ CREATE TABLE public.discount_codes (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT discount_codes_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.downloads_content (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  slug text NOT NULL DEFAULT 'downloads'::text UNIQUE,
+  content jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT downloads_content_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.event_participants (
   id bigint NOT NULL DEFAULT nextval('event_participants_id_seq'::regclass),
   event_id bigint,

@@ -52,12 +52,12 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link
+                {/* <Link
                   href="/locations"
                   className="text-gray-400 font-semibold hover:text-[#232d3b] transition-colors cursor-pointer"
                 >
                   Locations
-                </Link>
+                </Link> */}
               </li>
             </ul>
           </div>

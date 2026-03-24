@@ -11,6 +11,7 @@ type DownloadsContent = {
   cardDescription?: string;
   buttonLabel?: string;
   releaseNotes?: string;
+  downloadUrl?: string;
   apkUrl?: string;
   apkVersion?: string;
   apkSize?: string;
@@ -21,10 +22,11 @@ type DownloadsContent = {
 const fallbackContent: DownloadsContent = {
   heroTitle: "Download GrandLink Mobile",
   heroDescription: "Install our Android app to access reservations and updates from your phone.",
-  cardTitle: "GrandLink Android APK",
-  cardDescription: "Official installer package from GrandLink.",
-  buttonLabel: "Download APK",
+  cardTitle: "GrandLink Android App",
+  cardDescription: "Official Google Drive download link from GrandLink.",
+  buttonLabel: "Open Download Link",
   releaseNotes: "No release notes yet.",
+  downloadUrl: "",
   apkUrl: "",
   apkVersion: "",
   apkSize: "",
@@ -55,7 +57,15 @@ export default function DownloadPage() {
     load();
   }, []);
 
-  const canDownload = useMemo(() => content.enabled !== false && !!content.apkUrl, [content.enabled, content.apkUrl]);
+  const resolvedDownloadUrl = useMemo(
+    () => (content.downloadUrl || content.apkUrl || "").trim(),
+    [content.downloadUrl, content.apkUrl]
+  );
+
+  const canDownload = useMemo(
+    () => content.enabled !== false && !!resolvedDownloadUrl,
+    [content.enabled, resolvedDownloadUrl]
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-[#f6f7fb]">
@@ -93,18 +103,19 @@ export default function DownloadPage() {
             <div className="mt-6">
               {canDownload ? (
                 <a
-                  href={content.apkUrl}
+                  href={resolvedDownloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex items-center justify-center rounded-xl bg-[#8B1C1C] px-6 py-3 text-white font-semibold hover:bg-[#741717] transition-colors"
-                  download
                 >
-                  {content.buttonLabel || "Download APK"}
+                  {content.buttonLabel || "Open Download Link"}
                 </a>
               ) : (
                 <button
                   disabled
                   className="inline-flex items-center justify-center rounded-xl bg-gray-300 px-6 py-3 text-white font-semibold cursor-not-allowed"
                 >
-                  APK Not Available
+                  Download Link Not Available
                 </button>
               )}
             </div>

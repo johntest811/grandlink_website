@@ -67,6 +67,7 @@ export default function TopNavBar() {
             <Link href="/services" className="py-2">Services</Link>
             <Link href="/Product" className="py-2">Products</Link>
             <Link href="/FAQs" className="py-2">FAQs</Link>
+            <Link href="/download" className="py-2">Download</Link>
           </div>
         </nav>
       )}

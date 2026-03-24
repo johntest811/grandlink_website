@@ -548,6 +548,7 @@ export default function UnifiedTopNavBar() {
           </div>
 
           <Link href="/FAQs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">FAQs</Link>
+          <Link href="/download" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Download</Link>
           <Link href="/blogs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Blogs</Link>
         </nav>
         
@@ -966,6 +967,16 @@ export default function UnifiedTopNavBar() {
               }}
             >
               Blogs
+            </Link>
+            <Link
+              href="/download"
+              className="block rounded-lg px-3 py-3 text-base font-medium text-gray-800 hover:bg-gray-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setMobileDropdown(null);
+              }}
+            >
+              Download
             </Link>
           </div>
         </nav>

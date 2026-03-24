@@ -16,11 +16,16 @@ function getWriteClient() {
   return createClient(SUPA_URL, SUPA_SERVICE_KEY);
 }
 
+const GET_CACHE_CONTROL = "public, max-age=120, s-maxage=600, stale-while-revalidate=3600";
+
 // GET -> return the home content (single row with slug = 'home')
 export async function GET() {
   const supabase = getReadClient();
   if (!supabase) {
-    return NextResponse.json({ content: {}, updated_at: null });
+    return NextResponse.json(
+      { content: {}, updated_at: null, newest_products: [] },
+      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
+    );
   }
 
   try {
@@ -31,25 +36,58 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
 
-    if (bySlug.data) {
-      return NextResponse.json(bySlug.data);
-    }
+    const homeData = bySlug.data
+      ? bySlug.data
+      : (
+          await supabase
+            .from("home_content")
+            .select("content,updated_at")
+            .eq("id", SINGLETON_ID)
+            .limit(1)
+            .maybeSingle()
+        ).data || { content: {}, updated_at: null };
 
-    const byId = await supabase
-      .from("home_content")
-      .select("content,updated_at")
-      .eq("id", SINGLETON_ID)
-      .limit(1)
-      .maybeSingle();
+    const newestProductsRes = await supabase
+      .from("products")
+      .select("id, name, fullproductname, description, price, images, image1, image2, image3, image4, image5, created_at")
+      .order("created_at", { ascending: false })
+      .limit(4);
 
-    if (byId.data) {
-      return NextResponse.json(byId.data);
-    }
+    const normalizedProducts = (newestProductsRes.data || []).map((p: any) => {
+      const arrFromCols = [p.image1, p.image2, p.image3, p.image4, p.image5].filter(Boolean);
+      const imagesArray = Array.isArray(p.images) && p.images.length ? p.images : arrFromCols;
+      const firstImage = imagesArray && imagesArray.length ? imagesArray[0] : undefined;
 
-    return NextResponse.json({ content: {}, updated_at: null });
+      const productCode = p.name ?? p.code ?? `GE-${String(p.id || "").slice(0, 6)}`;
+      const productName = p.fullproductname ?? p.product_name ?? p.productName ?? p.name;
+
+      return {
+        id: p.id,
+        title: productCode,
+        name: productName,
+        code: productCode,
+        description: p.description,
+        price: p.price,
+        images: imagesArray,
+        image: firstImage,
+        created_at: p.created_at,
+      };
+    });
+
+    return NextResponse.json(
+      {
+        content: homeData.content || {},
+        updated_at: homeData.updated_at || null,
+        newest_products: normalizedProducts,
+      },
+      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
+    );
   } catch (error: any) {
     console.error("GET /api/home failed", error);
-    return NextResponse.json({ content: {}, updated_at: null });
+    return NextResponse.json(
+      { content: {}, updated_at: null, newest_products: [] },
+      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
+    );
   }
 }
 
@@ -76,7 +114,7 @@ export async function PUT(req: Request) {
       .maybeSingle();
 
     if (!byId.error && byId.data) {
-      return NextResponse.json(byId.data);
+      return NextResponse.json(byId.data, { headers: { "Cache-Control": "no-store" } });
     }
 
     const { data, error } = await supabase
@@ -86,7 +124,7 @@ export async function PUT(req: Request) {
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "unknown" }, { status: 500 });
   }

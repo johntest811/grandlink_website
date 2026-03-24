@@ -1006,7 +1006,7 @@ function CartCheckoutContent() {
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
+                {/* <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#8B1C1C] transition">
                   <input
                     type="radio"
                     name="paymentMethod"
@@ -1018,7 +1018,7 @@ function CartCheckoutContent() {
                     <div className="font-semibold text-gray-900">PayPal</div>
                     <div className="text-sm text-gray-500">Pay with your PayPal wallet or linked card</div>
                   </div>
-                </label>
+                </label> */}
               </div>
             </div>
 

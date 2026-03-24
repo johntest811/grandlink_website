@@ -4,7 +4,6 @@ import Link from "next/link";
 import Image from "next/image";
 import useEmblaCarousel from "embla-carousel-react";
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import UnifiedTopNavBar from "@/components/UnifiedTopNavBar";
 import Footer from "@/components/Footer";
 
@@ -19,27 +18,81 @@ type HomeContent = {
   [k: string]: any;
 };
 
-// Supabase client (client-side; uses public anon key)
+type HomeApiResponse = {
+  content?: HomeContent;
+  newest_products?: any[];
+  updated_at?: string | null;
+};
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON);
-
-
-// singleton id used by the admin API/backend
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
 // helper to convert storage file key -> public url (or pass through full urls)
 function getImageUrl(val?: string) {
   if (!val) return "";
-  const v = String(val).trim();
-  // If it's already an absolute URL, just return it
-  if (v.startsWith("http://") || v.startsWith("https://")) return v;
-  // If it looks like a Next.js public asset (starts with /), use it directly
-  if (v.startsWith("/")) return v;
-  // Otherwise, treat it as a Supabase Storage key in the `uploads` bucket
+  const value = String(val).trim();
+  if (!value) return "";
+
+  if (value.startsWith("data:")) return value;
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  if (value.startsWith("/") && !value.includes("/storage/v1/object/public/")) return value;
+  if (!SUPABASE_URL) return value;
+
   const base = SUPABASE_URL.replace(/\/$/, "");
-  const cleaned = v.replace(/^\/+/, "");
-  return `${base}/storage/v1/object/public/uploads/${encodeURIComponent(cleaned)}`;
+
+  const fromStoragePath = value.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i);
+  if (fromStoragePath?.[1] && fromStoragePath?.[2]) {
+    const bucket = fromStoragePath[1];
+    const objectPath = fromStoragePath[2]
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+    return `${base}/storage/v1/object/public/${bucket}/${objectPath}`;
+  }
+
+  let cleaned = value.replace(/^\/+/, "");
+  cleaned = cleaned.replace(/^storage\/v1\/object\/public\//i, "");
+
+  let bucket = "uploads";
+  if (/^(uploads|Downloads)\//.test(cleaned)) {
+    const firstSlash = cleaned.indexOf("/");
+    bucket = cleaned.slice(0, firstSlash);
+    cleaned = cleaned.slice(firstSlash + 1);
+  }
+
+  const encodedPath = cleaned
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+
+  return `${base}/storage/v1/object/public/${bucket}/${encodedPath}`;
+}
+
+function getYoutubeEmbedUrl(url?: string | null) {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(String(url).trim());
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname;
+
+    if (host.includes("youtu.be")) {
+      const id = path.split("/").filter(Boolean)[0];
+      return id ? `https://www.youtube.com/embed/${id}` : null;
+    }
+
+    if (host.includes("youtube.com") || host.includes("youtube-nocookie.com")) {
+      const watchId = parsed.searchParams.get("v");
+      if (watchId) return `https://www.youtube.com/embed/${watchId}`;
+
+      const embedMatch = path.match(/\/(embed|shorts|live)\/([^/?#]+)/i);
+      if (embedMatch?.[2]) return `https://www.youtube.com/embed/${embedMatch[2]}`;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function renderHtmlPreview(value: unknown): string {
@@ -58,103 +111,35 @@ export default function HomePage() {
   const [content, setContent] = useState<HomeContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [newestProducts, setNewestProducts] = useState<any[]>([]);
-  
-  // load 4 newest products from products table (by created_at)
-  useEffect(() => {
-    const loadNewest = async () => {
-      if (!SUPABASE_URL || !SUPABASE_ANON) {
-        console.warn("[home] Supabase env missing, skipping newest products load");
-        setNewestProducts([]);
-        return;
-      }
-
-      try {
-        // select columns that exist in your products table
-        const { data, error } = await supabaseClient
-          .from("products")
-          .select("id, name, fullproductname, description, price, images, image1, image2, image3, image4, image5, created_at")
-          .order("created_at", { ascending: false })
-          .limit(4);
-
-        if (error) {
-          console.warn("[home] fetch newest products error:", error);
-          setNewestProducts([]);
-          return;
-        }
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          console.warn("[home] products query returned no rows.");
-          setNewestProducts([]);
-          return;
-        }
-
-        // normalize images: prefer images[] column, otherwise gather image1..image5
-        const normalized = (data as any[]).map((p) => {
-          const arrFromCols = [p.image1, p.image2, p.image3, p.image4, p.image5].filter(Boolean);
-          const imagesArray = Array.isArray(p.images) && p.images.length ? p.images : arrFromCols;
-          const firstImage = imagesArray && imagesArray.length ? imagesArray[0] : undefined;
-
-          const productCode = p.name ?? p.code ?? `GE-${String(p.id || "").slice(0, 6)}`;
-          const productName = p.fullproductname ?? p.product_name ?? p.productName ?? p.name;
-
-          return {
-            id: p.id,
-            title: productCode,
-            name: productName,
-            code: productCode,
-            description: p.description,
-            price: p.price,
-            images: imagesArray,
-            image: firstImage,
-            created_at: p.created_at,
-          };
-        });
-
-        setNewestProducts(normalized);
-      } catch (e) {
-        console.error("[home] loadNewest error:", e);
-        setNewestProducts([]);
-      }
-    };
-    loadNewest();
-  }, []);
-
-  // fallback static slides (keeps same design if DB empty)
-  const fallbackSlides = [
-    { id: 1, title: "Welcome to Grand East", image_url: "/aboutus.avif", link_url: "/about-us" },
-    { id: 2, title: "Quality Aluminum & Glass", image_url: "/sevices.avif", link_url: "/Product" },
-    { id: 3, title: "Modern Designs", image_url: "/Delivery&Ordering.avif", link_url: "/services" },
-  ];
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabaseClient
-          .from("home_content")
-          .select("content")
-          .eq("id", SINGLETON_ID)
-          .single();
+        const res = await fetch("/api/home");
+        const payload = (await res.json().catch(() => ({}))) as HomeApiResponse;
 
-        if (error) {
-          console.warn("fetch home_content:", error);
+        if (!res.ok) {
           setContent(null);
-        } else {
-          // content in DB may be stored as a JSON string or as an object.
-          const raw = data?.content ?? {};
-          let parsed: any = raw;
-          if (typeof raw === "string") {
-            try {
-              parsed = JSON.parse(raw);
-            } catch (e) {
-              console.warn("home_content.content JSON parse failed, using raw value", e);
-              parsed = raw;
-            }
-          }
-          setContent((parsed ?? {}) as HomeContent);
+          setNewestProducts([]);
+          return;
         }
+
+        const raw = payload?.content ?? {};
+        let parsed: any = raw;
+        if (typeof raw === "string") {
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            parsed = {};
+          }
+        }
+        setContent((parsed ?? {}) as HomeContent);
+        setNewestProducts(Array.isArray(payload?.newest_products) ? payload.newest_products : []);
       } catch (err) {
         console.error("load home_content error:", err);
         setContent(null);
+        setNewestProducts([]);
       } finally {
         setLoading(false);
       }
@@ -162,7 +147,11 @@ export default function HomePage() {
     load();
   }, []);
 
-  const carousel = (content?.carousel && content.carousel.length ? content.carousel : fallbackSlides) as any[];
+  const carousel = (content?.carousel && content.carousel.length ? content.carousel : [
+    { id: 1, title: "Welcome to Grand East", image_url: "/aboutus.avif", link_url: "/about-us" },
+    { id: 2, title: "Quality Aluminum & Glass", image_url: "/sevices.avif", link_url: "/Product" },
+    { id: 3, title: "Modern Designs", image_url: "/Delivery&Ordering.avif", link_url: "/services" },
+  ]) as any[];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -205,25 +194,6 @@ function HeroSlider({ slides }: { slides: any[] }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const getYoutubeEmbedUrl = (url?: string) => {
-    if (!url) return null;
-
-    try {
-      const watchMatch = url.match(/[?&]v=([^&#]+)/);
-      if (watchMatch?.[1]) return `https://www.youtube.com/embed/${watchMatch[1]}`;
-
-      const shortMatch = url.match(/youtu\.be\/([^&#?/]+)/);
-      if (shortMatch?.[1]) return `https://www.youtube.com/embed/${shortMatch[1]}`;
-
-      const embedMatch = url.match(/youtube\.com\/embed\/([^&#?/]+)/);
-      if (embedMatch?.[1]) return `https://www.youtube.com/embed/${embedMatch[1]}`;
-    } catch {
-      return null;
-    }
-
-    return null;
-  };
-
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.on("select", () => {
@@ -259,7 +229,7 @@ function HeroSlider({ slides }: { slides: any[] }) {
                 {embedUrl ? (
                   <div className="absolute inset-0 bg-black">
                     <iframe
-                      src={embedUrl}
+                      src={`${embedUrl}?rel=0&modestbranding=1`}
                       className="w-full h-full"
                       title={title || "Carousel video"}
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -355,7 +325,18 @@ function ProductCategory({
               return (
                 <div key={key} className="border border-gray-200 shadow-sm hover:shadow-md transition rounded-lg p-4 flex flex-col bg-white">
                   <div className="h-40 bg-gray-200 flex items-center justify-center overflow-hidden">
-                    {img ? <img src={img} alt={item.title || item.name || "Product"} className="h-full w-full object-cover" /> : <span className="text-gray-500">Image</span>}
+                    {img ? (
+                      <Image
+                        src={img}
+                        alt={item.title || item.name || "Product"}
+                        width={640}
+                        height={320}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="text-gray-500">Image</span>
+                    )}
                   </div>
 
                   <div className="flex-1 flex flex-col justify-between mt-3">
@@ -444,7 +425,14 @@ function FeaturedLongImageGallery({ items }: { items?: Array<any> }) {
                 className="group relative h-[420px] rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition text-left"
               >
                 {img ? (
-                  <img src={img} alt={item.title || `Featured product ${index + 1}`} className="w-full h-full object-cover" />
+                  <Image
+                    src={img}
+                    alt={item.title || `Featured product ${index + 1}`}
+                    fill
+                    className="w-full h-full object-cover"
+                    sizes="(max-width: 768px) 100vw, 33vw"
+                    loading="lazy"
+                  />
                 ) : (
                   <div className="w-full h-full bg-gray-200" />
                 )}
@@ -467,10 +455,13 @@ function FeaturedLongImageGallery({ items }: { items?: Array<any> }) {
               ←
             </button>
             <div className="w-full max-w-4xl">
-              <img
+              <Image
                 src={getImageUrl(gallery[activeIndex].image)}
                 alt={gallery[activeIndex].title || `Featured product ${activeIndex + 1}`}
+                width={1600}
+                height={900}
                 className="w-full max-h-[75vh] object-contain rounded"
+                loading="lazy"
               />
               <div className="mt-3 text-center text-white">
                 <h4 className="text-xl font-semibold">{gallery[activeIndex].title || `Featured Product ${activeIndex + 1}`}</h4>
@@ -527,10 +518,13 @@ function ExploreSection({ items }: { items?: Array<any> }) {
               >
                 {/* Background image */}
                 {img ? (
-                  <img
+                  <Image
                     src={img}
                     alt={cat.title || ""}
+                    fill
                     className="absolute inset-0 w-full h-full object-cover"
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    loading="lazy"
                   />
                 ) : (
                   <div className="absolute inset-0 bg-gray-200" />
@@ -626,7 +620,7 @@ function FeaturedProjects({ projects }: { projects?: Array<any> }) {
                 <div className="w-full max-w-4xl aspect-video bg-black rounded overflow-hidden mb-4">
                   {embedUrl ? (
                     <iframe
-                      src={embedUrl}
+                      src={`${embedUrl}?rel=0&modestbranding=1`}
                       className="w-full h-full"
                       title={p.title || "Featured project video"}
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -708,10 +702,13 @@ function ServicesSection({ services, about }: { services?: any; about?: any }) {
             {/* main image (smaller) */}
             <div className="w-full h-40 md:h-48 bg-gray-200 overflow-hidden flex items-center justify-center rounded">
               {mainImage ? (
-                <img
+                <Image
                   src={mainImage.startsWith("http") ? mainImage : getImageUrl(mainImage)}
                   alt="Service main"
+                  width={1280}
+                  height={640}
                   className="w-full h-full object-cover"
+                  loading="lazy"
                 />
               ) : (
                 <span className="text-gray-500 text-sm">Main Image</span>
@@ -731,7 +728,14 @@ function ServicesSection({ services, about }: { services?: any; about?: any }) {
                     type="button"
                   >
                     {im ? (
-                      <img src={im.startsWith("http") ? im : getImageUrl(im)} alt={`thumb-${idx}`} className="w-full h-full object-cover" />
+                      <Image
+                        src={im.startsWith("http") ? im : getImageUrl(im)}
+                        alt={`thumb-${idx}`}
+                        width={220}
+                        height={120}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
                     ) : (
                       <div className="w-full h-full bg-gray-100" />
                     )}
@@ -749,7 +753,11 @@ function ServicesSection({ services, about }: { services?: any; about?: any }) {
         {/* Bottom-left: Logo (kept size moderate) */}
         <div className="order-3 md:order-3 flex items-center justify-center relative z-20 pl-4 pt-4">
           <div className="w-full h-40 md:h-48 flex items-center justify-center bg-white overflow-hidden rounded shadow-sm p-3">
-            {logoUrl ? <img src={logoUrl} alt="Logo" className="max-h-full object-contain" /> : <span className="text-gray-400 text-lg">LOGO IMAGE</span>}
+            {logoUrl ? (
+              <Image src={logoUrl} alt="Logo" width={640} height={320} className="max-h-full object-contain" loading="lazy" />
+            ) : (
+              <span className="text-gray-400 text-lg">LOGO IMAGE</span>
+            )}
           </div>
         </div>
 

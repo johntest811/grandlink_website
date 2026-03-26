@@ -44,6 +44,10 @@ PAYREX_WEBHOOK_SECRET_KEY=...
 
 # App URLs (used in invoice assets and callbacks)
 NEXT_PUBLIC_BASE_URL=https://your-website-domain
+
+# PayMongo
+# Webhook signing secret from PayMongo Dashboard (Developers → Webhooks → your webhook → Signing secret)
+PAYMONGO_WEBHOOK_SECRET=...
 ```
 
 Notes:

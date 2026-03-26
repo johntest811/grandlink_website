@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ensureInvoiceForUserItem } from '@/app/lib/invoiceService';
 import { getMailFrom, getMailTransporter } from '@/app/lib/mailer';
 import { normalizeFulfillmentMethod } from '@/utils/fulfillment';
+import crypto from 'crypto';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +11,47 @@ const supabase = createClient(
 );
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://grandlnik-website.vercel.app';
+
+function parsePaymongoSignatureHeader(value: string | null): { t?: string; te?: string; li?: string } {
+  if (!value) return {};
+  const parts = value
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const out: { t?: string; te?: string; li?: string } = {};
+  for (const part of parts) {
+    const eqIndex = part.indexOf('=');
+    if (eqIndex <= 0) continue;
+    const key = part.slice(0, eqIndex).trim();
+    const val = part.slice(eqIndex + 1).trim();
+    if (key === 't') out.t = val;
+    if (key === 'te') out.te = val;
+    if (key === 'li') out.li = val;
+  }
+  return out;
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  try {
+    const aBuf = Buffer.from(a, 'hex');
+    const bBuf = Buffer.from(b, 'hex');
+    if (aBuf.length !== bBuf.length) return false;
+    return crypto.timingSafeEqual(aBuf, bBuf);
+  } catch {
+    return false;
+  }
+}
+
+function computePaymongoSignatureHex(secret: string, timestamp: string, rawBody: string): string {
+  const signedPayload = `${timestamp}.${rawBody}`;
+  return crypto.createHmac('sha256', secret).update(signedPayload, 'utf8').digest('hex');
+}
+
+function shouldEnforceSignatureVerification(): boolean {
+  // In local dev, allow running without a webhook secret.
+  return process.env.NODE_ENV === 'production' || !!process.env.PAYMONGO_WEBHOOK_SECRET;
+}
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -80,10 +122,82 @@ function detectPayMongoChannel(payload: any): string | null {
   return normalized;
 }
 
+async function resolveReceiptEmail(options: {
+  userId: string;
+  deliveryAddressId?: string | null;
+}): Promise<string | null> {
+  const { userId, deliveryAddressId } = options;
+
+  const normalizeEmail = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const email = value.trim();
+    if (!email) return null;
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailPattern.test(email) ? email : null;
+  };
+
+  // Prefer the selected delivery address email (the user inputs this on the Address page).
+  if (deliveryAddressId) {
+    const { data: addr } = await supabase
+      .from('addresses')
+      .select('email')
+      .eq('id', deliveryAddressId)
+      .maybeSingle();
+    const email = normalizeEmail(addr?.email);
+    if (email) return email;
+  }
+
+  // Fallback to default/newest address email.
+  const { data: fallbackAddr } = await supabase
+    .from('addresses')
+    .select('email')
+    .eq('user_id', userId)
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const fallbackEmail = normalizeEmail(fallbackAddr?.email);
+  if (fallbackEmail) return fallbackEmail;
+
+  // Final fallback: Supabase auth email.
+  try {
+    const { data: userWrap } = await supabase.auth.admin.getUserById(userId);
+    return normalizeEmail(userWrap?.user?.email);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('📦 PayMongo webhook received');
-    const payload = await request.json();
+    const rawBody = await request.text();
+
+    // Verify PayMongo signature (recommended): https://developers.paymongo.com/docs/securing-webhook
+    const signatureHeader = request.headers.get('paymongo-signature');
+    const { t, te, li } = parsePaymongoSignatureHeader(signatureHeader);
+    const secret = process.env.PAYMONGO_WEBHOOK_SECRET;
+
+    if (shouldEnforceSignatureVerification()) {
+      if (!secret) {
+        console.error('❌ PAYMONGO_WEBHOOK_SECRET is not configured');
+        return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
+      }
+      if (!t || (!te && !li)) {
+        console.error('❌ Missing/invalid Paymongo-Signature header');
+        return NextResponse.json({ error: 'Invalid signature header' }, { status: 400 });
+      }
+
+      const expected = computePaymongoSignatureHex(secret, t, rawBody);
+      const provided = li || te || '';
+      const ok = timingSafeEqualHex(expected, provided);
+      if (!ok) {
+        console.error('❌ Webhook signature verification failed');
+        return NextResponse.json({ error: 'Signature verification failed' }, { status: 400 });
+      }
+    }
+
+    const payload = JSON.parse(rawBody);
     const data = payload?.data;
 
     const paymongoChannel = detectPayMongoChannel(payload);
@@ -128,9 +242,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid webhook data' }, { status: 400 });
       }
 
-      const notifiedItems: { id: string; product_id: string; product_name: string; product_image?: string | null; quantity: number; total_paid: number; user_id?: string }[] = [];
+      const notifiedItems: { id: string; product_id: string; product_name: string; product_image?: string | null; quantity: number; total_paid: number; user_id?: string; delivery_address_id?: string | null; meta?: Record<string, any> }[] = [];
       let grandTotalPaid = 0;
       let cartUserId: string | null = null;
+      let firstUserId: string | null = null;
+      let receiptAlreadySent = false;
 
       for (const id of ids) {
         // Try to find the item (could be cart or reservation)
@@ -157,8 +273,13 @@ export async function POST(request: NextRequest) {
         }
         
         if (!cartUserId) cartUserId = userItem.user_id;
+        if (!firstUserId) firstUserId = userItem.user_id;
 
         const itemMeta = userItem.meta || {};
+        if (itemMeta?.receipt_email_sent_at) {
+          receiptAlreadySent = true;
+        }
+
         const { data: productDetails } = await supabase
           .from('products')
           .select('name,price,inventory,images,image1,image2,image3,image4,image5')
@@ -181,8 +302,9 @@ export async function POST(request: NextRequest) {
 
         // Prepare update data
         const updateData: any = {
-          status: 'pending_payment',
-          order_status: 'pending_payment',
+          // Payment is confirmed; mark as completed so UIs that filter by status/order_status detect it.
+          status: 'completed',
+          order_status: 'completed',
           price: Number(userItem.price || 0),
           payment_status: 'completed',
           payment_id: sessionId,
@@ -203,6 +325,7 @@ export async function POST(request: NextRequest) {
             payment_session_id: sessionId,
             payment_method: 'paymongo',
             paymongo_channel: paymongoChannel,
+            paid_via_qrph: paymongoChannel === 'qrph',
             subtotal,
             addons_total: addonsTotal,
             addons_total_per_item: addonsPerItem,
@@ -274,6 +397,8 @@ export async function POST(request: NextRequest) {
           quantity: userItem.quantity,
           total_paid: finalTotalPerItem,
           user_id: userItem.user_id,
+          delivery_address_id: userItem.delivery_address_id ?? null,
+          meta: itemMeta,
         });
 
         // Generate invoice (best-effort)
@@ -362,11 +487,28 @@ export async function POST(request: NextRequest) {
         // Customer payment confirmation email (includes purchased items)
         try {
           const transporter = getMailTransporter();
-          if (transporter && cartUserId) {
-            const { data: userWrap } = await supabase.auth.admin.getUserById(cartUserId);
-            const recipientEmail = userWrap?.user?.email;
+          const userIdForReceipt = cartUserId || firstUserId;
+
+          // Idempotency: avoid resending receipt if webhook retries.
+          if (receiptAlreadySent) {
+            console.log('ℹ️ Receipt already sent for at least one item; skipping customer receipt email');
+            return;
+          }
+
+          if (transporter && userIdForReceipt) {
+            const deliveryAddressId = notifiedItems.find((item) => item.user_id === userIdForReceipt)?.delivery_address_id;
+            const recipientEmail = await resolveReceiptEmail({
+              userId: userIdForReceipt,
+              deliveryAddressId: deliveryAddressId ?? null,
+            });
 
             if (recipientEmail) {
+              const receiptLabel = paymongoChannel === 'qrph'
+                ? 'QRPh receipt'
+                : paymongoChannel
+                ? `${paymongoChannel.toUpperCase()} receipt`
+                : 'PayMongo receipt';
+
               const itemCards = notifiedItems
                 .map(
                   (item) =>
@@ -391,11 +533,11 @@ export async function POST(request: NextRequest) {
               await transporter.sendMail({
                 from: getMailFrom(),
                 to: recipientEmail,
-                subject: `Payment Confirmed - ${paymentLabel}`,
+                subject: `Payment Confirmed (${receiptLabel}) - ${paymentLabel}`,
                 html: `
                   <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;background:#f9fafb;padding:24px;border-radius:20px;">
                     <h2 style="margin-bottom:8px;color:#111827;">Payment Confirmed</h2>
-                    <p style="margin-top:0;color:#444;">Your payment has been received successfully via PayMongo${channelLabel}.</p>
+                    <p style="margin-top:0;color:#444;">Your payment has been received successfully via PayMongo${channelLabel}. This email serves as your receipt.</p>
                     <div style="margin-top:18px;">
                       <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:8px;">Purchased items</div>
                       ${itemCards}
@@ -415,6 +557,24 @@ export async function POST(request: NextRequest) {
                   </div>
                 `,
               });
+
+              // Mark receipt as sent (best-effort) to prevent duplicate emails on webhook retries.
+              try {
+                const sentAt = new Date().toISOString();
+                for (const item of notifiedItems) {
+                  const nextMeta = {
+                    ...(item.meta || {}),
+                    receipt_email_sent_at: sentAt,
+                    receipt_email_to: recipientEmail,
+                  };
+                  await supabase.from('user_items').update({
+                    meta: nextMeta,
+                    updated_at: sentAt,
+                  }).eq('id', item.id);
+                }
+              } catch (markErr) {
+                console.warn('⚠️ Failed to mark receipt as sent:', markErr);
+              }
             }
           }
         } catch (emailErr) {

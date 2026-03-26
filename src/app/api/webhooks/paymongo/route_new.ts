@@ -28,12 +28,14 @@ function detectPayMongoChannel(payload: any): string | null {
   const normalized = raw.trim().toLowerCase();
   if (normalized.includes('gcash')) return 'gcash';
   if (normalized.includes('maya') || normalized.includes('paymaya')) return 'paymaya';
+  if (normalized.includes('qrph')) return 'qrph';
   if (normalized.includes('card')) return 'card';
   return normalized;
 }
 
 export async function POST(request: NextRequest) {
   try {
+    console.warn('⚠️ Deprecated PayMongo webhook handler hit: route_new.ts. Prefer /api/webhooks/paymongo (route.ts).');
     console.log('📦 PayMongo webhook received');
     const payload = await request.json();
     const data = payload?.data;

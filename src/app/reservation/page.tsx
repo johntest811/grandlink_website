@@ -364,46 +364,36 @@ function ReservationPageContent() {
   const qty = Math.max(1, Number(formData.quantity || 1));
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
-  const measurementPricing = (() => {
-    const defaultUnitPrice = Math.max(0, Number(product?.price || 0));
+  const originalPrice = Math.max(0, Number(product?.price || 0));
+  const baseWmm = Number(product?.width || 0);
+  const baseHmm = Number(product?.height || 0);
+  const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
+  const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+  const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
+  const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
+  const customMeasurementActive =
+    formData.measurementEnabled &&
+    !(
+      measurementsMatch(widthMeters, baseWidthM) &&
+      measurementsMatch(heightMeters, baseHeightM)
+    );
 
-    const baseWmm = Number(product?.width || 0);
-    const baseHmm = Number(product?.height || 0);
-    const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
-    const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
-    const unitPricePerSqm = defaultUnitPrice;
+  const computedPricing = computeMeasurementPricing({
+    widthMeters,
+    heightMeters,
+    unitPricePerSqm: originalPrice,
+    minSqm: 0,
+    sqmDecimals: 2,
+  });
 
-    const widthMeters = formData.customWidth ? Number(formData.customWidth) : baseWidthM;
-    const heightMeters = formData.customHeight ? Number(formData.customHeight) : baseHeightM;
-
-    const defaultPricing = computeMeasurementPricing({
-      widthMeters: baseWidthM,
-      heightMeters: baseHeightM,
-      unitPricePerSqm,
-      minSqm: 0,
-      sqmDecimals: 2,
-    });
-
-    const customMeasurementActive =
-      formData.measurementEnabled &&
-      !(
-        measurementsMatch(widthMeters, baseWidthM) &&
-        measurementsMatch(heightMeters, baseHeightM)
-      );
-
-    if (!customMeasurementActive) return defaultPricing;
-
-    return computeMeasurementPricing({
-      widthMeters,
-      heightMeters,
-      unitPricePerSqm,
-      minSqm: 0,
-      sqmDecimals: 2,
-    });
-  })();
+  const measurementPricing = {
+    ...computedPricing,
+    unit_price: customMeasurementActive ? computedPricing.unit_price : originalPrice,
+  };
 
   const computedUnitPrice = measurementPricing.unit_price;
-  const productSubtotal = computedUnitPrice * qty;
+  const effectiveUnitPrice = measurementPricing.unit_price;
+  const productSubtotal = effectiveUnitPrice * qty;
   const addonsTotal = formData.colorCustomization ? 2500 * qty : 0;
   const preDiscount = productSubtotal + addonsTotal;
   const discountValue = voucherInfo
@@ -414,7 +404,6 @@ function ReservationPageContent() {
   const discountedTotal = Math.max(0, preDiscount - discountValue);
   const reservationFee = fulfillmentMethod === "delivery" ? DELIVERY_FEE : 0;
   const balanceDue = Math.max(0, discountedTotal - reservationFee);
-  const originalPrice = Math.max(0, Number(product?.price || 0));
 
   const applyVoucher = async () => {
     if (preDiscount <= 0) {
@@ -465,10 +454,22 @@ function ReservationPageContent() {
           quantity: qty,
           meta: {
             custom_dimensions: {
-              enabled: formData.measurementEnabled,
-              width: formData.measurementEnabled ? measurementPricing.width_m : undefined,
-              height: formData.measurementEnabled ? measurementPricing.height_m : undefined,
+              enabled: customMeasurementActive,
+              width: customMeasurementActive ? measurementPricing.width_m : undefined,
+              height: customMeasurementActive ? measurementPricing.height_m : undefined,
             },
+            pricing: {
+              unit_price: effectiveUnitPrice,
+              unit_price_per_sqm: Number(product.price || 0),
+              sqm_raw: measurementPricing.sqm_raw,
+              sqm_rounded: measurementPricing.sqm_rounded,
+              sqm_billable: measurementPricing.sqm_billable,
+              base_width_mm: product.width,
+              base_height_mm: product.height,
+              custom_width_m: measurementPricing.width_m,
+              custom_height_m: measurementPricing.height_m,
+            },
+            product_price: effectiveUnitPrice,
             addons,
             voucher_code: voucherInfo?.code || null,
             voucher_discount: discountValue,
@@ -542,7 +543,7 @@ function ReservationPageContent() {
         meta: {
           product_name: product.name,
           product_fullname: product.fullproductname,
-          product_price: computedUnitPrice,
+          product_price: effectiveUnitPrice,
           product_price_base: product.price,
           product_category: product.category,
           product_type: product.type,
@@ -555,12 +556,12 @@ function ReservationPageContent() {
           branch: fulfillmentMethod === "pickup" ? "TAYTAY Main" : null,
           pickup_address: fulfillmentMethod === "pickup" ? PICKUP_ADDRESS : null,
           custom_dimensions: {
-            enabled: formData.measurementEnabled,
-            width: formData.measurementEnabled ? measurementPricing.width_m : undefined,
-            height: formData.measurementEnabled ? measurementPricing.height_m : undefined,
+              enabled: customMeasurementActive,
+              width: customMeasurementActive ? measurementPricing.width_m : undefined,
+              height: customMeasurementActive ? measurementPricing.height_m : undefined,
           },
           pricing: {
-            unit_price: computedUnitPrice,
+            unit_price: effectiveUnitPrice,
             unit_price_per_sqm: Number(product.price || 0),
             sqm_raw: measurementPricing.sqm_raw,
             sqm_rounded: measurementPricing.sqm_rounded,

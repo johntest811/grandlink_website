@@ -122,6 +122,66 @@ function detectPayMongoChannel(payload: any): string | null {
   return normalized;
 }
 
+function allocateCentsByWeights(totalCents: number, weights: number[]): number[] {
+  const normalizedTotal = Math.max(0, Math.round(Number(totalCents || 0)));
+  const size = Array.isArray(weights) ? weights.length : 0;
+  if (size === 0) return [];
+  if (normalizedTotal <= 0) return new Array(size).fill(0);
+
+  const normalizedWeights = weights.map((value) => {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+    return Math.round(numeric);
+  });
+  const sumWeights = normalizedWeights.reduce((sum, value) => sum + value, 0);
+
+  if (sumWeights <= 0) {
+    const base = Math.floor(normalizedTotal / size);
+    let remainder = normalizedTotal - base * size;
+    return normalizedWeights.map(() => {
+      const extra = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder -= 1;
+      return base + extra;
+    });
+  }
+
+  if (sumWeights === normalizedTotal) {
+    return normalizedWeights;
+  }
+
+  const provisional = normalizedWeights.map((weight, index) => {
+    const exact = (normalizedTotal * weight) / sumWeights;
+    const floorValue = Math.floor(exact);
+    return {
+      index,
+      floorValue,
+      remainder: exact - floorValue,
+    };
+  });
+
+  const allocation = new Array(size).fill(0);
+  let assigned = 0;
+  provisional.forEach((entry) => {
+    allocation[entry.index] = entry.floorValue;
+    assigned += entry.floorValue;
+  });
+
+  let remaining = normalizedTotal - assigned;
+  provisional
+    .slice()
+    .sort((left, right) => {
+      if (right.remainder !== left.remainder) return right.remainder - left.remainder;
+      return left.index - right.index;
+    })
+    .forEach((entry) => {
+      if (remaining <= 0) return;
+      allocation[entry.index] += 1;
+      remaining -= 1;
+    });
+
+  return allocation;
+}
+
 async function resolveReceiptEmail(options: {
   userId: string;
   deliveryAddressId?: string | null;
@@ -230,6 +290,40 @@ export async function POST(request: NextRequest) {
         return 0;
       })();
       const totalAmount = Number(meta?.total_amount || amountPaid);
+      const perItemSummaryRaw = meta?.per_item_summary_json;
+      const perItemSummaryMap = new Map<string, number>();
+      if (typeof perItemSummaryRaw === 'string' && perItemSummaryRaw.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(perItemSummaryRaw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((entry: any) => {
+              const id = typeof entry?.id === 'string' ? entry.id : '';
+              const finalTotal = Number(entry?.final_total ?? 0);
+              if (!id || !Number.isFinite(finalTotal) || finalTotal < 0) return;
+              perItemSummaryMap.set(id, finalTotal);
+            });
+          }
+        } catch {
+          // Keep processing; fallback allocation handles malformed metadata.
+        }
+      }
+
+      const expectedPerItemCents = ids.map((id) => {
+        const expected = Number(perItemSummaryMap.get(id) ?? 0);
+        if (!Number.isFinite(expected) || expected < 0) return 0;
+        return Math.round(expected * 100);
+      });
+      const paidTotalCents = (() => {
+        const fromProvider = Math.round(Number(amountPaid || 0) * 100);
+        if (fromProvider > 0) return fromProvider;
+        const fromMeta = Math.round(Number(totalAmount || 0) * 100);
+        return Math.max(0, fromMeta);
+      })();
+      const allocatedPaidCents = allocateCentsByWeights(paidTotalCents, expectedPerItemCents);
+      const paidTotalMap = new Map<string, number>();
+      ids.forEach((id, index) => {
+        paidTotalMap.set(id, Number(((allocatedPaidCents[index] || 0) / 100).toFixed(2)));
+      });
 
       console.log('🔍 Processing payment for items:', ids);
       console.log('💰 Amount paid:', amountPaid, 'Total:', totalAmount);
@@ -296,15 +390,21 @@ export async function POST(request: NextRequest) {
         const reservationShare = Number(reservationShareRaw.toFixed(2));
         const storedFinal = Number(itemMeta.final_total_per_item ?? 0);
         const computedFinal = lineAfterDiscount + reservationShare;
-        const finalTotalPerItem = Number((storedFinal > 0 ? storedFinal : computedFinal).toFixed(2));
+        const fallbackFinalTotal = Number((storedFinal > 0 ? storedFinal : computedFinal).toFixed(2));
+        const allocatedPaidTotal = paidTotalMap.get(id);
+        const finalTotalPerItem = Number(
+          ((typeof allocatedPaidTotal === 'number' && allocatedPaidTotal >= 0)
+            ? allocatedPaidTotal
+            : fallbackFinalTotal).toFixed(2)
+        );
 
         grandTotalPaid += finalTotalPerItem;
 
         // Prepare update data
         const updateData: any = {
-          // Payment is confirmed; mark as completed so UIs that filter by status/order_status detect it.
-          status: 'completed',
-          order_status: 'completed',
+          // Payment is confirmed, but fulfillment must still pass admin approval first.
+          status: 'pending_payment',
+          order_status: 'pending_payment',
           price: Number(userItem.price || 0),
           payment_status: 'completed',
           payment_id: sessionId,
@@ -401,7 +501,7 @@ export async function POST(request: NextRequest) {
           meta: itemMeta,
         });
 
-        // Generate invoice (best-effort)
+        // Pre-generate invoice record only (email is sent after admin approval).
         try {
           await ensureInvoiceForUserItem(id);
         } catch (e) {
@@ -512,21 +612,14 @@ export async function POST(request: NextRequest) {
               const itemCards = notifiedItems
                 .map(
                   (item) =>
-                    `<div style="display:flex;gap:16px;align-items:flex-start;padding:16px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;margin-top:12px;">
+                    `<div style="display:flex;gap:16px;align-items:flex-start;padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;margin-top:12px;">
                       ${item.product_image ? `<img src="${escapeHtml(item.product_image)}" alt="${escapeHtml(item.product_name)}" style="width:96px;height:96px;object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;flex-shrink:0;" />` : ''}
                       <div style="flex:1;min-width:0;">
-                        <div style="font-size:16px;font-weight:700;color:#111827;">${escapeHtml(item.product_name)}</div>
-                        <div style="margin-top:6px;font-size:13px;color:#4b5563;">Quantity: ${escapeHtml(item.quantity)}</div>
-                        <div style="margin-top:4px;font-size:13px;color:#4b5563;">Amount: ₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div style="font-size:15px;font-weight:700;color:#111827;">${escapeHtml(item.product_name)}</div>
+                        <div style="margin-top:6px;font-size:13px;color:#374151;">Quantity: ${escapeHtml(item.quantity)}</div>
+                        <div style="margin-top:4px;font-size:13px;color:#111827;font-weight:600;">Paid Amount: ₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       </div>
                     </div>`
-                )
-                .join('');
-
-              const itemRows = notifiedItems
-                .map(
-                  (item) =>
-                    `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${escapeHtml(item.product_name)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${item.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">₱${Number(item.total_paid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`
                 )
                 .join('');
 
@@ -535,25 +628,37 @@ export async function POST(request: NextRequest) {
                 to: recipientEmail,
                 subject: `Payment Confirmed (${receiptLabel}) - ${paymentLabel}`,
                 html: `
-                  <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;background:#f9fafb;padding:24px;border-radius:20px;">
-                    <h2 style="margin-bottom:8px;color:#111827;">Payment Confirmed</h2>
-                    <p style="margin-top:0;color:#444;">Your payment has been received successfully via PayMongo${channelLabel}. This email serves as your receipt.</p>
-                    <div style="margin-top:18px;">
-                      <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:8px;">Purchased items</div>
+                  <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;background:#f3f4f6;padding:24px;border-radius:16px;">
+                    <div style="background:#16a34a;color:#fff;padding:24px;border-radius:12px;text-align:center;">
+                      <div style="font-size:24px;font-weight:700;line-height:1.2;">Payment Successful</div>
+                      <div style="font-size:14px;opacity:0.95;margin-top:6px;">Your reservation payment has been received via PayMongo${channelLabel}.</div>
+                    </div>
+
+                    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:16px;">
+                      <div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:10px;">Reservation Receipt</div>
+                      <div style="font-size:13px;color:#374151;line-height:1.7;">
+                        <div><strong>Payment Reference:</strong> ${escapeHtml(sessionId)}</div>
+                        <div><strong>Payment Method:</strong> PayMongo ${paymongoChannel ? `(${escapeHtml(paymongoChannel.toUpperCase())})` : ''}</div>
+                        <div><strong>Items:</strong> ${notifiedItems.length}</div>
+                        <div><strong>Total Paid:</strong> ₱${Number(grandTotalPaid || amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>
+
+                    <div style="margin-top:16px;">
+                      <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:8px;">Purchased Items</div>
                       ${itemCards}
                     </div>
-                    <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:14px;">
-                      <thead>
-                        <tr>
-                          <th style="text-align:left;padding:8px;border-bottom:2px solid #e5e7eb;">Item</th>
-                          <th style="text-align:right;padding:8px;border-bottom:2px solid #e5e7eb;">Qty</th>
-                          <th style="text-align:right;padding:8px;border-bottom:2px solid #e5e7eb;">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>${itemRows}</tbody>
-                    </table>
-                    <p style="margin-top:14px;font-weight:700;">Total Paid: ₱${Number(grandTotalPaid || amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                    <p style="margin-top:6px;color:#666;font-size:12px;">Invoice emails are sent separately for each purchased item.</p>
+
+                    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:16px;">
+                      <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:10px;">What's Next?</div>
+                      <div style="font-size:13px;color:#374151;line-height:1.8;">
+                        <div><strong>1.</strong> Your payment is confirmed and now waiting for admin approval.</div>
+                        <div><strong>2.</strong> After approval, your order moves into production and delivery workflow.</div>
+                        <div><strong>3.</strong> The official invoice PDF will be emailed once admin approves your order.</div>
+                      </div>
+                    </div>
+
+                    <p style="margin-top:12px;color:#6b7280;font-size:12px;">This receipt confirms payment only. Final invoice is sent after admin approval.</p>
                   </div>
                 `,
               });

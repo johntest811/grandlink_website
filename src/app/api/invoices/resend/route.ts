@@ -16,10 +16,18 @@ function getBearerToken(request: NextRequest) {
   return token || null;
 }
 
+function isAdminInvoiceSyncRequest(request: NextRequest) {
+  const configuredSecret = String(process.env.ADMIN_INVOICE_SYNC_SECRET || "").trim();
+  if (!configuredSecret) return false;
+  const providedSecret = String(request.headers.get("x-admin-invoice-secret") || "").trim();
+  return providedSecret.length > 0 && providedSecret === configuredSecret;
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const isAdminSync = isAdminInvoiceSyncRequest(request);
     const token = getBearerToken(request);
-    if (!token) {
+    if (!isAdminSync && !token) {
       return NextResponse.json({ error: "Missing access token" }, { status: 401 });
     }
 
@@ -33,31 +41,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No user item IDs provided" }, { status: 400 });
     }
 
-    const supabaseUser = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseUser.auth.getUser();
-
-    if (userError || !user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -66,17 +49,47 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    const { data: ownedItems, error: ownedError } = await supabaseAdmin
-      .from("user_items")
-      .select("id")
-      .eq("user_id", user.id)
-      .in("id", userItemIds);
+    let ownedIds = new Set<string>();
+    if (isAdminSync) {
+      ownedIds = new Set(userItemIds);
+    } else {
+      const supabaseUser = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        }
+      );
 
-    if (ownedError) {
-      return NextResponse.json({ error: ownedError.message }, { status: 500 });
+      const {
+        data: { user },
+        error: userError,
+      } = await supabaseUser.auth.getUser();
+
+      if (userError || !user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const { data: ownedItems, error: ownedError } = await supabaseAdmin
+        .from("user_items")
+        .select("id")
+        .eq("user_id", user.id)
+        .in("id", userItemIds);
+
+      if (ownedError) {
+        return NextResponse.json({ error: ownedError.message }, { status: 500 });
+      }
+
+      ownedIds = new Set((ownedItems || []).map((item: any) => item.id as string));
     }
-
-    const ownedIds = new Set((ownedItems || []).map((item: any) => item.id as string));
     const results: Array<{ id: string; ok: boolean; error?: string }> = [];
 
     for (const id of userItemIds) {

@@ -63,6 +63,12 @@ function getPayMongoKeyMode(secretKey?: string) {
   return 'unknown';
 }
 
+function measurementsMatch(left?: number, right?: number) {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  return Math.abs(left - right) < 0.000001;
+}
+
 let payrexClient: any | null = null;
 function getPayrexClient() {
   const keyToUse = PAYREX_SECRET_KEY || PAYREX_PUBLIC_KEY;
@@ -723,30 +729,55 @@ export async function POST(request: NextRequest) {
     const productMap = new Map((products || []).map((p) => [p.id, p]));
 
     const computeUnitPriceFromDimensions = (p: any, meta: any) => {
-      const unitPricePerSqm = Number(p?.price || 0);
+      const defaultUnitPrice = Math.max(0, Number(p?.price || 0));
+      const unitPricePerSqm = defaultUnitPrice;
+      const storedUnitPrice = Number(meta?.pricing?.unit_price ?? meta?.product_price);
+      const storedUnitPriceValid = Number.isFinite(storedUnitPrice) && storedUnitPrice > 0;
 
       const baseWmm = Number(p?.width || 0);
       const baseHmm = Number(p?.height || 0);
       const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
       const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
 
+      const explicitEnabled = meta?.custom_dimensions?.enabled;
       const customWidth = meta?.custom_dimensions?.width;
       const customHeight = meta?.custom_dimensions?.height;
-      const widthMeters = customWidth ?? baseWidthM;
-      const heightMeters = customHeight ?? baseHeightM;
+      const customDiffersFromBase =
+        !measurementsMatch(Number(customWidth), baseWidthM) ||
+        !measurementsMatch(Number(customHeight), baseHeightM);
+      const useCustomMeasurements = explicitEnabled !== false && customDiffersFromBase;
+
+      const widthMeters = useCustomMeasurements ? customWidth ?? baseWidthM : baseWidthM;
+      const heightMeters = useCustomMeasurements ? customHeight ?? baseHeightM : baseHeightM;
 
       const perPanelPrice = meta?.custom_dimensions?.per_panel_price ?? meta?.pricing?.per_panel_price;
       const addedPanels = meta?.custom_dimensions?.added_panels ?? meta?.pricing?.added_panels;
 
-      return computeMeasurementPricing({
+      const computed = computeMeasurementPricing({
         widthMeters,
         heightMeters,
         unitPricePerSqm,
-        minSqm: 1,
+        minSqm: 0,
         sqmDecimals: 2,
         perPanelPrice,
         addedPanels,
       });
+
+      if (!useCustomMeasurements && storedUnitPriceValid) {
+        return {
+          ...computed,
+          unit_price: storedUnitPrice,
+        };
+      }
+
+      if (!useCustomMeasurements) {
+        return {
+          ...computed,
+          unit_price: defaultUnitPrice,
+        };
+      }
+
+      return computed;
     };
 
     // Validate stock only at session creation time.

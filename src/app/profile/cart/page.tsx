@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -111,9 +111,12 @@ export default function CartPage() {
     [items, selected]
   );
 
-  const computeUnitPrice = (item: UserItem) => {
+  const computeUnitPrice = useCallback((item: UserItem) => {
     const product = products[item.product_id];
-    const unitPricePerSqm = Math.max(0, Number(product?.price ?? 0));
+    const storedUnitPrice = Number(item.meta?.pricing?.unit_price ?? item.meta?.product_price);
+    const storedUnitPriceValid = Number.isFinite(storedUnitPrice) && storedUnitPrice > 0;
+    const defaultUnitPrice = Math.max(0, Number(product?.price ?? 0));
+    const unitPricePerSqm = defaultUnitPrice;
     const baseWidthRaw = Number(product?.width ?? 0);
     const baseHeightRaw = Number(product?.height ?? 0);
     const baseWidthM = Number.isFinite(baseWidthRaw) && baseWidthRaw > 0 ? baseWidthRaw / 1000 : undefined;
@@ -121,12 +124,21 @@ export default function CartPage() {
     const explicitEnabled = item.meta?.custom_dimensions?.enabled;
     const customWidth = item.meta?.custom_dimensions?.width;
     const customHeight = item.meta?.custom_dimensions?.height;
-    const useCustomMeasurements = explicitEnabled === true || (
-      explicitEnabled !== false && (
-        !measurementsMatch(Number(customWidth), baseWidthM) ||
-        !measurementsMatch(Number(customHeight), baseHeightM)
-      )
-    );
+    const customDiffersFromBase =
+      !measurementsMatch(Number(customWidth), baseWidthM) ||
+      !measurementsMatch(Number(customHeight), baseHeightM);
+
+    // Custom pricing applies only when there is an actual size difference from the base measurement.
+    const useCustomMeasurements = explicitEnabled !== false && customDiffersFromBase;
+
+    // If the user didn't change the base measurement, keep the original/stored unit price stable.
+    if (!useCustomMeasurements && storedUnitPriceValid) {
+      return storedUnitPrice;
+    }
+
+    if (!useCustomMeasurements) {
+      return defaultUnitPrice;
+    }
 
     return computeMeasurementPricing({
       widthMeters: useCustomMeasurements ? customWidth ?? baseWidthM : baseWidthM,
@@ -135,7 +147,7 @@ export default function CartPage() {
       minSqm: 0,
       sqmDecimals: 2,
     }).unit_price;
-  };
+  }, [products]);
 
   const totals = useMemo(() => {
     const base = selectedItems.reduce(
@@ -165,7 +177,7 @@ export default function CartPage() {
       selectedItems.length > 0 && fulfillmentMethod === "delivery" ? DELIVERY_FEE : 0;
     const total = Math.max(0, preDiscount - discount + deliveryFee);
     return { ...base, discount, deliveryFee, total };
-  }, [selectedItems, products, voucherInfo, fulfillmentMethod]);
+  }, [selectedItems, voucherInfo, fulfillmentMethod, computeUnitPrice]);
 
   const updateQuantity = async (item: UserItem, delta: number) => {
     const next = Math.max(1, (item.quantity || 1) + delta);
@@ -317,7 +329,13 @@ export default function CartPage() {
                   onChange={(e) => setSelected(prev => ({ ...prev, [item.id]: e.target.checked }))}
                   className="mt-2"
                 />
-                <img src={image} alt={product?.name || 'Item'} className="w-24 h-24 object-cover rounded" />
+                <div className="w-24 h-24 shrink-0 rounded border border-gray-200 bg-gray-100 overflow-hidden">
+                  <img
+                    src={image}
+                    alt={product?.name || 'Item'}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
                 <div className="flex-1">
                   <div className="flex justify-between">
                     <div>

@@ -21,7 +21,6 @@ function ReservationSuccessPageContent() {
   
   const [reservation, setReservation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [invoiceEmailSynced, setInvoiceEmailSynced] = useState(false);
   const [paypalCaptureState, setPaypalCaptureState] = useState<"capturing" | "done">(
     isPayPalReturn ? "capturing" : "done"
   );
@@ -93,32 +92,6 @@ function ReservationSuccessPageContent() {
 
     loadReservation();
   }, [reservationId, router, paypalCaptureState]);
-
-  useEffect(() => {
-    const syncInvoiceEmail = async () => {
-      if (!reservation?.id || invoiceEmailSynced) return;
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData?.session?.access_token;
-        if (!token) return;
-
-        await fetch("/api/invoices/resend", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ userItemIds: [reservation.id] }),
-        });
-      } catch (error) {
-        console.warn("Invoice resend fallback failed:", error);
-      } finally {
-        setInvoiceEmailSynced(true);
-      }
-    };
-
-    syncInvoiceEmail();
-  }, [reservation?.id, invoiceEmailSynced]);
 
   if (loading) {
     return (

@@ -163,7 +163,7 @@ export function renderInvoiceHtml(data: InvoiceData) {
 
       <div style="margin-top:18px;font-size:12px;color:#444;">
         <div><strong>Notes</strong></div>
-        <div>This invoice is generated automatically after payment confirmation.</div>
+        <div>This invoice is finalized and sent after admin approval.</div>
       </div>
     </div>
 
@@ -267,7 +267,7 @@ export async function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
         doc.text(money(data.totalAmount, data.currency), 450, rowY, { width: 100, align: "right" });
 
         doc.moveDown(2);
-        doc.fontSize(9).fillColor("#666").text("This invoice is generated automatically after payment confirmation.");
+        doc.fontSize(9).fillColor("#666").text("This invoice is finalized and sent after admin approval.");
 
         doc.end();
       } catch (error) {

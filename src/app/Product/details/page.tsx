@@ -232,6 +232,12 @@ function ProductDetailsPageContent() {
     }
     setAdding(true);
     try {
+      const baseUnitPrice = Math.max(0, Number(product.price || 0));
+      const baseWmm = Number(product.width || 0);
+      const baseHmm = Number(product.height || 0);
+      const baseWidthM = Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm / 1000 : undefined;
+      const baseHeightM = Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm / 1000 : undefined;
+
       const res = await fetch("/api/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -241,6 +247,20 @@ function ProductDetailsPageContent() {
           quantity,
           meta: {
             selected_image: images[carouselIdx] || null,
+            product_price: baseUnitPrice,
+            custom_dimensions: {
+              enabled: false,
+              width: undefined,
+              height: undefined,
+            },
+            pricing: {
+              unit_price: baseUnitPrice,
+              unit_price_per_sqm: baseUnitPrice,
+              base_width_mm: Number.isFinite(baseWmm) && baseWmm > 0 ? baseWmm : undefined,
+              base_height_mm: Number.isFinite(baseHmm) && baseHmm > 0 ? baseHmm : undefined,
+              custom_width_m: baseWidthM,
+              custom_height_m: baseHeightM,
+            },
           },
         }),
       });

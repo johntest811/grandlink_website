@@ -221,7 +221,11 @@ async function sendInvoiceEmail(options: {
   return true;
 }
 
-export async function ensureInvoiceForUserItem(userItemId: string) {
+export async function ensureInvoiceForUserItem(
+  userItemId: string,
+  options?: { sendEmail?: boolean }
+) {
+  const sendEmail = options?.sendEmail === true;
   // 1) If exists, return it.
   const { data: existing } = await supabaseAdmin
     .from("invoices")
@@ -244,17 +248,19 @@ export async function ensureInvoiceForUserItem(userItemId: string) {
 
   if (insErr || !created) throw new Error(insErr?.message || "Failed to create invoice");
 
-  // Send email (best-effort)
-  try {
-    await sendInvoiceEmail({
-      invoiceId: created.id,
-      recipients: prepared.recipients,
-      invoiceData: prepared.invoiceData,
-      invoiceHtml: prepared.invoiceHtml,
-    });
-  } catch (e) {
-    // Do not fail invoice creation if email fails
-    console.warn("Invoice email send failed", e);
+  if (sendEmail) {
+    // Send email (best-effort)
+    try {
+      await sendInvoiceEmail({
+        invoiceId: created.id,
+        recipients: prepared.recipients,
+        invoiceData: prepared.invoiceData,
+        invoiceHtml: prepared.invoiceHtml,
+      });
+    } catch (e) {
+      // Do not fail invoice creation if email fails
+      console.warn("Invoice email send failed", e);
+    }
   }
 
   return created;
@@ -269,7 +275,7 @@ export async function resendInvoiceEmailForUserItem(userItemId: string) {
 
   if (!existing) {
     const prepared = await prepareInvoicePayload(userItemId);
-    const created = await ensureInvoiceForUserItem(userItemId);
+    const created = await ensureInvoiceForUserItem(userItemId, { sendEmail: true });
     return {
       invoice: created,
       emailSent: Boolean((created as any)?.email_sent_at),

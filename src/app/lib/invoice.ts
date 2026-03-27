@@ -76,8 +76,18 @@ const money = (n: number, currency = "PHP") => {
 
 export function renderInvoiceHtml(data: InvoiceData) {
   const issued = new Date(data.issuedAtIso);
+  const baseHref = (() => {
+    if (data.companyLogoUrl && /^https?:\/\//i.test(data.companyLogoUrl)) {
+      try {
+        return new URL(data.companyLogoUrl).origin + "/";
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  })();
   const logoHtml = data.companyLogoUrl
-    ? `<img src="${escapeHtml(data.companyLogoUrl)}" alt="${escapeHtml(data.companyName)} logo" style="height:52px;width:auto;object-fit:contain;display:block;" />`
+    ? `<img src="${escapeHtml(data.companyLogoUrl)}" alt="${escapeHtml(data.companyName)} logo" style="height:52px;width:auto;object-fit:contain;display:block;" referrerpolicy="no-referrer" crossorigin="anonymous" />`
     : `<div style="font-size:22px;font-weight:800;letter-spacing:1px;">${escapeHtml(data.companyName)}</div>`;
   const deliveryRow =
     String(data.deliveryMethod || "").toLowerCase() === "pickup"
@@ -101,6 +111,7 @@ export function renderInvoiceHtml(data: InvoiceData) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  ${baseHref ? `<base href="${escapeHtml(baseHref)}" />` : ""}
   <title>Invoice ${escapeHtml(data.invoiceNumber)}</title>
 </head>
 <body style="font-family:Arial,Helvetica,sans-serif;margin:0;background:#f6f7fb;color:#111;">

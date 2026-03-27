@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getInvoiceMailFrom, getInvoiceMailTransporter } from "./mailer";
-import { InvoiceData, InvoiceLine, renderInvoiceHtml, renderInvoicePdf } from "./invoice";
+import { InvoiceData, InvoiceLine, renderInvoiceHtml } from "./invoice";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -23,6 +23,16 @@ function normalizeEmail(value: unknown): string | null {
   return emailPattern.test(email) ? email : null;
 }
 
+function normalizeRecipientEmails(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const deduped = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeEmail(value);
+    if (normalized) deduped.add(normalized);
+  }
+  return Array.from(deduped);
+}
+
 function buildInvoiceNumber(userItemId: string, issuedAt = new Date()) {
   const y = issuedAt.getFullYear();
   const m = String(issuedAt.getMonth() + 1).padStart(2, "0");
@@ -32,11 +42,20 @@ function buildInvoiceNumber(userItemId: string, issuedAt = new Date()) {
 }
 
 function getCompanyLogoUrl() {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const candidates = [
+    process.env.NEXT_PUBLIC_BASE_URL,
+    process.env.SITE_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+    "http://localhost:3000",
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
 
-  return `${baseUrl.replace(/\/$/, "")}/ge-logo.avif`;
+  const baseUrl = (candidates[0] || "http://localhost:3000").replace(/\/$/, "");
+
+  // Serve PNG for Gmail reliability (AVIF is not consistently supported by email clients).
+  return `${baseUrl}/api/assets/logo`;
 }
 
 async function prepareInvoicePayload(userItemId: string, existingInvoice?: InvoiceRecord | null) {
@@ -186,9 +205,14 @@ async function sendInvoiceEmail(options: {
 }) {
   const { invoiceId, recipients, invoiceData, invoiceHtml } = options;
   const transporter = getInvoiceMailTransporter();
-  if (!transporter || recipients.length === 0) return false;
+  if (recipients.length === 0) {
+    return { emailSent: false, reason: "NO_RECIPIENTS" as const };
+  }
 
-  const pdfBuffer = await renderInvoicePdf(invoiceData);
+  if (!transporter) {
+    return { emailSent: false, reason: "NO_TRANSPORTER" as const };
+  }
+
   const receiptSummaryHtml = `
     <div style="margin:0 0 16px 0; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb;">
       <div style="font-weight:700; margin-bottom:6px;">Payment Receipt Summary</div>
@@ -204,13 +228,6 @@ async function sendInvoiceEmail(options: {
     to: recipients.join(","),
     subject: `GrandLink Receipt and Invoice ${invoiceData.invoiceNumber}`,
     html: `${receiptSummaryHtml}${invoiceHtml}`,
-    attachments: [
-      {
-        filename: `${invoiceData.invoiceNumber}-receipt-invoice.pdf`,
-        content: pdfBuffer,
-        contentType: "application/pdf",
-      },
-    ],
   });
 
   await supabaseAdmin
@@ -218,7 +235,7 @@ async function sendInvoiceEmail(options: {
     .update({ email_sent_at: new Date().toISOString(), invoice_html: invoiceHtml })
     .eq("id", invoiceId);
 
-  return true;
+  return { emailSent: true };
 }
 
 export async function ensureInvoiceForUserItem(
@@ -266,7 +283,12 @@ export async function ensureInvoiceForUserItem(
   return created;
 }
 
-export async function resendInvoiceEmailForUserItem(userItemId: string) {
+export async function resendInvoiceEmailForUserItem(
+  userItemId: string,
+  options?: { recipientEmails?: string[] }
+) {
+  const overrideRecipients = normalizeRecipientEmails(options?.recipientEmails || []);
+
   const { data: existing } = await supabaseAdmin
     .from("invoices")
     .select("id,invoice_number,issued_at")
@@ -275,15 +297,31 @@ export async function resendInvoiceEmailForUserItem(userItemId: string) {
 
   if (!existing) {
     const prepared = await prepareInvoicePayload(userItemId);
-    const created = await ensureInvoiceForUserItem(userItemId, { sendEmail: true });
+    const created = await ensureInvoiceForUserItem(userItemId, { sendEmail: false });
+    const effectiveRecipients = overrideRecipients.length ? overrideRecipients : prepared.recipients;
+    const sendResult = await sendInvoiceEmail({
+      invoiceId: created.id,
+      recipients: effectiveRecipients,
+      invoiceData: prepared.invoiceData,
+      invoiceHtml: prepared.invoiceHtml,
+    });
+
+    const { data: refreshed } = await supabaseAdmin
+      .from("invoices")
+      .select("*")
+      .eq("id", created.id)
+      .single();
+
     return {
-      invoice: created,
-      emailSent: Boolean((created as any)?.email_sent_at),
-      recipientEmails: prepared.recipients,
+      invoice: refreshed || created,
+      emailSent: Boolean(sendResult.emailSent),
+      reason: "reason" in sendResult ? sendResult.reason : undefined,
+      recipientEmails: effectiveRecipients,
     };
   }
 
   const prepared = await prepareInvoicePayload(userItemId, existing as InvoiceRecord);
+  const effectiveRecipients = overrideRecipients.length ? overrideRecipients : prepared.recipients;
 
   await supabaseAdmin
     .from("invoices")
@@ -293,9 +331,9 @@ export async function resendInvoiceEmailForUserItem(userItemId: string) {
     })
     .eq("id", existing.id);
 
-  const emailSent = await sendInvoiceEmail({
+  const sendResult = await sendInvoiceEmail({
     invoiceId: existing.id,
-    recipients: prepared.recipients,
+    recipients: effectiveRecipients,
     invoiceData: prepared.invoiceData,
     invoiceHtml: prepared.invoiceHtml,
   });
@@ -306,5 +344,10 @@ export async function resendInvoiceEmailForUserItem(userItemId: string) {
     .eq("id", existing.id)
     .single();
 
-  return { invoice: refreshed, emailSent, recipientEmails: prepared.recipients };
+  return {
+    invoice: refreshed,
+    emailSent: Boolean(sendResult.emailSent),
+    reason: "reason" in sendResult ? sendResult.reason : undefined,
+    recipientEmails: effectiveRecipients,
+  };
 }

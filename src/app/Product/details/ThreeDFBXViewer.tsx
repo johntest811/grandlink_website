@@ -568,7 +568,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
       tex.needsUpdate = true;
     };
 
-    
+    //
     const createRainTexture = () => {
       const size = 32;
       const canvas = document.createElement("canvas");

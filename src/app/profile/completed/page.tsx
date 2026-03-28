@@ -36,6 +36,20 @@ type PaymentSession = {
   stripe_session_id?: string;
 };
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const maybeMessage = (error as any).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim()) return maybeMessage;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 export default function ProfileCompletedPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -64,40 +78,24 @@ export default function ProfileCompletedPage() {
       const list = (ui ?? []) as Item[];
       setItems(list);
 
-      const itemIds = list.map((x) => x.id);
-      if (itemIds.length) {
+      if (list.length) {
         // load product data
+        const productIds = Array.from(new Set(list.map((x) => x.product_id).filter(Boolean)));
         const { data: prods, error: pErr } = await supabase
           .from("products")
           .select("id,name,price,images,image1,image2")
-          .in("id", Array.from(new Set(list.map((x) => x.product_id))));
-        if (pErr) throw pErr;
+          .in("id", productIds);
+        if (pErr) {
+          console.warn("load completed products warning:", getErrorMessage(pErr));
+        }
         const map: Record<string, Product> = {};
         (prods ?? []).forEach((p) => (map[p.id] = p as Product));
         setProducts(map);
-
-        // load payment sessions for receipts
-        const { data: sessions, error: sErr } = await supabase
-          .from("payment_sessions")
-          .select(
-            "id,amount,currency,status,payment_provider,created_at,completed_at,paypal_order_id,stripe_session_id,user_item_id"
-          )
-          .in("user_item_id", itemIds)
-          .order("created_at", { ascending: false });
-        if (sErr) throw sErr;
-        const byItem: Record<string, PaymentSession[]> = {};
-        (sessions ?? []).forEach((s: any) => {
-          const key = s.user_item_id as string;
-          if (!byItem[key]) byItem[key] = [];
-          byItem[key].push(s);
-        });
-        setReceipts(byItem);
       } else {
         setProducts({});
-        setReceipts({});
       }
     } catch (e) {
-      console.error("load completed error", e);
+      console.error("load completed error:", getErrorMessage(e));
     } finally {
       setLoading(false);
     }

@@ -44,7 +44,9 @@ export default function InvoicePreviewModal({ userItemId, onClose }: InvoicePrev
 
         if (cancelled) return;
         setInvoiceNumber(json?.invoice?.invoice_number || "");
-        setHtml(json?.invoice?.invoice_html || "");
+        const rawHtml = String(json?.invoice?.invoice_html || "");
+        const normalizedHtml = rawHtml.replace(/\/ge-logo\.avif/gi, "/api/assets/logo");
+        setHtml(normalizedHtml);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));

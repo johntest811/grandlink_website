@@ -219,7 +219,7 @@ export default function ProfileOrderPage() {
       sealant_application: "Sealant Application",
       quality_checking: "Quality Checking",
       in_production: "In Production",
-      quality_check: "Quality Check",
+      quality_check: "Final Quality Check",
       packaging: "Packaging",
       start_packaging: "Packaging",
       ready_for_delivery: "Ready for Delivery",
@@ -347,30 +347,35 @@ export default function ProfileOrderPage() {
               : (product?.price || 0) * item.quantity;
 
             return (
-              <div key={item.id} className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow">
-                <div className="flex gap-4">
-                  <Image
-                    src={imgUrl}
-                    alt={product?.name || "Product image"}
-                    width={96}
-                    height={96}
-                    className="w-24 h-24 object-cover rounded"
-                  />
+              <div key={item.id} className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow min-h-[220px]">
+                <div className="flex items-stretch gap-4">
+                  <div className="h-28 w-28 shrink-0 overflow-hidden rounded border border-black/10 bg-white">
+                    <Image
+                      src={imgUrl}
+                      alt={product?.name || "Product image"}
+                      width={112}
+                      height={112}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
 
-                  <div className="flex-1">
-                    <h3 className="font-bold text-lg mb-2 text-black">{product?.name}</h3>
-                    <p className="text-sm text-black">Quantity: {item.quantity}</p>
-                    <p className="text-lg font-semibold text-black mt-2">Total Paid: ₱{(totalPrice).toLocaleString()}</p>
-                    {item.payment_method && (
-                      <p className="text-xs text-black mt-1">
-                        via {item.payment_method.toUpperCase()}
-                        {item.payment_method === "paymongo" && item.meta?.paymongo_channel
-                          ? ` (${String(item.meta.paymongo_channel).toUpperCase()})`
-                          : ""}
-                      </p>
-                    )}
+                  <div className="flex min-h-28 flex-1 flex-col justify-between">
+                    <div>
+                      <h3 className="mb-2 min-h-[56px] text-lg font-bold text-black">{product?.name || "Product"}</h3>
+                      <p className="text-sm text-black">Quantity: {item.quantity}</p>
+                      <p className="mt-2 text-lg font-semibold text-black">Total Paid: ₱{(totalPrice).toLocaleString()}</p>
+                      {item.payment_method && (
+                        <p className="mt-1 text-xs text-black">
+                          via {item.payment_method.toUpperCase()}
+                          {item.payment_method === "paymongo" && item.meta?.paymongo_channel
+                            ? ` (${String(item.meta.paymongo_channel).toUpperCase()})`
+                            : ""}
+                        </p>
+                      )}
+                    </div>
 
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3">
+                      <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => openReceipt(item)}
                         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
@@ -399,11 +404,12 @@ export default function ProfileOrderPage() {
                           Request Cancel
                         </button>
                       )}
-                    </div>
+                      </div>
 
-                    <p className="text-xs text-black mt-2">
-                      Accepted: {item.admin_accepted_at ? new Date(item.admin_accepted_at).toLocaleString() : "N/A"}
-                    </p>
+                      <p className="text-xs text-black mt-2">
+                        Accepted: {item.admin_accepted_at ? new Date(item.admin_accepted_at).toLocaleString() : "N/A"}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -449,7 +455,14 @@ export default function ProfileOrderPage() {
                 .sort((a, b) => String(b.approved_at || "").localeCompare(String(a.approved_at || "")));
               const qcFromUpdates = normalizedUpdates.find((u) => !!u?.is_final_qc);
               const qcPayload = finalQc && typeof finalQc === "object" ? finalQc : qcFromUpdates;
+              const qcImageUrls = Array.isArray(qcPayload?.image_urls) && qcPayload.image_urls.length > 0
+                ? qcPayload.image_urls
+                : finalProductImages;
+              const qcDescription = String(qcPayload?.description || finalProductNote || "").trim();
+              const hasQualityContent = qcDescription.length > 0 || qcImageUrls.length > 0;
               const timelineDoneIdx = reachedIndex(progressModal.item);
+              const inProductionTimelineIndex = timelineSteps.indexOf("in_production");
+              const hasMovedPastInProduction = timelineDoneIdx > inProductionTimelineIndex;
               const productionStartedAt = workflow.started_at
                 ? new Date(workflow.started_at)
                 : findTime(progressModal.item, ["in_production"]);
@@ -562,8 +575,10 @@ export default function ProfileOrderPage() {
                                           if (updateStageKey) return updateStageKey === stage.key;
                                           return stageIndex === 0 && !update?.is_final_qc;
                                         });
-                                        const stageDone = stagePlan?.status === "approved";
-                                        const stageInProgress = stagePlan?.status === "in_progress";
+                                        // If order already moved to Final Quality Check or later,
+                                        // keep all in-production stages visually completed.
+                                        const stageDone = stagePlan?.status === "approved" || hasMovedPastInProduction;
+                                        const stageInProgress = !stageDone && stagePlan?.status === "in_progress";
 
                                         return (
                                           <div key={stage.key} className="relative">
@@ -645,14 +660,14 @@ export default function ProfileOrderPage() {
                                   </div>
                                 ) : null}
 
-                                {step === "quality_check" && qcPayload && (qcPayload.description || (Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0)) ? (
+                                {step === "quality_check" && hasQualityContent ? (
                                   <div className="mt-3 rounded-lg border p-3">
-                                    {qcPayload.description ? <div className="text-sm text-black whitespace-pre-wrap">{qcPayload.description}</div> : null}
-                                    {Array.isArray(qcPayload.image_urls) && qcPayload.image_urls.length > 0 ? (
+                                    {qcDescription ? <div className="text-sm text-black whitespace-pre-wrap">{qcDescription}</div> : null}
+                                    {qcImageUrls.length > 0 ? (
                                       <div className="mt-3 grid grid-cols-3 gap-2">
-                                        {qcPayload.image_urls.map((url: string, idx: number) => (
-                                          <button key={url + idx} type="button" onClick={() => openPreview(qcPayload.image_urls, idx, "Quality Check")}> 
-                                            <img src={url} alt="Quality check" className="h-20 w-full rounded border object-cover" />
+                                        {qcImageUrls.map((url: string, idx: number) => (
+                                          <button key={url + idx} type="button" onClick={() => openPreview(qcImageUrls, idx, "Final Quality Check")}> 
+                                            <img src={url} alt="Final quality check" className="h-20 w-full rounded border object-cover" />
                                           </button>
                                         ))}
                                       </div>

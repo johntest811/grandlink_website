@@ -42,20 +42,11 @@ function buildInvoiceNumber(userItemId: string, issuedAt = new Date()) {
 }
 
 function getCompanyLogoUrl() {
-  const candidates = [
-    process.env.NEXT_PUBLIC_BASE_URL,
-    process.env.SITE_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null,
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
-    "http://localhost:3000",
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-  const baseUrl = (candidates[0] || "http://localhost:3000").replace(/\/$/, "");
-
-  // Serve PNG for Gmail reliability (AVIF is not consistently supported by email clients).
-  return `${baseUrl}/api/assets/logo`;
+  return `${baseUrl.replace(/\/$/, "")}/api/assets/logo`;
 }
 
 async function prepareInvoicePayload(userItemId: string, existingInvoice?: InvoiceRecord | null) {

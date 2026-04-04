@@ -84,17 +84,55 @@ function normalizeAdditionalFeaturesHtml(value: unknown): string {
   return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
+type ProductReview = {
+  id: string;
+  product_id: string;
+  user_id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+};
+
+function formatReviewerLabel(userId: string): string {
+  const raw = String(userId || "");
+  if (raw.length <= 10) return raw;
+  return `${raw.slice(0, 6)}…${raw.slice(-4)}`;
+}
+
+function Star({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      className={`h-4 w-4 ${filled ? "text-yellow-500" : "text-gray-300"}`}
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.955a1 1 0 00.95.69h4.156c.969 0 1.371 1.24.588 1.81l-3.362 2.443a1 1 0 00-.364 1.118l1.286 3.955c.3.921-.755 1.688-1.54 1.118l-3.362-2.443a1 1 0 00-1.176 0l-3.362 2.443c-.784.57-1.838-.197-1.539-1.118l1.286-3.955a1 1 0 00-.364-1.118L2.07 9.382c-.783-.57-.38-1.81.588-1.81h4.156a1 1 0 00.951-.69l1.286-3.955z" />
+    </svg>
+  );
+}
+
 function ProductDetailsPageContent() {
   const searchParams = useSearchParams();
   const productId = searchParams.get("id");
   const [product, setProduct] = useState<any>(null);
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [show3D, setShow3D] = useState(false);
+
+  //Weather System
   const [weather, setWeather] = useState<"sunny" | "rainy" | "night" | "foggy">("sunny");
   const [frameFinish, setFrameFinish] = useState<"default" | "matteBlack" | "matteGray" | "narra" | "walnut">("default");
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<ProductReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [canReview, setCanReview] = useState(false);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
+  const [myReview, setMyReview] = useState<ProductReview | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>("");
+  const [submittingReview, setSubmittingReview] = useState(false);
   const router = useRouter();
 
   // Prevent background page scroll while the 3D modal is open
@@ -134,6 +172,80 @@ function ProductDetailsPageContent() {
       setUserId(data?.user?.id || null);
     });
   }, []);
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      if (!productId) return;
+      setReviewsLoading(true);
+      try {
+        const res = await fetch(`/api/product-reviews?productId=${encodeURIComponent(productId)}`);
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload?.error || "Failed to load reviews");
+        setReviews(((payload?.reviews || []) as ProductReview[]) ?? []);
+      } catch (err) {
+        console.error("Failed to load reviews", err);
+        setReviews([]);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+
+    void loadReviews();
+  }, [productId]);
+
+  useEffect(() => {
+    const loadEligibilityAndMyReview = async () => {
+      if (!productId) return;
+
+      if (!userId) {
+        setCanReview(false);
+        setMyReview(null);
+        setReviewComment("");
+        setReviewRating(5);
+        return;
+      }
+
+      setEligibilityLoading(true);
+      try {
+        const { data: completionRows, error: completionError } = await supabase
+          .from("user_items")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("product_id", productId)
+          .in("item_type", ["order", "reservation"])
+          .or("order_status.eq.completed,status.eq.completed")
+          .limit(1);
+
+        if (completionError) throw completionError;
+        setCanReview((completionRows || []).length > 0);
+
+        const { data: existingReview, error: myReviewError } = await supabase
+          .from("product_reviews")
+          .select("id, product_id, user_id, rating, comment, created_at")
+          .eq("product_id", productId)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (myReviewError) throw myReviewError;
+        setMyReview((existingReview as ProductReview) || null);
+        if (existingReview) {
+          setReviewRating(Number((existingReview as any).rating || 5));
+          setReviewComment(String((existingReview as any).comment || ""));
+        } else {
+          setReviewRating(5);
+          setReviewComment("");
+        }
+      } catch (err) {
+        console.error("Failed to load review eligibility", err);
+        setCanReview(false);
+        setMyReview(null);
+      } finally {
+        setEligibilityLoading(false);
+      }
+    };
+
+    void loadEligibilityAndMyReview();
+  }, [productId, userId]);
 
   if (!product) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
@@ -276,6 +388,61 @@ function ProductDetailsPageContent() {
 
   const isOutOfStock = product.inventory <= 0;
   const has3DModels = modelUrls.length > 0;
+  const averageRating = reviews.length
+    ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / reviews.length
+    : 0;
+
+  const submitReview = async () => {
+    if (!productId) return;
+    if (!userId) {
+      if (window.confirm("Please sign in to leave a review. Go to login?")) {
+        router.push("/login");
+      }
+      return;
+    }
+    if (!canReview) {
+      alert("Only users who have completed this product can leave a review.");
+      return;
+    }
+
+    const rating = Math.max(1, Math.min(5, Number(reviewRating || 5)));
+    const trimmed = reviewComment.trim();
+    const commentOrNull = trimmed ? trimmed : null;
+
+    setSubmittingReview(true);
+    try {
+      const { error } = await supabase
+        .from("product_reviews")
+        .upsert(
+          [{ product_id: productId, user_id: userId, rating, comment: commentOrNull }],
+          { onConflict: "product_id,user_id" }
+        );
+      if (error) throw error;
+
+      const { data: refreshed, error: refreshError } = await supabase
+        .from("product_reviews")
+        .select("id, product_id, user_id, rating, comment, created_at")
+        .eq("product_id", productId)
+        .order("created_at", { ascending: false });
+      if (refreshError) throw refreshError;
+      setReviews((refreshed || []) as ProductReview[]);
+
+      const { data: existingReview } = await supabase
+        .from("product_reviews")
+        .select("id, product_id, user_id, rating, comment, created_at")
+        .eq("product_id", productId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      setMyReview((existingReview as ProductReview) || null);
+
+      alert(myReview ? "Review updated." : "Review submitted.");
+    } catch (err: any) {
+      console.error("Failed to submit review", err);
+      alert(err?.message || "Failed to submit review.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -369,6 +536,16 @@ function ProductDetailsPageContent() {
           {/* Product Info */}
           <div className="mt-10">
             <h2 className="text-4xl font-bold text-black">{product.name}</h2>
+
+            <div className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+              <div className="flex items-center gap-0.5" aria-label={`${averageRating.toFixed(1)} out of 5`}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Star key={i} filled={averageRating >= i + 1} />
+                ))}
+              </div>
+              <span className="font-semibold">{averageRating ? averageRating.toFixed(1) : "0.0"}</span>
+              <span className="text-gray-500">({reviews.length} review{reviews.length === 1 ? "" : "s"})</span>
+            </div>
 
             {product.fullproductname && (
               <div className="text-2xl text-gray-600 mt-1">{product.fullproductname}</div>
@@ -540,6 +717,107 @@ function ProductDetailsPageContent() {
               />
             </div>
           </div>
+
+          {/* Reviews */}
+          <div className="mt-12 border-t pt-8">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h4 className="text-red-700 font-bold text-xl">Reviews</h4>
+                <div className="mt-1 flex items-center gap-2">
+                  <div className="flex items-center gap-0.5" aria-label={`Average rating ${averageRating.toFixed(1)} out of 5`}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star key={i} filled={averageRating >= i + 1 - 0.25} />
+                    ))}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {reviews.length ? `${averageRating.toFixed(1)} / 5 (${reviews.length})` : "No reviews yet"}
+                  </div>
+                </div>
+              </div>
+
+              {reviewsLoading && (
+                <div className="text-sm text-gray-500">Loading reviews…</div>
+              )}
+            </div>
+
+            {/* Leave a review */}
+            <div className="mt-6 rounded-lg border bg-gray-50 p-4">
+              <div className="text-sm font-semibold text-gray-900">Leave a review</div>
+              {!userId ? (
+                <div className="mt-2 text-sm text-gray-600">
+                  Please <Link href="/login" className="text-red-700 underline">sign in</Link> to leave a review.
+                </div>
+              ) : eligibilityLoading ? (
+                <div className="mt-2 text-sm text-gray-500">Checking eligibility…</div>
+              ) : !canReview ? (
+                <div className="mt-2 text-sm text-gray-600">
+                  Only users who have completed this product can leave a review.
+                </div>
+              ) : (
+                <div className="mt-3 grid gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="text-sm text-gray-700">Rating</label>
+                    <select
+                      value={reviewRating}
+                      onChange={(e) => setReviewRating(Number(e.target.value))}
+                      className="rounded border bg-white px-3 py-2 text-sm text-black"
+                    >
+                      {[5, 4, 3, 2, 1].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                    {myReview && (
+                      <span className="text-xs text-gray-500">You already reviewed this product (editing will update it).</span>
+                    )}
+                  </div>
+                  <textarea
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    rows={4}
+                    maxLength={2000}
+                    className="w-full rounded border bg-white px-3 py-2 text-sm text-black"
+                    placeholder="Optional comment (max 2000 chars)"
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-gray-500">{reviewComment.trim().length}/2000</div>
+                    <button
+                      type="button"
+                      onClick={submitReview}
+                      disabled={submittingReview}
+                      className="rounded bg-red-700 px-5 py-2 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50"
+                    >
+                      {submittingReview ? "Submitting…" : myReview ? "Update Review" : "Submit Review"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Reviews list */}
+            <div className="mt-6 space-y-3">
+              {(!reviewsLoading && reviews.length === 0) && (
+                <div className="text-sm text-gray-500">No reviews yet. Be the first!</div>
+              )}
+              {reviews.map((review) => (
+                <div key={review.id} className="rounded-lg border bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-0.5" aria-label={`${review.rating} out of 5`}>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} filled={Number(review.rating || 0) >= i + 1} />
+                        ))}
+                      </div>
+                      <div className="text-xs text-gray-500">by {formatReviewerLabel(review.user_id)}</div>
+                    </div>
+                    <div className="text-xs text-gray-500">{new Date(review.created_at).toLocaleDateString()}</div>
+                  </div>
+                  <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{review.comment}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       <Footer />
@@ -594,6 +872,8 @@ function ProductDetailsPageContent() {
             {/* Frame Color Controls - Fixed to modal frame (non-moving) */}
             <div className="absolute top-20 right-6 z-20 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
               <div className="text-xs font-semibold text-gray-700 mb-2">Frame</div>
+              {/* ENDS HERE */}
+
               <div className="flex flex-col gap-2">
                 <button
                   type="button"

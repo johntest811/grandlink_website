@@ -91,6 +91,7 @@ type ProductPageHero = {
 function ProductsPageContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ratingSummaries, setRatingSummaries] = useState<Record<string, { count: number; average: number }>>({});
   const [showSideFilter, setShowSideFilter] = useState(false);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [minPrice, setMinPrice] = useState("");
@@ -125,6 +126,57 @@ function ProductsPageContent() {
     };
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    const loadRatings = async () => {
+      try {
+        const ids = Array.from(new Set((products || []).map((p) => p?.id).filter(Boolean)));
+        if (!ids.length) {
+          setRatingSummaries({});
+          return;
+        }
+
+        const chunkSize = 50;
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          chunks.push(ids.slice(i, i + chunkSize));
+        }
+
+        const results = await Promise.all(
+          chunks.map(async (chunk) => {
+            const res = await fetch(`/api/product-ratings?ids=${encodeURIComponent(chunk.join(","))}`);
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) return {};
+            return (payload?.summaries || {}) as Record<string, { count: number; average: number }>;
+          })
+        );
+
+        const merged: Record<string, { count: number; average: number }> = {};
+        for (const r of results) {
+          Object.assign(merged, r);
+        }
+        setRatingSummaries(merged);
+      } catch (err) {
+        console.warn("Failed to load product ratings", err);
+        setRatingSummaries({});
+      }
+    };
+
+    void loadRatings();
+  }, [products]);
+
+  const renderStars = (average: number) => {
+    const full = Math.max(0, Math.min(5, Math.round(average * 2) / 2));
+    return (
+      <span className="inline-flex items-center gap-0.5" aria-label={`${average.toFixed(1)} out of 5`}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span key={i} className={full >= i + 1 ? "text-yellow-500" : "text-gray-300"}>
+            ★
+          </span>
+        ))}
+      </span>
+    );
+  };
 
   useEffect(() => {
     const fetchHeroContent = async () => {
@@ -727,6 +779,17 @@ function ProductsPageContent() {
                     </p>
                     {/* small underline below product name */}
                     <div className="w-6 h-0.5 bg-red-600 mx-auto mt-1" aria-hidden="true" />
+
+                    {/* Average rating */}
+                    <div className="mt-2 flex items-center justify-center gap-2 text-xs text-gray-600">
+                      {renderStars(ratingSummaries[String(prod.id)]?.average || 0)}
+                      <span className="text-gray-700">
+                        {(ratingSummaries[String(prod.id)]?.average || 0).toFixed(1)}
+                      </span>
+                      <span className="text-gray-500">
+                        ({ratingSummaries[String(prod.id)]?.count || 0})
+                      </span>
+                    </div>
 
                     {/* Price and Inventory */}
                     <div className="mt-auto pt-2 h-12 flex flex-col items-center justify-center text-xs md:text-sm text-gray-700">

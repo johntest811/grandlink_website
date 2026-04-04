@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  invalidateServerMemoryCacheByPrefix,
+  invalidateServerMemoryCacheKey,
+  readServerMemoryCache,
+  writeServerMemoryCache,
+} from "@/app/lib/serverMemoryCache";
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,15 +23,21 @@ function getWriteClient() {
 }
 
 const GET_CACHE_CONTROL = "public, max-age=120, s-maxage=600, stale-while-revalidate=3600";
+const HOME_MEMORY_CACHE_KEY = "home:payload";
+const HOME_MEMORY_CACHE_TTL_MS = 2 * 60 * 1000;
 
 // GET -> return the home content (single row with slug = 'home')
 export async function GET() {
+  const cached = readServerMemoryCache<any>(HOME_MEMORY_CACHE_KEY);
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
+  }
+
   const supabase = getReadClient();
   if (!supabase) {
-    return NextResponse.json(
-      { content: {}, updated_at: null, newest_products: [] },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = { content: {}, updated_at: null, newest_products: [] };
+    writeServerMemoryCache(HOME_MEMORY_CACHE_KEY, payload, HOME_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   }
 
   try {
@@ -74,20 +86,18 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json(
-      {
-        content: homeData.content || {},
-        updated_at: homeData.updated_at || null,
-        newest_products: normalizedProducts,
-      },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = {
+      content: homeData.content || {},
+      updated_at: homeData.updated_at || null,
+      newest_products: normalizedProducts,
+    };
+    writeServerMemoryCache(HOME_MEMORY_CACHE_KEY, payload, HOME_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   } catch (error: any) {
     console.error("GET /api/home failed", error);
-    return NextResponse.json(
-      { content: {}, updated_at: null, newest_products: [] },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = { content: {}, updated_at: null, newest_products: [] };
+    writeServerMemoryCache(HOME_MEMORY_CACHE_KEY, payload, HOME_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   }
 }
 
@@ -114,6 +124,9 @@ export async function PUT(req: Request) {
       .maybeSingle();
 
     if (!byId.error && byId.data) {
+      invalidateServerMemoryCacheKey(HOME_MEMORY_CACHE_KEY);
+      // Home content can include product defaults (e.g., skybox defaults) used by /api/products.
+      invalidateServerMemoryCacheByPrefix("products:");
       return NextResponse.json(byId.data, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -124,6 +137,8 @@ export async function PUT(req: Request) {
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    invalidateServerMemoryCacheKey(HOME_MEMORY_CACHE_KEY);
+    invalidateServerMemoryCacheByPrefix("products:");
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "unknown" }, { status: 500 });

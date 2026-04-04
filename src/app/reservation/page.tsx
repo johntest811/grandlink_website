@@ -503,11 +503,36 @@ function ReservationPageContent() {
       alert("Please enter valid custom width/height in mm (greater than 0).");
       return;
     }
-    if (product.inventory < qty) {
-      alert("Insufficient inventory for this quantity");
-      return;
+
+    // Refresh live inventory right before creating the reservation.
+    try {
+      const { data: latestProduct, error: latestError } = await supabase
+        .from("products")
+        .select("inventory")
+        .eq("id", product.id)
+        .maybeSingle();
+
+      if (latestError) {
+        console.warn("Failed to refresh inventory:", latestError);
+      } else if (latestProduct && typeof (latestProduct as any).inventory !== "undefined") {
+        const latestInv = Math.max(0, Number((latestProduct as any).inventory ?? 0));
+        setProduct((prev) => (prev ? { ...prev, inventory: latestInv } : prev));
+        if (latestInv <= 0) {
+          alert("This product is out of stock.");
+          return;
+        }
+        if (latestInv < qty) {
+          alert(`Only ${latestInv} unit(s) available for this product.`);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Inventory refresh threw:", e);
     }
+
     setSubmitting(true);
+
+    let createdUserItemId: string | null = null;
     try {
       const selectedAddress =
         fulfillmentMethod === "delivery"
@@ -606,6 +631,8 @@ function ReservationPageContent() {
 
       if (userItemError) throw new Error(`Database error: ${userItemError.message}`);
 
+      createdUserItemId = userItem.id;
+
       // IMPORTANT: send user_item_ids array to the API
       const paymentPayload = {
         user_item_ids: [userItem.id],
@@ -625,9 +652,13 @@ function ReservationPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(paymentPayload),
       });
-      const { checkoutUrl, sessionId, error: paymentError } = await response.json();
-      if (paymentError || !checkoutUrl)
-        throw new Error(paymentError || "Payment session creation failed");
+      const paymentJson = await response.json();
+      const checkoutUrl = paymentJson?.checkoutUrl;
+      const sessionId = paymentJson?.sessionId;
+      const paymentError = paymentJson?.error;
+      if (!response.ok || paymentError || !checkoutUrl) {
+        throw new Error(paymentError || paymentJson?.message || paymentJson?.details || "Payment session creation failed");
+      }
 
       await supabase.from("payment_sessions").insert({
         user_id: userId,
@@ -643,6 +674,14 @@ function ReservationPageContent() {
 
       window.location.href = checkoutUrl;
     } catch (error: any) {
+      // If payment session failed, avoid leaving a dangling pending reservation row.
+      if (createdUserItemId) {
+        try {
+          await supabase.from("user_items").delete().eq("id", createdUserItemId).eq("user_id", userId);
+        } catch (cleanupError) {
+          console.warn("Failed to cleanup reservation user_item after error:", cleanupError);
+        }
+      }
       alert("Error creating reservation: " + (error?.message || "Unknown error occurred"));
     } finally {
       setSubmitting(false);
@@ -696,15 +735,23 @@ function ReservationPageContent() {
                   <input
                     type="number"
                     min={1}
+                    max={Math.max(1, Number(product.inventory || 0))}
                     value={qty}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        quantity: Math.max(1, Number(e.target.value || 1)),
+                        quantity: Math.max(
+                          1,
+                          Math.min(
+                            Math.max(1, Number(e.target.value || 1)),
+                            Math.max(1, Number(product.inventory || 0))
+                          )
+                        ),
                       })
                     }
                     className="w-full border border-gray-300 rounded-lg px-4 py-3"
                   />
+                  <div className="mt-1 text-sm text-gray-600">Available stock: {Math.max(0, Number(product.inventory || 0))}</div>
                 </div>
 
                 <div>

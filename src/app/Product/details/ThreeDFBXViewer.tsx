@@ -1620,6 +1620,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
           const maxS = Math.max(bSize.x, bSize.y, bSize.z);
           const offset = Math.max(maxS * 0.08, 3);
 
+         // For the Measurement of the 3D
           measurementGroup = new THREE.Group();
           measurementGroup.renderOrder = 3;
 
@@ -1730,6 +1731,7 @@ export default function ThreeDFBXViewer({ modelUrls, houseModelUrl, productCateg
     const gltfLoader = new GLTFLoader(manager);
     (gltfLoader as any).setCrossOrigin?.("anonymous");
 
+    // Fetch URL from Supabase
     const tryFetchAsObjectUrl = async (url: string, kind: "main" | "house"): Promise<string | null> => {
       const tryUrls: string[] = [url];
       if (url.includes(" ")) tryUrls.push(encodeURI(url));

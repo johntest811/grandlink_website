@@ -655,6 +655,33 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Cart items not found' }, { status: 404 });
       }
 
+      // Validate inventory BEFORE creating reservation rows, so we don't leave orphaned
+      // pending_payment user_items when stock is insufficient.
+      if (payment_type === 'reservation') {
+        const cartProductIds = Array.from(new Set((cartItems || []).map((ci: any) => ci.product_id)));
+        const { data: cartProducts, error: cartProductsError } = await supabase
+          .from('products')
+          .select('id, name, inventory')
+          .in('id', cartProductIds);
+
+        if (cartProductsError) {
+          return NextResponse.json({ error: 'Products fetch failed' }, { status: 500 });
+        }
+
+        const cartProductMap = new Map((cartProducts || []).map((p: any) => [p.id, p]));
+        for (const cartItem of cartItems as any[]) {
+          const p = cartProductMap.get(cartItem.product_id);
+          if (!p) {
+            return NextResponse.json({ error: 'Product not found for reservation' }, { status: 404 });
+          }
+          const qty = Math.max(1, Number(cartItem.quantity || 1));
+          const currentInv = Math.max(0, Number(p.inventory ?? 0));
+          if (currentInv - qty < 0) {
+            return NextResponse.json({ error: `Insufficient inventory for ${p.name}` }, { status: 409 });
+          }
+        }
+      }
+
       // Create user_items from cart
       const nowIso = new Date().toISOString();
       const userItemsToInsert = cartItems.map((cartItem: any) => ({

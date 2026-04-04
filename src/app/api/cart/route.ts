@@ -7,6 +7,22 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
+async function getProductInventory(productId: string) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name, inventory')
+    .eq('id', productId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false as const, error: 'Product not found', productName: null as string | null, inventory: 0 };
+  }
+
+  const inventory = Math.max(0, Number((data as any).inventory ?? 0));
+  const productName = String((data as any).name || 'Product');
+  return { ok: true as const, inventory, productName };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -33,15 +49,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing userId or productId' }, { status: 400 });
     }
 
-    const { data: product, error: productError } = await supabase
-      .from('products')
-      .select('price')
-      .eq('id', productId)
-      .single();
-
-    if (productError || !product) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    const invRes = await getProductInventory(String(productId));
+    if (!invRes.ok) {
+      return NextResponse.json({ error: invRes.error }, { status: 404 });
     }
+    if (invRes.inventory <= 0) {
+      return NextResponse.json(
+        { error: `${invRes.productName} is out of stock`, available: invRes.inventory },
+        { status: 409 }
+      );
+    }
+    const requestedQty = Math.max(1, Number(quantity || 1));
 
     // Check if item already in cart
     const { data: existing } = await supabase
@@ -53,7 +71,17 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       // Update existing cart item
-      const nextQty = Math.max(1, Number(existing.quantity || 0) + Number(quantity || 0));
+      const nextQty = Math.max(1, Number(existing.quantity || 0) + requestedQty);
+      if (nextQty > invRes.inventory) {
+        return NextResponse.json(
+          {
+            error: `Only ${invRes.inventory} unit(s) available for ${invRes.productName}`,
+            available: invRes.inventory,
+            current: Number(existing.quantity || 0),
+          },
+          { status: 409 }
+        );
+      }
       const { data, error } = await supabase
         .from('cart')
         .update({
@@ -70,12 +98,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert new cart item
+    if (requestedQty > invRes.inventory) {
+      return NextResponse.json(
+        {
+          error: `Only ${invRes.inventory} unit(s) available for ${invRes.productName}`,
+          available: invRes.inventory,
+        },
+        { status: 409 }
+      );
+    }
+
     const { data, error } = await supabase
       .from('cart')
       .insert([{
         user_id: userId,
         product_id: productId,
-        quantity: Math.max(1, Number(quantity || 1)),
+        quantity: requestedQty,
         meta: meta || {},
         created_at: new Date().toISOString()
       }])
@@ -93,6 +131,41 @@ export async function PATCH(request: NextRequest) {
   try {
     const { id, quantity, meta } = await request.json();
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+
+    if (typeof quantity === 'number') {
+      const { data: cartItem, error: cartItemError } = await supabase
+        .from('cart')
+        .select('id, product_id, quantity')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (cartItemError || !cartItem) {
+        return NextResponse.json({ error: 'Cart item not found' }, { status: 404 });
+      }
+
+      const invRes = await getProductInventory(String((cartItem as any).product_id));
+      if (!invRes.ok) {
+        return NextResponse.json({ error: invRes.error }, { status: 404 });
+      }
+      if (invRes.inventory <= 0) {
+        return NextResponse.json(
+          { error: `${invRes.productName} is out of stock`, available: invRes.inventory },
+          { status: 409 }
+        );
+      }
+
+      const requestedQty = Math.max(1, Number(quantity || 1));
+      if (requestedQty > invRes.inventory) {
+        return NextResponse.json(
+          {
+            error: `Only ${invRes.inventory} unit(s) available for ${invRes.productName}`,
+            available: invRes.inventory,
+            current: Number((cartItem as any).quantity || 0),
+          },
+          { status: 409 }
+        );
+      }
+    }
 
     const payload: any = { updated_at: new Date().toISOString() };
     if (typeof quantity === 'number') payload.quantity = Math.max(1, quantity);

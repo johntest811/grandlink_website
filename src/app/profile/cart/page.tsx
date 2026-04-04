@@ -21,6 +21,7 @@ type Product = {
   price?: number;
   images?: string[];
   image1?: string;
+  inventory?: number;
   width?: number;
   height?: number;
 };
@@ -83,7 +84,7 @@ export default function CartPage() {
       if (productIds.length > 0) {
         const { data: prodData } = await supabase
           .from("products")
-          .select("id, name, price, images, image1, width, height")
+          .select("id, name, price, images, image1, inventory, width, height")
           .in("id", productIds);
 
         const map: Record<string, Product> = {};
@@ -180,12 +181,26 @@ export default function CartPage() {
   }, [selectedItems, voucherInfo, fulfillmentMethod, computeUnitPrice]);
 
   const updateQuantity = async (item: UserItem, delta: number) => {
-    const next = Math.max(1, (item.quantity || 1) + delta);
-    await fetch("/api/cart", {
+    const product = products[item.product_id];
+    const inventory = Math.max(0, Number(product?.inventory ?? 0));
+    const current = Math.max(1, Number(item.quantity || 1));
+    const requested = Math.max(1, current + delta);
+
+    if (inventory > 0 && requested > inventory) {
+      alert(`Only ${inventory} unit(s) available for ${product?.name || "this product"}.`);
+      return;
+    }
+
+    const res = await fetch("/api/cart", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, quantity: next })
+      body: JSON.stringify({ id: item.id, quantity: requested }),
     });
+    const json = await res.json();
+    if (!res.ok) {
+      alert(json?.error || "Failed to update quantity");
+      return;
+    }
     if (userId) loadCart(userId);
   };
 
@@ -208,6 +223,21 @@ export default function CartPage() {
     if (!selectedItems.length) {
       alert("Select at least one item.");
       return;
+    }
+
+    // Validate selected items against live inventory
+    for (const item of selectedItems) {
+      const product = products[item.product_id];
+      const inventory = Math.max(0, Number(product?.inventory ?? 0));
+      const qty = Math.max(1, Number(item.quantity || 1));
+      if (inventory <= 0) {
+        alert(`${product?.name || "A product"} is out of stock.`);
+        return;
+      }
+      if (qty > inventory) {
+        alert(`Only ${inventory} unit(s) available for ${product?.name || "a product"}. Please adjust your quantity.`);
+        return;
+      }
     }
     
     // Navigate to checkout page with selected items
@@ -279,6 +309,7 @@ export default function CartPage() {
 
           const selectedFlag = !!selected[item.id];
           const qty = item.quantity || 1;
+          const inventory = Math.max(0, Number(product?.inventory ?? 0));
           const unitPrice = computeUnitPrice(item);
           const addonsArr: any[] = Array.isArray(item.meta?.addons) ? item.meta.addons : [];
           const hasColorAddon = addonsArr.some((a: any) => a?.key === 'color_customization');
@@ -341,6 +372,9 @@ export default function CartPage() {
                     <div>
                       <div className="text-black font-semibold">{product?.name || 'Product'}</div>
                       <div className="text-black text-sm">₱{unitPrice.toLocaleString()} each{addonsFee > 0 && ` + ₱${addonsFee.toLocaleString()} addons = ₱${unitWithAddons.toLocaleString()}/unit`}</div>
+                      {Number.isFinite(inventory) && (
+                        <div className="text-black text-sm">In stock: {inventory}</div>
+                      )}
                       <div className="text-black text-base font-semibold mt-1">Line Total: ₱{lineTotal.toLocaleString()}</div>
                     </div>
                     <button onClick={() => removeItem(item.id)} className="text-red-600 text-sm hover:underline">Remove</button>
@@ -349,7 +383,14 @@ export default function CartPage() {
                   <div className="mt-3 flex items-center gap-2">
                     <button className="px-2 py-1 border rounded text-black" onClick={() => updateQuantity(item, -1)}>-</button>
                     <span className="w-10 text-center text-black">{qty}</span>
-                    <button className="px-2 py-1 border rounded text-black" onClick={() => updateQuantity(item, 1)}>+</button>
+                    <button
+                      className="px-2 py-1 border rounded text-black"
+                      onClick={() => updateQuantity(item, 1)}
+                      disabled={inventory > 0 && qty >= inventory}
+                      title={inventory > 0 && qty >= inventory ? "Reached available stock" : ""}
+                    >
+                      +
+                    </button>
                   </div>
 
                   <div className="mt-3">

@@ -699,6 +699,21 @@ function CartCheckoutContent() {
       return;
     }
 
+    // Validate inventory against live product stock before creating a payment session.
+    for (const item of items) {
+      const product = products[item.product_id];
+      const inventory = Math.max(0, Number(product?.inventory ?? 0));
+      const qty = Math.max(1, Number(item.quantity || 1));
+      if (inventory <= 0) {
+        alert(`${product?.name || "A product"} is out of stock.`);
+        return;
+      }
+      if (qty > inventory) {
+        alert(`Only ${inventory} unit(s) available for ${product?.name || "a product"}. Please adjust your cart.`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       // Generate a unique receipt reference to scope items for the success page

@@ -36,6 +36,15 @@ type PaymentSession = {
   stripe_session_id?: string;
 };
 
+type ProductReviewRow = {
+  id: string;
+  product_id: string;
+  user_id: string;
+  rating: number;
+  comment: string | null;
+  created_at?: string;
+};
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
@@ -63,6 +72,10 @@ export default function ProfileCompletedPage() {
     sessions: PaymentSession[];
   } | null>(null);
   const [invoicePreviewId, setInvoicePreviewId] = useState<string | null>(null);
+  const [myReviewsByProductId, setMyReviewsByProductId] = useState<Record<string, ProductReviewRow | null>>({});
+  const [draftRatingByProductId, setDraftRatingByProductId] = useState<Record<string, number>>({});
+  const [draftCommentByProductId, setDraftCommentByProductId] = useState<Record<string, string>>({});
+  const [savingReviewByProductId, setSavingReviewByProductId] = useState<Record<string, boolean>>({});
 
   const load = async (uid: string) => {
     setLoading(true);
@@ -91,8 +104,46 @@ export default function ProfileCompletedPage() {
         const map: Record<string, Product> = {};
         (prods ?? []).forEach((p) => (map[p.id] = p as Product));
         setProducts(map);
+
+        // load existing reviews for these products (best-effort)
+        const { data: existingReviews, error: rErr } = await supabase
+          .from("product_reviews")
+          .select("id,product_id,user_id,rating,comment,created_at")
+          .eq("user_id", uid)
+          .in("product_id", productIds);
+
+        if (rErr) {
+          console.warn("load completed reviews warning:", getErrorMessage(rErr));
+          setMyReviewsByProductId({});
+        } else {
+          const byProduct: Record<string, ProductReviewRow> = {};
+          (existingReviews || []).forEach((row: any) => {
+            if (!row?.product_id) return;
+            byProduct[String(row.product_id)] = row as ProductReviewRow;
+          });
+          const normalized: Record<string, ProductReviewRow | null> = {};
+          productIds.forEach((pid) => {
+            normalized[String(pid)] = byProduct[String(pid)] || null;
+          });
+          setMyReviewsByProductId(normalized);
+
+          // initialize drafts from existing values
+          const nextRatings: Record<string, number> = {};
+          const nextComments: Record<string, string> = {};
+          productIds.forEach((pid) => {
+            const existing = byProduct[String(pid)];
+            nextRatings[String(pid)] = Math.max(1, Math.min(5, Number(existing?.rating || 5)));
+            nextComments[String(pid)] = String(existing?.comment || "");
+          });
+          setDraftRatingByProductId(nextRatings);
+          setDraftCommentByProductId(nextComments);
+        }
       } else {
         setProducts({});
+        setMyReviewsByProductId({});
+        setDraftRatingByProductId({});
+        setDraftCommentByProductId({});
+        setSavingReviewByProductId({});
       }
     } catch (e) {
       console.error("load completed error:", getErrorMessage(e));
@@ -185,6 +236,75 @@ export default function ProfileCompletedPage() {
     }
   };
 
+  const setDraftRating = (productId: string, rating: number) => {
+    const safe = Math.max(1, Math.min(5, Math.round(rating)));
+    setDraftRatingByProductId((prev) => ({ ...prev, [productId]: safe }));
+  };
+
+  const setDraftComment = (productId: string, comment: string) => {
+    setDraftCommentByProductId((prev) => ({ ...prev, [productId]: comment }));
+  };
+
+  const saveReview = async (productId: string) => {
+    if (!userId) {
+      alert("Please log in to rate products.");
+      return;
+    }
+
+    const rating = Math.max(1, Math.min(5, Number(draftRatingByProductId[productId] || 5)));
+    const trimmed = String(draftCommentByProductId[productId] || "").trim();
+    const commentOrNull = trimmed ? trimmed : null;
+
+    setSavingReviewByProductId((prev) => ({ ...prev, [productId]: true }));
+    try {
+      const { error } = await supabase
+        .from("product_reviews")
+        .upsert([{ product_id: productId, user_id: userId, rating, comment: commentOrNull }], {
+          onConflict: "product_id,user_id",
+        });
+
+      if (error) throw error;
+
+      const { data: refreshed, error: refreshErr } = await supabase
+        .from("product_reviews")
+        .select("id,product_id,user_id,rating,comment,created_at")
+        .eq("product_id", productId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (refreshErr) throw refreshErr;
+
+      setMyReviewsByProductId((prev) => ({ ...prev, [productId]: (refreshed as any) || null }));
+      alert("Rating saved.");
+    } catch (e) {
+      alert(getErrorMessage(e));
+    } finally {
+      setSavingReviewByProductId((prev) => ({ ...prev, [productId]: false }));
+    }
+  };
+
+  const renderStarsInput = (productId: string, current: number) => {
+    return (
+      <div className="flex items-center gap-1">
+        {Array.from({ length: 5 }).map((_, i) => {
+          const v = i + 1;
+          const filled = current >= v;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setDraftRating(productId, v)}
+              className={filled ? "text-yellow-500" : "text-gray-300"}
+              aria-label={`${v} star`}
+              title={`${v} star`}
+            >
+              ★
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <section className="flex-1 flex flex-col px-8 py-8">
       <div className="mb-2">
@@ -212,6 +332,11 @@ export default function ProfileCompletedPage() {
           {filtered.map((it) => {
             const p = products[it.product_id];
             const img = p?.images?.[0] || p?.image1 || p?.image2 || "/no-image.png";
+            const pid = String(it.product_id || "");
+            const existing = myReviewsByProductId[pid] || null;
+            const draftRating = draftRatingByProductId[pid] ?? Math.max(1, Math.min(5, Number(existing?.rating || 5)));
+            const draftComment = draftCommentByProductId[pid] ?? String(existing?.comment || "");
+            const saving = Boolean(savingReviewByProductId[pid]);
             return (
               <div key={it.id} className="bg-white p-6 rounded-lg shadow">
                 <div className="flex gap-4">
@@ -243,6 +368,44 @@ export default function ProfileCompletedPage() {
                         Re-order
                       </button>
                     </div>
+
+                    {/* Rating */}
+                    {pid && (
+                      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="text-sm font-semibold text-black">Rate this product</div>
+                          {existing && (
+                            <div className="text-xs text-gray-600">You already rated this product (saving will update it).</div>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-3">
+                          {renderStarsInput(pid, draftRating)}
+                          <div className="text-xs text-gray-700">{draftRating}/5</div>
+                        </div>
+
+                        <textarea
+                          value={draftComment}
+                          onChange={(e) => setDraftComment(pid, e.target.value)}
+                          rows={3}
+                          maxLength={2000}
+                          className="mt-2 w-full rounded border bg-white px-3 py-2 text-sm text-black"
+                          placeholder="Optional comment (max 2000 chars)"
+                        />
+
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <div className="text-xs text-gray-500">{draftComment.trim().length}/2000</div>
+                          <button
+                            type="button"
+                            onClick={() => saveReview(pid)}
+                            disabled={saving}
+                            className="inline-flex items-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-black/90 disabled:opacity-50"
+                          >
+                            {saving ? "Saving…" : existing ? "Update Rating" : "Submit Rating"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <span className="px-3 py-1 rounded-full text-xs bg-emerald-100 text-emerald-800 h-fit">COMPLETED</span>
                 </div>

@@ -52,6 +52,12 @@ const measurementsMatch = (left?: number, right?: number) => {
   return Math.abs(left - right) < 0.000001;
 };
 
+const parsePositiveInteger = (value: unknown): number | null => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return null;
+  return parsed;
+};
+
 type Product = {
   id: string;
   name: string;
@@ -362,6 +368,7 @@ function ReservationPageContent() {
   }, [addressForm.province, addressForm.city, addressForm.barangay]);
 
   const qty = Math.max(1, Number(formData.quantity || 1));
+  const availableStock = Math.max(0, Number(product?.inventory || 0));
   const selectedAddressPreview = addresses.find((a) => a.id === selectedAddressId) || null;
 
   const originalPrice = Math.max(0, Number(product?.price || 0));
@@ -429,6 +436,44 @@ function ReservationPageContent() {
     } finally {
       setApplyingVoucher(false);
     }
+  };
+
+  const handleQuantityInputChange = (rawValue: string) => {
+    const digitsOnly = rawValue.replace(/[^\d]/g, "");
+    if (!digitsOnly) {
+      setFormData((prev) => ({ ...prev, quantity: 1 }));
+      return;
+    }
+
+    const parsed = parsePositiveInteger(digitsOnly);
+    if (!parsed) {
+      setFormData((prev) => ({ ...prev, quantity: 1 }));
+      return;
+    }
+
+    if (availableStock > 0 && parsed > availableStock) {
+      alert(`Only ${availableStock} unit(s) available for this product.`);
+      setFormData((prev) => ({ ...prev, quantity: availableStock }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, quantity: parsed }));
+  };
+
+  const normalizeQuantityInput = () => {
+    const parsed = parsePositiveInteger(formData.quantity);
+    if (!parsed) {
+      setFormData((prev) => ({ ...prev, quantity: 1 }));
+      return;
+    }
+
+    if (availableStock > 0 && parsed > availableStock) {
+      alert(`Only ${availableStock} unit(s) available for this product.`);
+      setFormData((prev) => ({ ...prev, quantity: availableStock }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, quantity: parsed }));
   };
 
   const addToCartInstead = async () => {
@@ -733,25 +778,23 @@ function ReservationPageContent() {
                     Quantity <span className="text-red-600">*</span>
                   </label>
                   <input
-                    type="number"
-                    min={1}
-                    max={Math.max(1, Number(product.inventory || 0))}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={qty}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        quantity: Math.max(
-                          1,
-                          Math.min(
-                            Math.max(1, Number(e.target.value || 1)),
-                            Math.max(1, Number(product.inventory || 0))
-                          )
-                        ),
-                      })
-                    }
+                    onChange={(event) => handleQuantityInputChange(event.target.value)}
+                    onBlur={normalizeQuantityInput}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                        event.preventDefault();
+                      }
+                      if (event.key === "e" || event.key === "E" || event.key === "+" || event.key === "-" || event.key === ".") {
+                        event.preventDefault();
+                      }
+                    }}
                     className="w-full border border-gray-300 rounded-lg px-4 py-3"
                   />
-                  <div className="mt-1 text-sm text-gray-600">Available stock: {Math.max(0, Number(product.inventory || 0))}</div>
+                  <div className="mt-1 text-sm text-gray-600">Available stock: {availableStock}</div>
                 </div>
 
                 <div>

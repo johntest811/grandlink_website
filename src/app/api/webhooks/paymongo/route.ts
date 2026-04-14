@@ -402,9 +402,9 @@ export async function POST(request: NextRequest) {
 
         // Prepare update data
         const updateData: any = {
-          // Payment is confirmed, but fulfillment must still pass admin approval first.
-          status: 'pending_payment',
-          order_status: 'pending_payment',
+          // Payment is confirmed. Keep fulfillment waiting for admin approval via reserved stage.
+          status: 'reserved',
+          order_status: 'reserved',
           price: Number(userItem.price || 0),
           payment_status: 'completed',
           payment_id: sessionId,
@@ -424,6 +424,8 @@ export async function POST(request: NextRequest) {
             total_amount: finalTotalPerItem,
             payment_session_id: sessionId,
             payment_method: 'paymongo',
+            payment_provider: 'paymongo',
+            payment_status: 'completed',
             paymongo_channel: paymongoChannel,
             paid_via_qrph: paymongoChannel === 'qrph',
             subtotal,
@@ -452,7 +454,7 @@ export async function POST(request: NextRequest) {
           console.error(`❌ Failed to update item ${id}:`, updateErr);
         } else {
           const action = isCartItem ? 'Converted cart item' : 'Updated reservation';
-          console.log(`✅ ${action} ${id} to pending_payment status`);
+          console.log(`✅ ${action} ${id} to reserved status`);
 
           // Deduct inventory from products table (idempotent: only once per item)
           try {

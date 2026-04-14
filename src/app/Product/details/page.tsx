@@ -84,6 +84,12 @@ function normalizeAdditionalFeaturesHtml(value: unknown): string {
   return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
+function parsePositiveInteger(value: unknown): number | null {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
 type ProductReview = {
   id: string;
   product_id: string;
@@ -122,7 +128,7 @@ function ProductDetailsPageContent() {
   //Weather System
   const [weather, setWeather] = useState<"sunny" | "rainy" | "night" | "foggy">("sunny");
   const [frameFinish, setFrameFinish] = useState<"default" | "matteBlack" | "matteGray" | "narra" | "walnut">("default");
-  const [quantity, setQuantity] = useState(1);
+  const [quantityInput, setQuantityInput] = useState("1");
   const [adding, setAdding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
@@ -342,6 +348,23 @@ function ProductDetailsPageContent() {
       }
       return;
     }
+
+    const requestedQuantity = parsePositiveInteger(quantityInput);
+    if (!requestedQuantity) {
+      alert("Please enter a valid quantity.");
+      setQuantityInput("1");
+      return;
+    }
+    if (availableStock <= 0) {
+      alert("This product is out of stock.");
+      return;
+    }
+    if (requestedQuantity > availableStock) {
+      alert(`Only ${availableStock} unit(s) available for ${product?.name || "this product"}.`);
+      setQuantityInput(String(availableStock));
+      return;
+    }
+
     setAdding(true);
     try {
       const baseUnitPrice = Math.max(0, Number(product.price || 0));
@@ -356,7 +379,7 @@ function ProductDetailsPageContent() {
         body: JSON.stringify({
           userId,
           productId: product.id,
-          quantity,
+          quantity: requestedQuantity,
           meta: {
             selected_image: images[carouselIdx] || null,
             product_price: baseUnitPrice,
@@ -386,11 +409,50 @@ function ProductDetailsPageContent() {
     }
   };
 
-  const isOutOfStock = product.inventory <= 0;
+  const availableStock = Math.max(0, Number(product?.inventory ?? 0));
+  const isOutOfStock = availableStock <= 0;
   const has3DModels = modelUrls.length > 0;
   const averageRating = reviews.length
     ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / reviews.length
     : 0;
+
+  const handleQuantityInputChange = (rawValue: string) => {
+    const digitsOnly = rawValue.replace(/[^\d]/g, "");
+    if (!digitsOnly) {
+      setQuantityInput("");
+      return;
+    }
+
+    const parsed = parsePositiveInteger(digitsOnly);
+    if (!parsed) {
+      setQuantityInput("1");
+      return;
+    }
+
+    if (availableStock > 0 && parsed > availableStock) {
+      alert(`Only ${availableStock} unit(s) available for ${product?.name || "this product"}.`);
+      setQuantityInput(String(availableStock));
+      return;
+    }
+
+    setQuantityInput(String(parsed));
+  };
+
+  const normalizeQuantityInput = () => {
+    const parsed = parsePositiveInteger(quantityInput);
+    if (!parsed) {
+      setQuantityInput("1");
+      return;
+    }
+
+    if (availableStock > 0 && parsed > availableStock) {
+      alert(`Only ${availableStock} unit(s) available for ${product?.name || "this product"}.`);
+      setQuantityInput(String(availableStock));
+      return;
+    }
+
+    setQuantityInput(String(parsed));
+  };
 
   const submitReview = async () => {
     if (!productId) return;
@@ -636,24 +698,31 @@ function ProductDetailsPageContent() {
           {/* Quantity Selector and Add to Cart Button */}
           <div className="flex items-center gap-4 mt-6">
             {/* Quantity Selector */}
-            <div className="flex items-center border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm hover:border-blue-400 transition-colors duration-200">
-              <button
-                onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                className="px-5 py-3 bg-white hover:bg-blue-50 text-gray-700 hover:text-blue-600 font-semibold transition-colors duration-200 border-r border-gray-300"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M20 12H4" />
-                </svg>
-              </button>
-              <span className="px-8 py-3 text-lg font-bold text-gray-800 bg-white min-w-[60px] text-center">{quantity}</span>
-              <button
-                onClick={() => setQuantity(q => q + 1)}
-                className="px-5 py-3 bg-white hover:bg-blue-50 text-gray-700 hover:text-blue-600 font-semibold transition-colors duration-200 border-l border-gray-300"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+            <div className="flex items-center gap-3 border-2 border-gray-300 rounded-lg px-4 py-2 shadow-sm hover:border-blue-400 transition-colors duration-200 bg-white">
+              <label className="text-sm font-semibold text-gray-700">Qty</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={quantityInput}
+                onChange={(event) => handleQuantityInputChange(event.target.value)}
+                onBlur={normalizeQuantityInput}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                    event.preventDefault();
+                  }
+                  if (event.key === "e" || event.key === "E" || event.key === "+" || event.key === "-" || event.key === ".") {
+                    event.preventDefault();
+                  }
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+                className="w-24 rounded border border-gray-300 px-3 py-2 text-center text-lg font-bold text-gray-800 outline-none focus:border-blue-500"
+                aria-label="Quantity"
+              />
+              <span className="text-xs text-gray-500">Stock: {availableStock}</span>
             </div>
             
             {/* Add to Cart Button */}

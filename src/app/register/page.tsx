@@ -8,6 +8,7 @@ import CheckboxCaptcha from "@/components/CheckboxCaptcha";
 
 export default function RegisterPage() {
   const [firstName, setFirstName] = useState("");
+  const [middleName, setMiddleName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,8 +38,11 @@ export default function RegisterPage() {
     }
 
     const cleanFirstName = firstName.trim();
+    const cleanMiddleName = middleName.trim();
     const cleanLastName = lastName.trim();
-    const fullName = `${cleanFirstName} ${cleanLastName}`.trim();
+    const fullName = [cleanFirstName, cleanMiddleName, cleanLastName]
+      .filter(Boolean)
+      .join(" ");
 
     if (!cleanFirstName || !cleanLastName) {
       setPopup({ success: false, message: "Please enter both first name and last name." });
@@ -96,6 +100,7 @@ export default function RegisterPage() {
         emailRedirectTo: `${baseUrl}/register/success`,
         data: {
           first_name: cleanFirstName,
+          middle_name: cleanMiddleName || null,
           last_name: cleanLastName,
           full_name: fullName,
           name: fullName,
@@ -126,6 +131,7 @@ export default function RegisterPage() {
         )
       });
       setFirstName("");
+      setMiddleName("");
       setLastName("");
       setEmail("");
       setPassword("");
@@ -176,7 +182,7 @@ export default function RegisterPage() {
         <div className="bg-white/95 rounded-xl shadow-lg px-8 py-10 w-full max-w-md flex flex-col items-center relative z-10 mt-12 mb-12">
           <h1 className="text-3xl font-bold text-center mb-6 text-[#8B1C1C]">Register</h1>
           <form className="w-full flex flex-col gap-4" onSubmit={handleRegister}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="font-semibold text-sm mb-1 block text-black" htmlFor="first-name">
                   First Name
@@ -192,6 +198,23 @@ export default function RegisterPage() {
                     value={firstName}
                     onChange={e => setFirstName(e.target.value)}
                     required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-sm mb-1 block text-black" htmlFor="middle-name">
+                  Middle Name
+                </label>
+                <div className="flex items-center border border-gray-400 rounded-lg px-3 py-2 bg-gray-100">
+                  <FaUser className="text-gray-500 mr-2" />
+                  <input
+                    id="middle-name"
+                    type="text"
+                    placeholder="Middle name"
+                    className="bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400"
+                    autoComplete="additional-name"
+                    value={middleName}
+                    onChange={e => setMiddleName(e.target.value)}
                   />
                 </div>
               </div>

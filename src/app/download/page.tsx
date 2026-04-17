@@ -19,6 +19,9 @@ type DownloadsContent = {
   enabled?: boolean;
 };
 
+const DOWNLOADS_SESSION_CACHE_KEY = "gl:downloads-page-payload:v1";
+const DOWNLOADS_SESSION_CACHE_TTL_MS = 2 * 60 * 1000;
+
 const fallbackContent: DownloadsContent = {
   heroTitle: "Download GrandLink Mobile",
   heroDescription: "Install our Android app to access reservations and updates from your phone.",
@@ -39,14 +42,52 @@ export default function DownloadPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const readCachedPayload = (): DownloadsContent | null => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = window.sessionStorage.getItem(DOWNLOADS_SESSION_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { value?: DownloadsContent; expiresAt?: number };
+        if (!parsed?.value || typeof parsed.expiresAt !== "number") return null;
+        if (parsed.expiresAt <= Date.now()) {
+          window.sessionStorage.removeItem(DOWNLOADS_SESSION_CACHE_KEY);
+          return null;
+        }
+        return parsed.value;
+      } catch {
+        return null;
+      }
+    };
+
+    const writeCachedPayload = (value: DownloadsContent) => {
+      if (typeof window === "undefined") return;
+      try {
+        window.sessionStorage.setItem(
+          DOWNLOADS_SESSION_CACHE_KEY,
+          JSON.stringify({ value, expiresAt: Date.now() + DOWNLOADS_SESSION_CACHE_TTL_MS })
+        );
+      } catch {
+        // ignore storage failures
+      }
+    };
+
     const load = async () => {
       setLoading(true);
+
+      const cached = readCachedPayload();
+      if (cached) {
+        setContent({ ...fallbackContent, ...cached });
+        setLoading(false);
+        return;
+      }
+
       try {
-        const res = await fetch("/api/downloads");
+        const res = await fetch("/api/downloads", { cache: "force-cache" });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(payload?.error || "Failed to load downloads content");
         const next = (payload?.content ?? payload ?? {}) as DownloadsContent;
         setContent({ ...fallbackContent, ...next });
+        writeCachedPayload(next);
       } catch {
         setContent(fallbackContent);
       } finally {
@@ -68,11 +109,11 @@ export default function DownloadPage() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-[#f6f7fb]">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-[#f6f7fb] gl-page-shell">
       <UnifiedTopNavBar />
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-14">
-        <section className="rounded-3xl border border-gray-200 bg-white shadow-sm p-6 sm:p-10">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-14 gl-page-main">
+        <section className="rounded-3xl border border-gray-200 bg-white shadow-sm p-6 sm:p-10 gl-reveal gl-outline-panel">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold tracking-[0.18em] uppercase text-[#8B1C1C]">Mobile App</p>
             <h1 className="mt-2 text-3xl sm:text-4xl font-bold text-[#1f1f1f]">{content.heroTitle || fallbackContent.heroTitle}</h1>
@@ -81,22 +122,14 @@ export default function DownloadPage() {
             </p>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-gray-200 bg-[#fafafa] p-5 sm:p-6">
+          <div className="mt-8 rounded-2xl border border-gray-200 bg-[#fafafa] p-5 sm:p-6 gl-card-lift">
             <h2 className="text-xl font-semibold text-[#1f1f1f]">{content.cardTitle || fallbackContent.cardTitle}</h2>
             <p className="text-sm text-gray-600 mt-2">{content.cardDescription || fallbackContent.cardDescription}</p>
 
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+            <div className="mt-4 grid grid-cols-1 gap-3 text-sm max-w-xs">
               <div className="rounded-lg bg-white border px-3 py-2">
                 <span className="text-gray-500">Version</span>
                 <div className="font-semibold text-gray-900">{content.apkVersion || "N/A"}</div>
-              </div>
-              <div className="rounded-lg bg-white border px-3 py-2">
-                <span className="text-gray-500">File Size</span>
-                <div className="font-semibold text-gray-900">{content.apkSize || "N/A"}</div>
-              </div>
-              <div className="rounded-lg bg-white border px-3 py-2">
-                <span className="text-gray-500">File Name</span>
-                <div className="font-semibold text-gray-900 truncate">{content.apkFileName || "N/A"}</div>
               </div>
             </div>
 

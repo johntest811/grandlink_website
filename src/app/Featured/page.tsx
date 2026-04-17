@@ -29,7 +29,7 @@ function FeaturedProjectsContent() {
   }, []);
 
   const content = (
-    <div className="py-10">
+    <div className="py-10 gl-page-main">
       <h2 className="text-3xl font-bold text-center mb-2 text-white">Featured Projects</h2>
       <div className="h-1 w-20 bg-[#B11C1C] mx-auto mb-6" />
       <p className="text-center text-gray-300 max-w-2xl mx-auto mb-10">
@@ -47,7 +47,7 @@ function FeaturedProjectsContent() {
           <motion.div
             key={p.id}
             whileHover={{ scale: 1.03 }}
-            className="group cursor-pointer rounded-xl shadow-lg border border-gray-200 overflow-hidden"
+            className="group cursor-pointer rounded-xl shadow-lg border border-gray-200 overflow-hidden gl-card-lift"
             onClick={() => setSelected(p)}
           >
             <div className="relative w-full aspect-[5/4] min-h-[250px] bg-gray-100 overflow-hidden">
@@ -124,10 +124,12 @@ function FeaturedProjectsContent() {
 
 export default function FeaturedProjectsPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-[#232d3b]">
+    <div className="flex flex-col min-h-screen bg-[#232d3b] gl-page-shell-dark">
       <UnifiedTopNavBar />
-      <main className="flex-1">
-        <FeaturedProjectsContent />
+      <main className="flex-1 gl-page-main">
+        <div className="gl-reveal">
+          <FeaturedProjectsContent />
+        </div>
       </main>
       <Footer />
     </div>

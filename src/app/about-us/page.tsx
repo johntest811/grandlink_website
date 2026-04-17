@@ -19,11 +19,11 @@ export default function AboutUsPage() {
   if (!about) return <p className="text-center mt-10">Loading...</p>;
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white gl-page-shell">
       <UnifiedTopNavBar />
-      <main className="flex-1 bg-white">
+      <main className="flex-1 bg-white gl-page-main">
         {/* Hero Section */}
-        <section className="relative w-full h-[320px] md:h-[400px] flex flex-col justify-center items-center bg-[#232d3b]">
+        <section className="relative w-full h-[320px] md:h-[400px] flex flex-col justify-center items-center bg-[#232d3b] gl-hero-stage gl-reveal">
           <div className="absolute inset-0 z-0">
             <Image
               src="/aboutus.avif"
@@ -45,7 +45,7 @@ export default function AboutUsPage() {
         </section>
 
         {/* Logo and Description */}
-        <section className="py-10 px-4 bg-white flex flex-col items-center">
+        <section className="py-10 px-4 bg-white flex flex-col items-center gl-reveal gl-reveal-delay-1">
           {/* <Image
             src="/GE Logo.avif"
             alt="Grand East Logo"
@@ -66,7 +66,7 @@ export default function AboutUsPage() {
 
 
         {/* Mission & Vision Section */}
-        <section className="flex flex-col md:flex-row w-full">
+        <section className="flex flex-col md:flex-row w-full gl-reveal gl-reveal-delay-2">
           <div
             className="flex-1 flex flex-col justify-center items-center px-8 py-16"
             style={{
@@ -105,14 +105,14 @@ export default function AboutUsPage() {
 
         {/* Call to Action Section */}
         <section
-          className="py-8 px-4"
+          className="py-8 px-4 gl-reveal gl-reveal-delay-3"
           style={{
             backgroundImage: "url('/aboutus.avif')", // <-- your image path here
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
         >
-          <div className="bg-[#f8f9fa] rounded flex flex-col md:flex-row items-center justify-between max-w-6xl mx-auto px-8 py-8">
+          <div className="bg-[#f8f9fa] rounded flex flex-col md:flex-row items-center justify-between max-w-6xl mx-auto px-8 py-8 gl-outline-panel">
             <div>
               <h3 className="text-2xl font-bold text-[#8B1C1C] mb-2">
                 Ready to elevate your space?

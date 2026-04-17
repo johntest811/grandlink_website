@@ -88,6 +88,8 @@ type ProductPageHero = {
   image?: string;
 };
 
+const HOME_SESSION_CACHE_KEY = "gl:home-page-payload:v1";
+
 function ProductsPageContent() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,9 +183,28 @@ function ProductsPageContent() {
   useEffect(() => {
     const fetchHeroContent = async () => {
       try {
-        const res = await fetch("/api/home");
-        if (!res.ok) return;
-        const data = await res.json();
+        let data: any = null;
+
+        if (typeof window !== "undefined") {
+          try {
+            const raw = window.sessionStorage.getItem(HOME_SESSION_CACHE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw) as { value?: any; expiresAt?: number };
+              if (parsed?.value && typeof parsed.expiresAt === "number" && parsed.expiresAt > Date.now()) {
+                data = parsed.value;
+              }
+            }
+          } catch {
+            // ignore cache parse failures and fallback to network
+          }
+        }
+
+        if (!data) {
+          const res = await fetch("/api/home", { cache: "force-cache" });
+          if (!res.ok) return;
+          data = await res.json();
+        }
+
         const content = data?.content ?? data ?? {};
         const hero = content?.product_page_hero;
         if (Array.isArray(content?.productCategoryOptions)) {
@@ -388,10 +409,10 @@ function ProductsPageContent() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col gl-page-shell">
       <UnifiedTopNavBar />
-      <main className="flex-1 bg-white">
-        <section className="relative w-full">
+      <main className="flex-1 bg-white gl-page-main">
+        <section className="relative w-full gl-hero-stage gl-reveal">
           <div className="h-[220px] md:h-[300px] w-full overflow-hidden bg-gray-100">
             {productHero.image ? (
               <Image
@@ -416,7 +437,7 @@ function ProductsPageContent() {
         </section>
 
         {/* Search bar */}
-        <div className="py-6">
+        <div className="py-6 gl-reveal gl-reveal-delay-1">
           <div className="max-w-6xl mx-auto px-4 flex justify-center text-black">
             <input
               type="search"
@@ -429,7 +450,7 @@ function ProductsPageContent() {
         </div>
 
         {/* Mobile / tablet filter trigger */}
-        <section className="lg:hidden pb-3">
+        <section className="lg:hidden pb-3 gl-reveal gl-reveal-delay-1">
           <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-3">
             <div className="text-xs text-gray-600">
               Filters: <span className="font-semibold text-gray-800">{activeCategoryLabel}</span>
@@ -446,7 +467,7 @@ function ProductsPageContent() {
         </section>
 
         {/* Price range filter (applies to all layouts) */}
-        <section className="hidden lg:block pb-2">
+        <section className="hidden lg:block pb-2 gl-reveal gl-reveal-delay-2">
           <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-4 text-sm text-black">
             <span className="font-medium">Price range:</span>
             <div className="flex items-center gap-2">
@@ -496,7 +517,7 @@ function ProductsPageContent() {
         </section>
 
         {/* Category Tabs */}
-        <section className="hidden lg:block py-6 border-b">
+        <section className="hidden lg:block py-6 border-b gl-reveal gl-reveal-delay-2">
           <div className="flex flex-wrap justify-center gap-4 text-sm font-medium">
             {categories.map((cat) => (
               <button
@@ -516,12 +537,12 @@ function ProductsPageContent() {
 
         {/* Floating Left Sidebar Filter (shown after scrolling on large screens) */}
         <aside
-          className={`hidden lg:block fixed left-5 top-28 z-40 transform transition-all duration-300 ease-out ${
+          className={`hidden lg:block fixed left-5 top-24 z-40 transform transition-all duration-300 ease-out ${
             showSideFilter ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none"
           }`}
           aria-hidden={!showSideFilter}
         >
-          <div className="w-[270px] max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.16)]">
+          <div className="w-[270px] max-h-[calc(100vh-8rem)] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_14px_36px_rgba(15,23,42,0.16)] gl-outline-panel">
             <div className="bg-gradient-to-br from-[#1f2937] via-[#253349] to-[#334155] px-4 py-4 text-white">
               <p className="text-[11px] uppercase tracking-[0.2em] text-slate-300">Smart Filters</p>
               <p className="mt-1 text-sm font-semibold">Filter Products</p>
@@ -746,7 +767,7 @@ function ProductsPageContent() {
         </div>
 
         {/* Product Grid */}
-        <section className="py-10 max-w-6xl mx-auto px-4">
+        <section className="py-10 max-w-6xl mx-auto px-4 gl-reveal gl-reveal-delay-3">
           {loading ? (
             <div className="text-center text-gray-500">Loading products...</div>
           ) : Array.isArray(filteredProducts) && filteredProducts.length > 0 ? (
@@ -755,7 +776,7 @@ function ProductsPageContent() {
                 <Link
                   key={prod.id}
                   href={`/Product/details?id=${prod.id}`}
-                  className="group h-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm hover:shadow-lg transition flex flex-col"
+                  className="group h-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm hover:shadow-lg transition flex flex-col gl-card-lift"
                 >
                   <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg bg-gray-100 shrink-0">
                     {getProductImage(prod) && (

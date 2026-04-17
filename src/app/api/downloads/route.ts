@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { invalidateServerMemoryCacheKey, readServerMemoryCache, writeServerMemoryCache } from "@/app/lib/serverMemoryCache";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
 const GET_CACHE_CONTROL = "public, max-age=120, s-maxage=600, stale-while-revalidate=3600";
+const DOWNLOADS_MEMORY_CACHE_KEY = "downloads:payload";
+const DOWNLOADS_MEMORY_CACHE_TTL_MS = 2 * 60 * 1000;
 
 function getReadClient() {
   if (!SUPABASE_URL || !(SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY)) return null;
@@ -18,12 +21,16 @@ function getWriteClient() {
 }
 
 export async function GET() {
+  const cached = readServerMemoryCache<any>(DOWNLOADS_MEMORY_CACHE_KEY);
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
+  }
+
   const supabase = getReadClient();
   if (!supabase) {
-    return NextResponse.json(
-      { content: {}, updated_at: null },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = { content: {}, updated_at: null };
+    writeServerMemoryCache(DOWNLOADS_MEMORY_CACHE_KEY, payload, DOWNLOADS_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   }
 
   try {
@@ -35,6 +42,7 @@ export async function GET() {
       .maybeSingle();
 
     if (bySlug.data) {
+      writeServerMemoryCache(DOWNLOADS_MEMORY_CACHE_KEY, bySlug.data, DOWNLOADS_MEMORY_CACHE_TTL_MS);
       return NextResponse.json(bySlug.data, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
     }
 
@@ -46,19 +54,18 @@ export async function GET() {
       .maybeSingle();
 
     if (byId.data) {
+      writeServerMemoryCache(DOWNLOADS_MEMORY_CACHE_KEY, byId.data, DOWNLOADS_MEMORY_CACHE_TTL_MS);
       return NextResponse.json(byId.data, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
     }
 
-    return NextResponse.json(
-      { content: {}, updated_at: null },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = { content: {}, updated_at: null };
+    writeServerMemoryCache(DOWNLOADS_MEMORY_CACHE_KEY, payload, DOWNLOADS_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   } catch (error: any) {
     console.error("GET /api/downloads failed", error);
-    return NextResponse.json(
-      { content: {}, updated_at: null },
-      { headers: { "Cache-Control": GET_CACHE_CONTROL } }
-    );
+    const payload = { content: {}, updated_at: null };
+    writeServerMemoryCache(DOWNLOADS_MEMORY_CACHE_KEY, payload, DOWNLOADS_MEMORY_CACHE_TTL_MS);
+    return NextResponse.json(payload, { headers: { "Cache-Control": GET_CACHE_CONTROL } });
   }
 }
 
@@ -87,6 +94,7 @@ export async function PUT(req: Request) {
       .maybeSingle();
 
     if (!byId.error && byId.data) {
+      invalidateServerMemoryCacheKey(DOWNLOADS_MEMORY_CACHE_KEY);
       return NextResponse.json(byId.data, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -100,6 +108,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: bySlug.error.message }, { status: 500 });
     }
 
+    invalidateServerMemoryCacheKey(DOWNLOADS_MEMORY_CACHE_KEY);
     return NextResponse.json(bySlug.data, { headers: { "Cache-Control": "no-store" } });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "unknown" }, { status: 500 });

@@ -24,6 +24,9 @@ type HomeApiResponse = {
   updated_at?: string | null;
 };
 
+const HOME_SESSION_CACHE_KEY = "gl:home-page-payload:v1";
+const HOME_SESSION_CACHE_TTL_MS = 2 * 60 * 1000;
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
 // helper to convert storage file key -> public url (or pass through full urls)
@@ -113,10 +116,57 @@ export default function HomePage() {
   const [newestProducts, setNewestProducts] = useState<any[]>([]);
 
   useEffect(() => {
+    const readCachedPayload = (): HomeApiResponse | null => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = window.sessionStorage.getItem(HOME_SESSION_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { value?: HomeApiResponse; expiresAt?: number };
+        if (!parsed?.value || typeof parsed.expiresAt !== "number") return null;
+        if (parsed.expiresAt <= Date.now()) {
+          window.sessionStorage.removeItem(HOME_SESSION_CACHE_KEY);
+          return null;
+        }
+        return parsed.value;
+      } catch {
+        return null;
+      }
+    };
+
+    const writeCachedPayload = (value: HomeApiResponse) => {
+      if (typeof window === "undefined") return;
+      try {
+        window.sessionStorage.setItem(
+          HOME_SESSION_CACHE_KEY,
+          JSON.stringify({ value, expiresAt: Date.now() + HOME_SESSION_CACHE_TTL_MS })
+        );
+      } catch {
+        // ignore storage failures
+      }
+    };
+
     const load = async () => {
       setLoading(true);
+
+      const cachedPayload = readCachedPayload();
+      if (cachedPayload) {
+        const rawCached = cachedPayload?.content ?? {};
+        let parsedCached: any = rawCached;
+        if (typeof rawCached === "string") {
+          try {
+            parsedCached = JSON.parse(rawCached);
+          } catch {
+            parsedCached = {};
+          }
+        }
+        setContent((parsedCached ?? {}) as HomeContent);
+        setNewestProducts(Array.isArray(cachedPayload?.newest_products) ? cachedPayload.newest_products : []);
+        setLoading(false);
+        return;
+      }
+
       try {
-        const res = await fetch("/api/home");
+        const res = await fetch("/api/home", { cache: "force-cache" });
         const payload = (await res.json().catch(() => ({}))) as HomeApiResponse;
 
         if (!res.ok) {
@@ -136,6 +186,7 @@ export default function HomePage() {
         }
         setContent((parsed ?? {}) as HomeContent);
         setNewestProducts(Array.isArray(payload?.newest_products) ? payload.newest_products : []);
+        writeCachedPayload(payload);
       } catch (err) {
         console.error("load home_content error:", err);
         setContent(null);
@@ -154,16 +205,18 @@ export default function HomePage() {
   ]) as any[];
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col gl-page-shell">
       <UnifiedTopNavBar />
-      <main className="flex flex-col items-center justify-center flex-1 w-full">
+      <main className="flex flex-col items-center justify-center flex-1 w-full gl-page-main">
         {/* Hero Section */}
-        <HeroSlider slides={carousel} />
+        <div className="w-full gl-reveal">
+          <HeroSlider slides={carousel} />
+        </div>
 
         {/* make background below the carousel white */}
-        <div className="w-full bg-white">
+        <div className="w-full bg-white gl-soft-grid">
           {/* Product Categories */}
-          <section className="max-w-screen-xl mx-auto py-10 px-4">
+          <section className="max-w-screen-xl mx-auto py-10 px-4 gl-reveal gl-reveal-delay-1">
             {/* Only show newest products (sourced directly from products table) */}
             <ProductCategory
               title="Newest Products"
@@ -173,15 +226,23 @@ export default function HomePage() {
           </section>
 
           {/* Explore Section */}
-          <ExploreSection items={content?.explore} />
+          <div className="gl-reveal gl-reveal-delay-2">
+            <ExploreSection items={content?.explore} />
+          </div>
 
           {/* Featured Projects */}
-          <FeaturedProjects projects={content?.featured_projects} />
+          <div className="gl-reveal gl-reveal-delay-2">
+            <FeaturedProjects projects={content?.featured_projects} />
+          </div>
 
-          <FeaturedLongImageGallery items={content?.featured_long_images} />
+          <div className="gl-reveal gl-reveal-delay-3">
+            <FeaturedLongImageGallery items={content?.featured_long_images} />
+          </div>
 
           {/* Services + About (2x2 layout) */}
-          <ServicesSection services={content?.services} about={content?.about} />
+          <div className="gl-reveal gl-reveal-delay-4">
+            <ServicesSection services={content?.services} about={content?.about} />
+          </div>
         </div>
       </main>
       <Footer />
@@ -323,7 +384,7 @@ function ProductCategory({
               const displayName = item.name ?? item.fullproductname ?? item.product_name ?? displayCode;
 
               return (
-                <div key={key} className="border border-gray-200 shadow-sm hover:shadow-md transition rounded-lg p-4 flex flex-col bg-white">
+                <div key={key} className="border border-gray-200 shadow-sm hover:shadow-md transition rounded-lg p-4 flex flex-col bg-white gl-card-lift">
                   <div className="h-40 bg-gray-200 flex items-center justify-center overflow-hidden">
                     {img ? (
                       <Image
@@ -379,7 +440,7 @@ function ProductCategory({
             })
           : // fallback placeholders
             ["GE 103", "GE 79", "GE 116"].map((t) => (
-               <div key={t} className="border shadow p-4">
+               <div key={t} className="border shadow p-4 gl-card-lift">
                  <div className="h-40 bg-gray-200 flex items-center justify-center">
                    <span className="text-gray-500">Image</span>
                  </div>
@@ -422,7 +483,7 @@ function FeaturedLongImageGallery({ items }: { items?: Array<any> }) {
                 key={index}
                 type="button"
                 onClick={() => openAt(index)}
-                className="group relative h-[420px] rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition text-left"
+                className="group relative h-[420px] rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition text-left gl-card-lift"
               >
                 {img ? (
                   <Image
@@ -513,7 +574,7 @@ function ExploreSection({ items }: { items?: Array<any> }) {
             return (
               <div
                 key={i}
-                className="relative group h-[320px] md:h-[340px] rounded overflow-hidden flex items-center justify-center"
+                className="relative group h-[320px] md:h-[340px] rounded overflow-hidden flex items-center justify-center gl-card-lift"
                 style={{ minHeight: "320px" }}
               >
                 {/* Background image */}
@@ -615,7 +676,7 @@ function FeaturedProjects({ projects }: { projects?: Array<any> }) {
             const embedUrl = getYoutubeEmbedUrl(p.youtube_url || p.video_url || p.link_url);
 
             return (
-              <article key={i} className="flex flex-col items-center text-center">
+              <article key={i} className="flex flex-col items-center text-center gl-card-lift rounded-xl p-2">
                 {/* Video area */}
                 <div className="w-full max-w-4xl aspect-video bg-black rounded overflow-hidden mb-4">
                   {embedUrl ? (

@@ -102,10 +102,10 @@ export default function ShowroomPage() {
   for (let i = 0; i < showrooms.length; i += 3) chunked.push(showrooms.slice(i, i + 3));
 
   return (
-    <div className="flex flex-col min-h-screen bg-white">
+    <div className="flex flex-col min-h-screen bg-white gl-page-shell">
       <UnifiedTopNavBar />
-      <main className="flex-1 bg-white">
-        <div className="max-w-7xl mx-auto px-6 py-12">
+      <main className="flex-1 bg-white gl-page-main">
+        <div className="max-w-7xl mx-auto px-6 py-12 gl-reveal">
           <h2 className="text-center text-3xl font-extrabold leading-tight text-black">
             Visit us
             <br />
@@ -121,7 +121,7 @@ export default function ShowroomPage() {
                 return (
                   <article
                     key={s.id}
-                    className="rounded-xl border border-gray-200 shadow-sm bg-white overflow-hidden flex flex-col h-[600px] max-w-[350px] mx-auto"
+                    className="rounded-xl border border-gray-200 shadow-sm bg-white overflow-hidden flex flex-col h-[600px] max-w-[350px] mx-auto gl-card-lift"
                   >
                     <div className="w-full h-[350px] bg-gray-100 overflow-hidden">
                       {s.image && (
@@ -167,7 +167,7 @@ export default function ShowroomPage() {
             </div>
           ))}
 
-          <section className="mt-4 rounded-xl overflow-hidden shadow-lg border border-gray-200 bg-white">
+          <section className="mt-4 rounded-xl overflow-hidden shadow-lg border border-gray-200 bg-white gl-reveal gl-reveal-delay-2">
             <div className="px-5 py-3 border-b bg-gray-50">
               <h3 className="text-base md:text-lg font-semibold text-gray-800">Google Maps Location</h3>
             </div>

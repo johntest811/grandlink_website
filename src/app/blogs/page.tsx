@@ -208,12 +208,12 @@ export default function BlogsPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white gl-page-shell">
       <UnifiedTopNavBar />
 
-      <main className="flex-1">
+      <main className="flex-1 gl-page-main">
         {/* Hero */}
-        <div className="relative w-full">
+        <div className="relative w-full gl-hero-stage gl-reveal">
           <div className="h-64 md:h-80 relative bg-gradient-to-r from-[#111827] to-[#1f2937]">
             <div className="absolute inset-0 bg-black/40 mix-blend-multiply" />
             <div className="absolute inset-0 flex items-center justify-center">
@@ -228,7 +228,7 @@ export default function BlogsPage() {
           </div>
         </div>
 
-        <section className="max-w-6xl mx-auto px-6 py-10">
+        <section className="max-w-6xl mx-auto px-6 py-10 gl-reveal gl-reveal-delay-1">
           <div className="mb-6">
             <label className="block text-sm font-semibold text-gray-700 mb-2">Search blogs</label>
             <input
@@ -252,7 +252,7 @@ export default function BlogsPage() {
                 const views = viewCounts[b.id] || 0;
 
                 return (
-                  <div key={b.id} className="bg-white rounded-xl shadow border overflow-hidden h-[460px] flex flex-col">
+                  <div key={b.id} className="bg-white rounded-xl shadow border overflow-hidden h-[460px] flex flex-col gl-card-lift">
                     <div className="w-full h-48 shrink-0 bg-gray-200 overflow-hidden">
                       {b.cover_image_url ? (
                         <button

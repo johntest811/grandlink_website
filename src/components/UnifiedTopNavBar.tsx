@@ -18,6 +18,25 @@ type UserNotif = {
   metadata?: Record<string, any> | string | null;
 };
 
+type ChromeSettings = {
+  topNavContactEmail: string;
+  topNavFacebookText: string;
+  topNavPhoneText: string;
+  topNavInquireLabel: string;
+  topNavInquireLink: string;
+};
+
+const DEFAULT_CHROME_SETTINGS: ChromeSettings = {
+  topNavContactEmail: "grandeast.org@gmail.com",
+  topNavFacebookText: "Click here visit to our FB Page",
+  topNavPhoneText: "Smart | 09082810586 Globe (Viber) | 09277640475",
+  topNavInquireLabel: "INQUIRE NOW",
+  topNavInquireLink: "/Inquire",
+};
+
+const CHROME_SETTINGS_CACHE_KEY = "gl:topnav-chrome-settings:v1";
+const CHROME_SETTINGS_CACHE_TTL_MS = 10 * 60 * 1000;
+
 export default function UnifiedTopNavBar() {
   const [user, setUser] = useState<any>(null);
   const getPendingVerification = () => {
@@ -41,13 +60,7 @@ export default function UnifiedTopNavBar() {
   const [isMobileNav, setIsMobileNav] = useState(false);
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [chromeSettings, setChromeSettings] = useState({
-    topNavContactEmail: "grandeast.org@gmail.com",
-    topNavFacebookText: "Click here visit to our FB Page",
-    topNavPhoneText: "Smart | 09082810586 Globe (Viber) | 09277640475",
-    topNavInquireLabel: "INQUIRE NOW",
-    topNavInquireLink: "/Inquire",
-  });
+  const [chromeSettings, setChromeSettings] = useState<ChromeSettings>(DEFAULT_CHROME_SETTINGS);
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollYRef = useRef(0);
   const navRef = useRef<HTMLDivElement>(null);
@@ -56,20 +69,59 @@ export default function UnifiedTopNavBar() {
   const router = useRouter();
 
   useEffect(() => {
-    const loadChromeSettings = async () => {
+    const readCachedChromeSettings = (): ChromeSettings | null => {
+      if (typeof window === "undefined") return null;
       try {
-        const res = await fetch("/api/home", { cache: "no-store" });
+        const raw = window.sessionStorage.getItem(CHROME_SETTINGS_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { value?: ChromeSettings; expiresAt?: number };
+        if (!parsed?.value || typeof parsed.expiresAt !== "number") return null;
+        if (parsed.expiresAt <= Date.now()) {
+          window.sessionStorage.removeItem(CHROME_SETTINGS_CACHE_KEY);
+          return null;
+        }
+        return parsed.value;
+      } catch {
+        return null;
+      }
+    };
+
+    const writeCachedChromeSettings = (value: ChromeSettings) => {
+      if (typeof window === "undefined") return;
+      try {
+        window.sessionStorage.setItem(
+          CHROME_SETTINGS_CACHE_KEY,
+          JSON.stringify({ value, expiresAt: Date.now() + CHROME_SETTINGS_CACHE_TTL_MS })
+        );
+      } catch {
+        // ignore quota/storage failures
+      }
+    };
+
+    const loadChromeSettings = async () => {
+      const cached = readCachedChromeSettings();
+      if (cached) {
+        setChromeSettings(cached);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/home", { cache: "force-cache" });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) return;
         const content = (payload?.content ?? payload ?? {}) as Record<string, any>;
-        setChromeSettings((prev) => ({
-          ...prev,
-          topNavContactEmail: String(content.topNavContactEmail || prev.topNavContactEmail),
-          topNavFacebookText: String(content.topNavFacebookText || prev.topNavFacebookText),
-          topNavPhoneText: String(content.topNavPhoneText || prev.topNavPhoneText),
-          topNavInquireLabel: String(content.topNavInquireLabel || prev.topNavInquireLabel),
-          topNavInquireLink: String(content.topNavInquireLink || prev.topNavInquireLink),
-        }));
+        setChromeSettings((prev) => {
+          const next = {
+            ...prev,
+            topNavContactEmail: String(content.topNavContactEmail || prev.topNavContactEmail),
+            topNavFacebookText: String(content.topNavFacebookText || prev.topNavFacebookText),
+            topNavPhoneText: String(content.topNavPhoneText || prev.topNavPhoneText),
+            topNavInquireLabel: String(content.topNavInquireLabel || prev.topNavInquireLabel),
+            topNavInquireLink: String(content.topNavInquireLink || prev.topNavInquireLink),
+          };
+          writeCachedChromeSettings(next);
+          return next;
+        });
       } catch {
         // keep defaults
       }
@@ -550,6 +602,7 @@ export default function UnifiedTopNavBar() {
           <Link href="/FAQs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">FAQs</Link>
           <Link href="/download" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Download</Link>
           <Link href="/blogs" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Blogs</Link>
+          <Link href="/order-progress" className="text-gray-700 hover:text-[#8B1C1C] font-medium">Track Order</Link>
         </nav>
         
         <div className="flex items-center gap-4">
@@ -977,6 +1030,16 @@ export default function UnifiedTopNavBar() {
               }}
             >
               Download
+            </Link>
+            <Link
+              href="/order-progress"
+              className="block rounded-lg px-3 py-3 text-base font-medium text-gray-800 hover:bg-gray-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setMobileDropdown(null);
+              }}
+            >
+              Track Order
             </Link>
           </div>
         </nav>

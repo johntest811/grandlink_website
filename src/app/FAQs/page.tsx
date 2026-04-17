@@ -47,13 +47,13 @@ export default function FAQsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50 gl-page-shell">
       <UnifiedTopNavBar />
 
-      <main className="flex-1">
+      <main className="flex-1 gl-page-main">
         {/* Hero Section */}
         <section
-          className="relative h-72 flex items-center justify-center text-center"
+          className="relative h-72 flex items-center justify-center text-center gl-hero-stage gl-reveal"
           style={{
             backgroundImage: "url('/faqs.avif')",
             backgroundSize: "cover",
@@ -72,8 +72,8 @@ export default function FAQsPage() {
         </section>
 
         {/* FAQs Section */}
-        <section className="py-12 px-6">
-          <div className="bg-white max-w-5xl mx-auto p-8 shadow-xl rounded-2xl">
+        <section className="py-12 px-6 gl-reveal gl-reveal-delay-1">
+          <div className="bg-white max-w-5xl mx-auto p-8 shadow-xl rounded-2xl gl-outline-panel">
             <h2 className="text-3xl font-bold text-center mb-8 text-gray-900">
               Frequently Asked Questions
             </h2>
@@ -180,7 +180,7 @@ export default function FAQsPage() {
                 return items.map((q) => (
                   <div
                     key={`${q.categoryId ?? "cat"}-${q.id}`}
-                    className="border rounded-lg overflow-hidden shadow-sm"
+                    className="border rounded-lg overflow-hidden shadow-sm gl-card-lift"
                   >
                     <button
                       onClick={() => {

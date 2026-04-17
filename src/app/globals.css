@@ -187,3 +187,173 @@ html[data-user-theme] .user-app .border-r,
 html[data-user-theme] .user-app .border-b {
   border-color: var(--user-border) !important;
 }
+
+/* Shared visual polish helpers for public marketing pages */
+@keyframes glFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes glFloatShift {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes glPulseHalo {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.04);
+  }
+}
+
+.gl-page-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(980px 420px at -12% -15%, rgba(139, 28, 28, 0.1), transparent 58%),
+    radial-gradient(900px 420px at 112% -10%, rgba(35, 45, 59, 0.1), transparent 58%),
+    linear-gradient(180deg, #f8fafc 0%, #ffffff 42%, #f4f7fb 100%);
+}
+
+.gl-page-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0) 20%,
+    rgba(255, 255, 255, 0.34) 48%,
+    rgba(255, 255, 255, 0) 80%
+  );
+  animation: glFloatShift 18s linear infinite;
+}
+
+.gl-page-shell-dark {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(860px 360px at -8% -8%, rgba(139, 28, 28, 0.2), transparent 60%),
+    radial-gradient(820px 340px at 108% -6%, rgba(59, 130, 246, 0.16), transparent 62%),
+    linear-gradient(180deg, #101723 0%, #131d2c 42%, #0e1624 100%);
+}
+
+.gl-page-shell-dark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(120deg, rgba(255, 255, 255, 0) 20%, rgba(255, 255, 255, 0.12) 48%, rgba(255, 255, 255, 0) 80%),
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: auto, 26px 26px, 26px 26px;
+  animation: glFloatShift 22s linear infinite;
+}
+
+.gl-page-main {
+  position: relative;
+  z-index: 1;
+}
+
+.gl-reveal {
+  opacity: 0;
+  transform: translateY(16px) scale(0.995);
+  animation: glFadeUp 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.gl-reveal-delay-1 {
+  animation-delay: 90ms;
+}
+
+.gl-reveal-delay-2 {
+  animation-delay: 170ms;
+}
+
+.gl-reveal-delay-3 {
+  animation-delay: 250ms;
+}
+
+.gl-reveal-delay-4 {
+  animation-delay: 340ms;
+}
+
+.gl-card-lift {
+  transition: transform 260ms ease, box-shadow 260ms ease;
+}
+
+.gl-card-lift:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.16);
+}
+
+.gl-outline-panel {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(6px);
+}
+
+.gl-hero-stage {
+  position: relative;
+  overflow: hidden;
+}
+
+.gl-hero-stage::after {
+  content: "";
+  position: absolute;
+  left: -15%;
+  right: -15%;
+  bottom: -48%;
+  height: 70%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 72%);
+  animation: glPulseHalo 8s ease-in-out infinite;
+}
+
+.gl-soft-grid {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+
+  .gl-page-shell::before,
+  .gl-page-shell-dark::before,
+  .gl-hero-stage::after {
+    animation: none;
+  }
+
+  .gl-card-lift {
+    transition: none;
+  }
+
+  .gl-card-lift:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}

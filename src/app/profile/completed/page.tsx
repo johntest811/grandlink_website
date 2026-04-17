@@ -339,9 +339,17 @@ export default function ProfileCompletedPage() {
             const saving = Boolean(savingReviewByProductId[pid]);
             return (
               <div key={it.id} className="bg-white p-6 rounded-lg shadow">
-                <div className="flex gap-4">
-                  <img src={img} className="w-20 h-20 object-cover rounded" alt={p?.name || "Product"} />
-                  <div className="flex-1">
+                <div className="flex items-start gap-4">
+                  <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border border-gray-200 bg-white">
+                    <Image
+                      src={img}
+                      alt={p?.name || "Product"}
+                      fill
+                      sizes="80px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
                     <div className="font-bold text-black">{p?.name || "Completed Item"}</div>
                     <div className="text-sm text-gray-600">Order ID: {it.id}</div>
                     <div className="text-xs text-gray-500">

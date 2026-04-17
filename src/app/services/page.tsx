@@ -57,7 +57,7 @@ export default function ServicesPage() {
 
   const fetchPageContent = async () => {
     try {
-      const res = await fetch("/api/services-page", { cache: "no-store" });
+      const res = await fetch("/api/services-page", { cache: "force-cache" });
       if (!res.ok) return;
       const data = await res.json();
       const content = (data?.content ?? data) as ServicesPageContent;
@@ -74,11 +74,11 @@ export default function ServicesPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white gl-page-shell">
       <UnifiedTopNavBar />
-      <main className="flex-1">
+      <main className="flex-1 gl-page-main">
         {/* Hero */}
-        <div className="relative w-full overflow-hidden">
+        <div className="relative w-full overflow-hidden gl-hero-stage gl-reveal">
           <div className="h-56 md:h-72 lg:h-80 relative max-h-[420px] overflow-hidden">
             <img
               src={pageContent.heroImageUrl || "/sevices.avif"}
@@ -122,14 +122,14 @@ export default function ServicesPage() {
         </div>
 
         {/* Intro (centered compressed paragraph under heading) */}
-        <section className="max-w-4xl mx-auto px-6 py-12 bg-white">
+        <section className="max-w-4xl mx-auto px-6 py-12 bg-white gl-reveal gl-reveal-delay-1">
           <p className="text-center text-gray-600 mb-10 text-lg leading-relaxed">
             {pageContent.introText || DEFAULT_PAGE_CONTENT.introText}
           </p>
         </section>
 
         {/* Section */}
-        <section className="max-w-6xl mx-auto px-6 py-12">
+        <section className="max-w-6xl mx-auto px-6 py-12 gl-reveal gl-reveal-delay-2">
           <p className="text-center text-gray-700 mb-10 text-lg max-w-2xl mx-auto">
             {pageContent.sectionText || DEFAULT_PAGE_CONTENT.sectionText}
           </p>
@@ -187,7 +187,7 @@ function ServiceCard({
   href: string;
 }) {
   return (
-    <div className="perspective" onClick={onClick}>
+    <div className="perspective gl-card-lift" onClick={onClick}>
       <motion.div
         className="relative w-full h-52 cursor-pointer"
         style={{ transformStyle: "preserve-3d" }}

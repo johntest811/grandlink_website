@@ -31,11 +31,13 @@ export default function DeliveryPage() {
   }, []);
 
   return (
-    <div className="bg-white text-gray-800">
+    <div className="bg-white text-gray-800 min-h-screen flex flex-col gl-page-shell">
       <UnifiedTopNavBar />
 
+      <main className="flex-1 gl-page-main">
+
       {/* Hero */}
-      <section className="text-center py-12 bg-gray-100">
+      <section className="text-center py-12 bg-gray-100 gl-hero-stage gl-reveal">
         <h1 className="text-3xl font-bold border-b-4 border-red-700 inline-block pb-2">
           Delivery & Ordering Process
         </h1>
@@ -43,13 +45,13 @@ export default function DeliveryPage() {
 
       {/* Steps */}
       <section
-        className="relative py-12 px-6 bg-cover bg-center"
+        className="relative py-12 px-6 bg-cover bg-center gl-reveal gl-reveal-delay-1"
         style={{ backgroundImage: "url('/Delivery&Ordering.avif')" }} // replace with your background
       >
-        <div className="bg-white/90 max-w-4xl mx-auto rounded-lg shadow-lg p-8">
+        <div className="bg-white/90 max-w-4xl mx-auto rounded-lg shadow-lg p-8 gl-outline-panel">
           <div className="grid md:grid-cols-2 gap-6">
             {steps.map((step, idx) => (
-              <div key={step.id} className="flex items-start gap-4">
+              <div key={step.id} className="flex items-start gap-4 gl-card-lift rounded-lg p-2">
                 <span className="text-red-700 text-3xl font-bold">
                   {idx + 1}
                 </span>
@@ -74,7 +76,7 @@ export default function DeliveryPage() {
       </section>
 
       {/* CTA to Inquiry */}
-      <section className="bg-red-800 text-white py-10 text-center">
+      <section className="bg-red-800 text-white py-10 text-center gl-reveal gl-reveal-delay-2">
         <h2 className="text-xl font-semibold">
           Can’t find the answer to your question?
         </h2>
@@ -85,6 +87,8 @@ export default function DeliveryPage() {
           Contact Us Now!
         </Link>
       </section>
+
+      </main>
 
       <Footer />
     </div>
